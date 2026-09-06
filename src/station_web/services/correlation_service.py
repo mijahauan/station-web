@@ -15,23 +15,25 @@ from typing import List, Dict, Optional, Any, Tuple
 from pathlib import Path
 from scipy import stats
 
-from station_web.services.space_weather_service import SpaceWeatherService
+from station_web.services.space_weather_cache import SpaceWeatherCache
 from station_web.services.propagation_service import PropagationService
 from hamsci_physics.solar_zenith import calculate_midpoint, solar_position
 
 logger = logging.getLogger(__name__)
 
+SPACE_WEATHER_SERIES_UNAVAILABLE = {
+    "available": False,
+    "reason": "space weather time series not available from products",
+}
+
 
 class CorrelationService:
     """Service for analyzing space weather / propagation correlations."""
-    
-    def __init__(self, data_root: Path, space_weather: Optional[SpaceWeatherService] = None):
+
+    def __init__(self, data_root: Path, space_weather: Optional[SpaceWeatherCache] = None):
         """Initialize correlation service."""
         self.data_root = data_root
-        # The fallback caches under the configured data root, never the
-        # compiled default; callers normally hand in the shared instance.
-        self.space_weather = space_weather if space_weather is not None else SpaceWeatherService(
-            cache_dir=Path(data_root) / "space_weather_cache")
+        self.space_weather = space_weather if space_weather is not None else SpaceWeatherCache(data_root)
         self.propagation = PropagationService(data_root)
         logger.info("Correlation Service initialized")
     
@@ -170,81 +172,12 @@ class CorrelationService:
             end: End time
         
         Returns:
-            Detected SID events with X-ray correlation
+            Detected SID events with X-ray correlation, or an ``available: False``
+            marker — station-web has no X-ray time series product to detect
+            SID events from.
         """
-        # Get X-ray data
-        hours = int((end - start).total_seconds() / 3600)
-        xray_data = self.space_weather.get_xray_flux(hours=hours)
-        
-        # Get propagation timeline for all stations
-        timeline = self.propagation.get_mode_timeline(start, end, station=None)
-        
-        if not timeline or 'channels' not in timeline:
-            return {'error': 'No propagation data available'}
-        
-        # Detect SID events from space weather
-        sid_events = self.space_weather.detect_sid_events(hours=hours)
-        
-        # For each SID event, find corresponding SNR drops
-        correlated_events = []
-        
-        for sid in sid_events:
-            sid_time = datetime.fromisoformat(sid['timestamp'].replace('Z', ''))
-            
-            # Look for SNR drops within ±30 minutes
-            window_start = sid_time - timedelta(minutes=30)
-            window_end = sid_time + timedelta(minutes=30)
-            
-            affected_channels = []
-            
-            for channel in timeline['channels']:
-                if not channel.get('snr_db'):
-                    continue
-                
-                # Find SNR values in time window
-                snr_drops = []
-                for i, ts_str in enumerate(channel['timestamps']):
-                    ts = datetime.fromisoformat(ts_str.replace('Z', ''))
-                    if window_start <= ts <= window_end:
-                        if i > 0 and channel['snr_db'][i] is not None:
-                            # Check for drop relative to previous value
-                            prev_snr = channel['snr_db'][i-1]
-                            curr_snr = channel['snr_db'][i]
-                            if prev_snr is not None and curr_snr < prev_snr - 5:
-                                snr_drops.append({
-                                    'timestamp': ts_str,
-                                    'snr_drop_db': round(prev_snr - curr_snr, 1)
-                                })
-                
-                if snr_drops:
-                    affected_channels.append({
-                        'station': channel['station'],
-                        'frequency_mhz': channel['frequency_mhz'],
-                        'snr_drops': snr_drops,
-                        'max_drop_db': max(d['snr_drop_db'] for d in snr_drops)
-                    })
-            
-            if affected_channels:
-                correlated_events.append({
-                    'sid_timestamp': sid['timestamp'],
-                    'xray_class': sid['xray_class'],
-                    'peak_flux': sid['peak_flux'],
-                    'affected_channels': affected_channels,
-                    'correlation_confidence': sid['confidence']
-                })
-        
-        result = {
-            'period': {
-                'start': start.isoformat() + 'Z',
-                'end': end.isoformat() + 'Z'
-            },
-            'sid_events_detected': len(sid_events),
-            'correlated_events': len(correlated_events),
-            'events': correlated_events
-        }
-        
-        return result
-    
+        return dict(SPACE_WEATHER_SERIES_UNAVAILABLE)
+
     def analyze_tec_f107_correlation(
         self,
         station: str,
@@ -315,102 +248,7 @@ class CorrelationService:
             end: End time
         
         Returns:
-            Propagation mode vs Kp analysis
+            Propagation mode vs Kp analysis, or an ``available: False`` marker
+            — station-web has no Kp time series product to bin propagation by.
         """
-        # Get Kp data
-        hours = int((end - start).total_seconds() / 3600)
-        kp_data = self.space_weather.get_kp_index(hours=hours)
-        
-        # Get propagation timeline
-        timeline = self.propagation.get_mode_timeline(start, end, station=None)
-        
-        if not timeline or 'channels' not in timeline:
-            return {'error': 'No propagation data available'}
-        
-        if not kp_data:
-            return {'error': 'No Kp data available'}
-        
-        # Bin data by Kp level
-        kp_bins = {
-            'quiet': {'kp_range': [0, 3], 'channels': []},
-            'unsettled': {'kp_range': [3, 5], 'channels': []},
-            'storm': {'kp_range': [5, 10], 'channels': []}
-        }
-        
-        # For each channel, calculate average SNR and mode distribution by Kp level
-        for channel in timeline['channels']:
-            if not channel.get('snr_db'):
-                continue
-            
-            station = channel['station']
-            frequency = channel['frequency_mhz']
-            
-            # Bin SNR values by concurrent Kp
-            for bin_name, bin_data in kp_bins.items():
-                snr_in_bin = []
-                
-                for i, ts_str in enumerate(channel['timestamps']):
-                    ts = datetime.fromisoformat(ts_str.replace('Z', ''))
-                    
-                    # Find closest Kp measurement
-                    closest_kp = None
-                    min_delta = timedelta(hours=24)
-                    
-                    for kp_meas in kp_data:
-                        kp_ts = datetime.strptime(kp_meas.timestamp, '%Y-%m-%d %H:%M:%S.%f')
-                        delta = abs(ts - kp_ts)
-                        if delta < min_delta:
-                            min_delta = delta
-                            closest_kp = kp_meas.kp_index
-                    
-                    if closest_kp is not None:
-                        kp_min, kp_max = bin_data['kp_range']
-                        if kp_min <= closest_kp < kp_max:
-                            if channel['snr_db'][i] is not None:
-                                snr_in_bin.append(channel['snr_db'][i])
-                
-                if snr_in_bin:
-                    bin_data['channels'].append({
-                        'station': station,
-                        'frequency_mhz': frequency,
-                        'mean_snr_db': round(np.mean(snr_in_bin), 1),
-                        'std_snr_db': round(np.std(snr_in_bin), 1),
-                        'n_points': len(snr_in_bin)
-                    })
-        
-        result = {
-            'period': {
-                'start': start.isoformat() + 'Z',
-                'end': end.isoformat() + 'Z'
-            },
-            'kp_bins': kp_bins,
-            'interpretation': self._interpret_kp_effects(kp_bins)
-        }
-        
-        return result
-    
-    def _interpret_kp_effects(self, kp_bins: Dict) -> str:
-        """Interpret Kp effects on propagation."""
-        quiet_count = len(kp_bins['quiet']['channels'])
-        storm_count = len(kp_bins['storm']['channels'])
-        
-        if storm_count == 0:
-            return "No geomagnetic storm data available for comparison"
-        
-        # Compare average SNR between quiet and storm conditions
-        quiet_snrs = [ch['mean_snr_db'] for ch in kp_bins['quiet']['channels']]
-        storm_snrs = [ch['mean_snr_db'] for ch in kp_bins['storm']['channels']]
-        
-        if quiet_snrs and storm_snrs:
-            quiet_avg = np.mean(quiet_snrs)
-            storm_avg = np.mean(storm_snrs)
-            diff = quiet_avg - storm_avg
-            
-            if diff > 5:
-                return f"Geomagnetic storms degrade SNR by ~{diff:.1f} dB on average"
-            elif diff < -5:
-                return f"Geomagnetic storms enhance SNR by ~{abs(diff):.1f} dB (unusual)"
-            else:
-                return "Geomagnetic storms have minimal effect on average SNR"
-        
-        return "Insufficient data for interpretation"
+        return dict(SPACE_WEATHER_SERIES_UNAVAILABLE)

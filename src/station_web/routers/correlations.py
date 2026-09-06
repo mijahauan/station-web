@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 from station_web.services.correlation_service import CorrelationService
-from station_web.routers.space_weather import _service as _space_weather
+from station_web.services.space_weather_cache import SpaceWeatherCache
 from station_web.config import config
 
 logger = logging.getLogger(__name__)
@@ -24,10 +24,9 @@ def _service() -> CorrelationService:
     """Built per request, never at import.
 
     Reads ``config.data_root`` on every call so a reconfigured process (or a
-    test that swaps settings) is honoured.  The space-weather service it wraps
-    stays a singleton — that one owns a poller thread.
+    test that swaps settings) is honoured.
     """
-    return CorrelationService(config.data_root, space_weather=_space_weather())
+    return CorrelationService(config.data_root, space_weather=SpaceWeatherCache(config.data_root))
 
 # Thread pool for running sync correlation functions with timeout
 _executor = ThreadPoolExecutor(max_workers=2)

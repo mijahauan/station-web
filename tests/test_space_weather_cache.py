@@ -1,0 +1,34 @@
+import json
+from datetime import datetime, timedelta, timezone
+
+from station_web.services.space_weather_cache import SpaceWeatherCache, STALE_AFTER_S
+
+
+def test_current_from_cache(seeded):
+    c = SpaceWeatherCache(seeded.data_root).current()
+    assert c["available"] is True and c["f107"] == 142.0 and c["kp"] == 2.3
+    assert c["age_s"] is not None and c["stale"] is False
+
+
+def test_missing_cache(settings):
+    c = SpaceWeatherCache(settings.data_root).current()
+    assert c["available"] is False and c["f107"] is None and c["age_s"] is None
+
+
+def test_stale_flag(seeded):
+    p = seeded.data_root / "iono_cache" / "space_weather.json"
+    d = json.loads(p.read_text())
+    d["fetched_at"] = (datetime.now(timezone.utc) - timedelta(seconds=STALE_AFTER_S + 60)).isoformat()
+    p.write_text(json.dumps(d))
+    assert SpaceWeatherCache(seeded.data_root).current()["stale"] is True
+
+
+def test_series_endpoints_say_unavailable(seeded_client):
+    for path in ("/api/space-weather/xray", "/api/space-weather/kp", "/api/space-weather/protons"):
+        r = seeded_client.get(path)
+        assert r.status_code == 200 and r.json()["available"] is False, path
+
+
+def test_no_poller_thread_started(seeded_client):
+    import threading
+    assert not any("space" in t.name.lower() for t in threading.enumerate())

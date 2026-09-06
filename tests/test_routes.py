@@ -185,11 +185,11 @@ ROUTES_WITH_DATA = [
     ("/api/chrony/snapshot", lambda j: len(j["sources"]) == 2),
     ("/api/chrony/comparison", lambda j: any(s["name"] == "FUSE" for s in j["sources"])),
 
-    # ── Rebuilt in Tasks 10–11.  Each check names what the seeded row
+    # ── Space weather: read from hamsci-physics's cache (Task 10) ──────
+    ("/api/space-weather/current", lambda j: j.get("f107") == 142.0),
+
+    # ── Rebuilt in Task 11.  Each check names what the seeded row
     #    should surface once the rebuild lands; today it does not.
-    pytest.param("/api/space-weather/current",
-                 lambda j: j.get("f107") == 142.0,
-                 marks=pytest.mark.xfail(strict=True, reason="Task 10")),
     pytest.param("/api/health/system",
                  lambda j: j["channels"][0]["status"] == "active"
                  and j["channels"][0]["carrier_snr_db"] == 21.5,
