@@ -12,22 +12,37 @@ from fastapi import APIRouter, HTTPException
 from station_web.config import config
 
 router = APIRouter(prefix="/api/living-docs", tags=["documentation"])
-_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.md$")
+# Bounded so an absurd name can't reach the filesystem as an OSError
+# (ENAMETOOLONG) instead of a clean 400; fullmatch (not match) so a
+# trailing newline — which "$" alone would let through — is rejected too.
+_NAME = re.compile(r"^[A-Za-z0-9_.-]{1,128}\.md$")
 
 
 def _roots() -> dict[str, Path]:
     return {r["name"]: Path(r["path"]) for r in config.docs_roots}
 
 
+def _confined(base: Path, p: Path) -> bool:
+    """True if the already-``resolve()``d path ``p`` is a regular file strictly under the
+    already-``resolve()``d ``base`` — i.e. no symlink or ``..`` escaped the root."""
+    try:
+        return base in p.parents and p.is_file()
+    except OSError:
+        return False
+
+
 def _resolve(root: str, doc_name: str) -> Path:
     roots = _roots()
     if root not in roots:
         raise HTTPException(404, f"unknown docs root {root!r}")
-    if not _NAME.match(doc_name) or ".." in doc_name:
-        raise HTTPException(400, "document names are <name>.md with no path separators")
+    if not _NAME.fullmatch(doc_name) or ".." in doc_name:
+        raise HTTPException(400, "document names are <name>.md (max 128 chars) with no path separators")
     base = roots[root].resolve()
-    p = (base / doc_name).resolve()
-    if base not in p.parents or not p.is_file():
+    try:
+        p = (base / doc_name).resolve()
+    except OSError:
+        raise HTTPException(404, f"{doc_name} not found under {root}")
+    if not _confined(base, p):
         raise HTTPException(404, f"{doc_name} not found under {root}")
     return p
 
@@ -38,7 +53,22 @@ async def list_docs():
     for r in config.docs_roots:
         base = Path(r["path"])
         present = base.is_dir()
-        docs = sorted(p.name for p in base.glob("*.md")) if present else []
+        docs = []
+        if present:
+            try:
+                resolved_base = base.resolve()
+                names = sorted(p.name for p in base.glob("*.md"))
+            except OSError:
+                resolved_base, names = None, []
+            for name in names:
+                if resolved_base is None or not _NAME.fullmatch(name):
+                    continue
+                try:
+                    resolved = (base / name).resolve()
+                except OSError:
+                    continue
+                if _confined(resolved_base, resolved):
+                    docs.append(name)
         out.append({"name": r["name"], "path": str(base), "present": present, "documents": docs})
     return {"roots": out}
 
@@ -46,7 +76,11 @@ async def list_docs():
 @router.get("/{root}/{doc_name}")
 async def get_doc(root: str, doc_name: str):
     p = _resolve(root, doc_name)
-    return {"root": root, "name": doc_name, "content": p.read_text(errors="replace")}
+    try:
+        content = p.read_text(errors="replace")
+    except OSError:
+        raise HTTPException(404, f"{doc_name} not found under {root}")
+    return {"root": root, "name": doc_name, "content": content}
 
 
 def _slug(heading: str) -> str:
@@ -55,7 +89,11 @@ def _slug(heading: str) -> str:
 
 @router.get("/{root}/{doc_name}/section/{section_id}")
 async def get_section(root: str, doc_name: str, section_id: str):
-    text = _resolve(root, doc_name).read_text(errors="replace")
+    p = _resolve(root, doc_name)
+    try:
+        text = p.read_text(errors="replace")
+    except OSError:
+        raise HTTPException(404, f"{doc_name} not found under {root}")
     lines = text.splitlines()
     start = None
     level = 0

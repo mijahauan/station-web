@@ -41,3 +41,20 @@ def test_unknown_root_404(docs_client):
 
 def test_evidence_endpoints_gone(docs_client):
     assert docs_client.get("/api/living-docs/evidence/bootstrap/location").status_code in (400, 404)
+
+
+def test_overlong_name_is_404_not_500(docs_client):
+    assert docs_client.get("/api/living-docs/one/" + "a" * 300 + ".md").status_code in (400, 404)
+
+
+def test_trailing_newline_rejected_by_regex(docs_client):
+    assert docs_client.get("/api/living-docs/one/GUIDE.md%0A").status_code == 400
+
+
+def test_list_hides_unservable_names(docs_client, tmp_path):
+    root = tmp_path / "r1"
+    (root / "<img src=x onerror=alert(1)>.md").write_text("x")
+    outside = tmp_path / "outside"; outside.mkdir(); (outside / "SECRET.md").write_text("s")
+    (root / "LINK.md").symlink_to(outside / "SECRET.md")
+    docs = {r["name"]: r["documents"] for r in docs_client.get("/api/living-docs/list").json()["roots"]}["one"]
+    assert docs == ["GUIDE.md"]

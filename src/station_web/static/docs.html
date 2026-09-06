@@ -225,6 +225,14 @@
         let liveData = { fusion: null, stability: null, logs: [] };
         let logBuffer = [];
 
+        // Escape untrusted text before it goes into option markup (root/doc
+        // names come from config or the filesystem listing — treat as data).
+        function esc(text) {
+            const div = document.createElement('div');
+            div.textContent = text == null ? '' : String(text);
+            return div.innerHTML;
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             await loadDocumentList();
@@ -243,7 +251,7 @@
 
                 const rootSelect = document.getElementById('root-select');
                 rootSelect.innerHTML = (data.roots || []).map(r =>
-                    `<option value="${r.name}"${r.present ? '' : ' disabled'}>${r.name}${r.present ? '' : ' (unavailable)'}</option>`
+                    `<option value="${esc(r.name)}"${r.present ? '' : ' disabled'}>${esc(r.name)}${r.present ? '' : ' (unavailable)'}</option>`
                 ).join('');
 
                 const defaultRoot = (data.roots || []).find(r => r.present) || (data.roots || [])[0];
@@ -263,7 +271,7 @@
             const docs = docsByRoot[rootName] || [];
             const docSelect = document.getElementById('doc-select');
             docSelect.innerHTML = docs.length
-                ? docs.map(name => `<option value="${name}">${name}</option>`).join('')
+                ? docs.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')
                 : '<option value="">No documents</option>';
             if (docs.length) {
                 docSelect.value = docs[0];
@@ -279,7 +287,7 @@
             if (!rootName || !docName) return;
 
             try {
-                const res = await fetch(`/api/living-docs/${rootName}/${docName}`);
+                const res = await fetch(`/api/living-docs/${encodeURIComponent(rootName)}/${encodeURIComponent(docName)}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const doc = await res.json();
                 doc.sections = parseSections(doc.content);
@@ -347,7 +355,10 @@
                 </div>\n\n`;
             });
             
-            // Render markdown to HTML
+            // Render markdown to HTML.  Trust assumption: the four docs
+            // roots are operator-configured repository documentation, at
+            // this page's own trust level — do not add a root drawn from a
+            // less-trusted tree (e.g. anything a non-operator can write to).
             const html = marked.parse(markdown);
             document.getElementById('doc-content').innerHTML = html;
             
