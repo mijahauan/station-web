@@ -14,7 +14,7 @@ Phase 5 of the 2026-08-10 hf-timestd split. Design:
 ## Operate
 
     smd install station-web            # clone, venv, units
-    smd config init station-web        # /etc/station-web/station-web.toml from the env bag
+    smd config init station-web        # /etc/station-web/config.toml from the env bag
     systemctl status station-web@default
     station-web validate --json        # contract self-check
 

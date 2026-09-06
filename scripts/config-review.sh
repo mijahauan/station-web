@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `smd config edit station-web` — show the config and self-validate.
 set -euo pipefail
-CONFIG=${CONFIG:-/etc/station-web/station-web.toml}
+CONFIG=${CONFIG:-/etc/station-web/config.toml}
 VENV_PY=${VENV_PY:-/opt/git/sigmond/station-web/venv/bin/python3}
 [[ -x $VENV_PY ]] || VENV_PY=python3
 if [[ ! -f $CONFIG ]]; then

@@ -1,7 +1,7 @@
 """station-web settings: one TOML file, never fatal when absent.
 
 Resolution order mirrors hamsci-physics: $STATION_WEB_CONFIG, then
-/etc/station-web/station-web.toml.  A missing file yields defaults and
+/etc/station-web/config.toml.  A missing file yields defaults and
 ``loaded = False``; ``validate`` reports it, the app still serves the
 pages so an operator can read the documentation.
 """
@@ -17,7 +17,7 @@ import tomllib
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = Path("/etc/station-web/station-web.toml")
+DEFAULT_CONFIG_PATH = Path("/etc/station-web/config.toml")
 DEFAULT_DATA_ROOT = Path("/var/lib/timestd")
 DEFAULT_DOCS_ROOTS = [
     {"name": "hf-timestd",     "path": "/opt/git/sigmond/hf-timestd/docs"},

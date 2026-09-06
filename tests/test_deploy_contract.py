@@ -71,7 +71,7 @@ def test_setup_creates_default_instance_env_file(tmp_path):
     reaches the useradd or chmod-g+ws branches — those require EUID 0 and
     an existing db_dir respectively)."""
     config_dir = tmp_path / "etc" / "station-web"
-    env = dict(os.environ, CONFIG_DIR=str(config_dir), CONFIG=str(config_dir / "station-web.toml"))
+    env = dict(os.environ, CONFIG_DIR=str(config_dir), CONFIG=str(config_dir / "config.toml"))
     script = ROOT / "scripts" / "setup-station.sh"
     env_file = config_dir / "env" / "default.env"
 
@@ -83,3 +83,27 @@ def test_setup_creates_default_instance_env_file(tmp_path):
     proc2 = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=30, env=env)
     assert proc2.returncode == 0, proc2.stderr
     assert env_file.read_text() == first_content
+
+
+def test_setup_migrates_legacy_station_web_toml(tmp_path):
+    """sigmond invents an instance for any /etc/<client>/*.toml that isn't
+    config.toml, <client>-config.toml or *-config.toml (CLIENT-CONTRACT §14).
+    A pre-existing station-web.toml (the old default path) must be renamed to
+    config.toml in place, with its content preserved and no second copy
+    written alongside it."""
+    config_dir = tmp_path / "etc" / "station-web"
+    config_dir.mkdir(parents=True)
+    legacy = config_dir / "station-web.toml"
+    legacy.write_text('[station]\ncallsign = "AC0G"\n')
+
+    env = dict(os.environ, CONFIG_DIR=str(config_dir), CONFIG=str(config_dir / "config.toml"))
+    script = ROOT / "scripts" / "setup-station.sh"
+
+    proc = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=30, env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert "migrated station-web.toml -> config.toml" in proc.stdout
+
+    new_config = config_dir / "config.toml"
+    assert new_config.exists()
+    assert new_config.read_text() == '[station]\ncallsign = "AC0G"\n'
+    assert not legacy.exists()

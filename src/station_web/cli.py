@@ -64,7 +64,7 @@ def build_parser() -> argparse.ArgumentParser:
     # contract test harness always puts them after), so they live on a shared
     # parent parser inherited by both the top-level parser and every subparser.
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("-c", "--config", help="config path (default $STATION_WEB_CONFIG or /etc/station-web/station-web.toml)")
+    common.add_argument("-c", "--config", help="config path (default $STATION_WEB_CONFIG or /etc/station-web/config.toml)")
     common.add_argument("--log-level", default=None)
     p = argparse.ArgumentParser(prog="station-web", parents=[common])
     sub = p.add_subparsers(dest="command", required=True)

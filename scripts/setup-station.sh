@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# `smd config init station-web` — render /etc/station-web/station-web.toml.
+# `smd config init station-web` — render /etc/station-web/config.toml.
 #
 # CONTRACT §14.3: sigmond exports STATION_* so the operator answers nothing
 # twice.  STATION_CALL is canonical; STATION_CALLSIGN is the compat alias.
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 CONFIG_DIR=${CONFIG_DIR:-/etc/station-web}
-CONFIG=${CONFIG:-$CONFIG_DIR/station-web.toml}
+CONFIG=${CONFIG:-$CONFIG_DIR/config.toml}
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TEMPLATE=$REPO/config/station-web.toml.template
 TIMESTD_CONFIG=${TIMESTD_CONFIG:-/etc/hf-timestd/timestd-config.toml}
@@ -66,6 +66,17 @@ grant_group_write_on_db_dir() {
     echo "station-web: chmod g+ws $db_dir  ($before -> $(stat -c '%a %U:%G' "$db_dir"))"
     echo "  (WAL sidecars: a reader in another uid must create timestd.db-wal/-shm)"
 }
+
+# CLIENT-CONTRACT §14: sigmond invents an instance for any /etc/<client>/*.toml
+# that isn't config.toml, <client>-config.toml or *-config.toml, and shows it
+# as a phantom station-web@station-web.  A file left over from before this
+# fix (or written by hand) gets moved onto the exempt name before anything
+# else runs.
+LEGACY_CONFIG=$CONFIG_DIR/station-web.toml
+if [[ -f $LEGACY_CONFIG && ! -f $CONFIG ]]; then
+    mv "$LEGACY_CONFIG" "$CONFIG"
+    echo "station-web: migrated station-web.toml -> config.toml (sigmond read the old name as an instance)"
+fi
 
 if [[ -f $CONFIG ]]; then
     echo "station-web: $CONFIG exists — leaving it alone (use 'smd config edit')."
