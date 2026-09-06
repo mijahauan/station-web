@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 #: (level, name) -> expected max age in seconds
 EXPECTED = {
-    ("L2", "timing_measurements"): 120, ("L3", "fusion_timing"): 120, ("DIAG", "chrony_stats"): 120,
+    ("L2", "timing_measurements"): 300,  # flushed ~every 2 min; 300 leaves headroom
+    ("L3", "fusion_timing"): 120, ("DIAG", "chrony_stats"): 120,
     ("L3", "tec"): 3600, ("L3", "dtec"): 300, ("L3", "physics"): 300,
     ("L3", "gnss_vtec"): 900,
 }

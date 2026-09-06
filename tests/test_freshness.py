@@ -180,6 +180,6 @@ def test_receiver_products_use_the_freshest_channel(seeded):
 def test_no_channels_means_indeterminate(settings):
     t = freshness.table(settings)
     assert t["products"]["L2_timing_measurements"] == {
-        "verdict": "INDETERMINATE", "age_s": None, "expected_s": 120, "channel": None,
+        "verdict": "INDETERMINATE", "age_s": None, "expected_s": 300, "channel": None,
         "applicable": False,
         "reason": "no L2_timing_measurements table — producing client not installed"}
