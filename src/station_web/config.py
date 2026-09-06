@@ -13,10 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    import tomllib
-except ModuleNotFoundError:            # pragma: no cover  (3.10)
-    import tomli as tomllib            # type: ignore
+import tomllib
 
 logger = logging.getLogger(__name__)
 
