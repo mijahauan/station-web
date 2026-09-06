@@ -17,13 +17,12 @@ router = APIRouter(prefix="/chrony", tags=["chrony"])
 async def get_live_snapshot() -> Dict[str, Any]:
     """Get a live chrony snapshot (sources + sourcestats + tracking)."""
     try:
-        service = ChronyService(data_root=config.data_root)
+        service = ChronyService(data_root=config.data_root, storage_config=config.storage)
         result = service.get_live_snapshot()
         if result is None:
             raise HTTPException(
                 status_code=404,
-                detail="no live chrony snapshot: station-web reads data products, "
-                       "not host chrony state",
+                detail="no chrony rows in the last 10 minutes",
             )
         return result
     except HTTPException:
@@ -40,7 +39,7 @@ async def get_source_comparison() -> Dict[str, Any]:
     and the current system tracking info.
     """
     try:
-        service = ChronyService(data_root=config.data_root)
+        service = ChronyService(data_root=config.data_root, storage_config=config.storage)
         return service.get_source_comparison()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -56,7 +55,7 @@ async def get_source_history(
     requested time window (default 24h, max 7 days).
     """
     try:
-        service = ChronyService(data_root=config.data_root)
+        service = ChronyService(data_root=config.data_root, storage_config=config.storage)
         return service.get_history(hours=hours)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

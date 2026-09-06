@@ -1,122 +1,94 @@
 """
 Chrony statistics service for the web API.
 
-Reads chrony source comparison data from:
-1. Live chronyc queries (current snapshot)
-2. The DIAG_chrony_stats SQLite table written by the fusion service
-   (historical data, populated since Phase 1).
+Reads chrony source data entirely from the ``DIAG_chrony_stats`` product
+written by the fusion service — station-web never queries the host chrony
+daemon directly and never imports the timing core; it is a read-only UI
+over data products.
+
+- ``get_live_snapshot`` / ``get_source_comparison`` take the latest row
+  per source within a lookback window (the "live" view).
+- ``get_history`` reads a longer window and returns per-source time
+  series (unchanged from earlier phases).
 """
 
-import sys
 import logging
-import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
-
-# Live chronyc snapshots read host state, which station-web has no remit for;
-# Task 9 removes this dependency.  Until then the import must not be fatal —
-# hf_timestd is not installed alongside station-web.
-try:
-    from hf_timestd.core.chrony_stats import (
-        collect_chrony_snapshot,
-        ChronySnapshot,
-    )
-except ImportError:
-    collect_chrony_snapshot = None
-    ChronySnapshot = None
-
-from station_web.config import config as _web_config
 
 from hamsci_dsp.io import make_data_product_reader
 
 logger = logging.getLogger(__name__)
 
+#: fusion writes one row per source per minute; a row older than this
+#: is not a live snapshot any more.
+STALE_AFTER_S = 120.0
+
+#: chrony source-state ordering: selected first, then combined, etc.
+STATE_ORDER = {"*": 0, "+": 1, "-": 2, "x": 3, "~": 4, "?": 5}
+
 
 class ChronyService:
     """Service for chrony source comparison data."""
 
-    def __init__(self, data_root: Path):
+    def __init__(self, data_root: Path, storage_config: dict | None = None):
         self.data_root = Path(data_root)
         self.fusion_dir = self.data_root / 'phase2' / 'fusion'
+        self.storage_config = storage_config
+
+    def _latest_rows(self, window_s: float = 600.0) -> List[dict]:
+        """The most recent row per ``source_name`` within ``window_s``."""
+        now = datetime.now(timezone.utc)
+        start = (now - timedelta(seconds=window_s)).isoformat().replace("+00:00", "Z")
+        end = now.isoformat().replace("+00:00", "Z")
+        reader = make_data_product_reader(
+            data_dir=self.fusion_dir, product_level="DIAG",
+            product_name="chrony_stats", channel="fusion",
+            storage_config=self.storage_config or {},
+        )
+        try:
+            rows = reader.read_time_range(start=start, end=end)
+        finally:
+            if hasattr(reader, "close"):
+                reader.close()
+        latest: Dict[str, dict] = {}
+        for r in rows:                              # ordered by timestamp; last wins
+            if r.get("source_name"):
+                latest[r["source_name"]] = r
+        return list(latest.values())
 
     def get_live_snapshot(self) -> Optional[Dict[str, Any]]:
-        """Get a live chrony snapshot from chronyc."""
-        if collect_chrony_snapshot is None:
-            logger.warning("live chrony snapshot unavailable: host chrony access not present")
+        """Latest chrony source snapshot from ``DIAG_chrony_stats``.
+
+        Returns ``None`` when there are no rows in the lookback window.
+        """
+        rows = self._latest_rows()
+        if not rows:
             return None
-        snap = collect_chrony_snapshot()
-        if snap is None:
-            return None
-        return snap.to_dict()
+        newest = max(r["unix_time"] for r in rows)
+        age = datetime.now(timezone.utc).timestamp() - newest
+        sources = [{
+            "name": r["source_name"], "mode": r.get("source_mode", ""), "state": r.get("source_state", ""),
+            "stratum": r.get("stratum"), "reach": r.get("reach"), "offset_us": r.get("offset_us"),
+            "error_us": r.get("error_us"), "n_samples": r.get("n_samples"), "std_dev_us": r.get("std_dev_us"),
+        } for r in rows]
+        sources.sort(key=lambda s: (STATE_ORDER.get(s["state"], 9), s["name"]))
+        sys_off = next((r.get("sys_offset_s") for r in rows if r.get("sys_offset_s") is not None), None)
+        return {
+            "timestamp_utc": datetime.fromtimestamp(newest, timezone.utc).isoformat().replace("+00:00", "Z"),
+            "unix_time": newest, "age_s": round(age, 1), "stale": age > STALE_AFTER_S,
+            "tracking": {"sys_offset_us": round(sys_off * 1e6, 2)} if sys_off is not None else None,
+            "sources": sources,
+        }
 
     def get_source_comparison(self) -> Dict[str, Any]:
-        """Get a formatted source comparison table (like the report we generated)."""
-        if collect_chrony_snapshot is None:
-            logger.warning("chrony source comparison unavailable: host chrony access not present")
-            return {'error': 'chronyc not available', 'sources': []}
-        snap = collect_chrony_snapshot()
+        """Formatted source comparison table (sources, selected-first)."""
+        snap = self.get_live_snapshot()
         if snap is None:
-            return {'error': 'chronyc not available', 'sources': []}
-
-        sources = []
-        for src in snap.sources:
-            offset_ms = src.offset_us / 1000.0
-            error_ms = src.error_us / 1000.0
-            stddev_ms = src.std_dev_us / 1000.0
-
-            source_type = 'unknown'
-            if src.mode == '#':
-                source_type = 'refclock'
-            elif src.mode == '^':
-                source_type = 'server'
-            elif src.mode == '=':
-                source_type = 'peer'
-
-            state_desc = {
-                '*': 'selected', '+': 'combined', '-': 'not_combined',
-                'x': 'falseticker', '~': 'too_variable', '?': 'unusable',
-            }.get(src.state, 'unknown')
-
-            sources.append({
-                'name': src.name,
-                'type': source_type,
-                'state': src.state,
-                'state_desc': state_desc,
-                'stratum': src.stratum,
-                'offset_ms': round(offset_ms, 4),
-                'error_ms': round(error_ms, 4),
-                'std_dev_ms': round(stddev_ms, 4),
-                'n_samples': src.n_samples,
-                'frequency_ppm': round(src.frequency_ppm, 4),
-                'freq_skew_ppm': round(src.freq_skew_ppm, 4),
-                'reach': src.reach,
-                'reach_oct': f'{src.reach:03o}',
-                'poll': src.poll,
-            })
-
-        tracking = None
-        if snap.tracking:
-            t = snap.tracking
-            tracking = {
-                'reference_id': t.reference_id,
-                'stratum': t.stratum,
-                'system_time_offset_us': round(t.system_time_offset_s * 1e6, 2),
-                'rms_offset_us': round(t.rms_offset_s * 1e6, 2),
-                'frequency_ppm': round(t.frequency_ppm, 4),
-                'residual_freq_ppm': round(t.residual_freq_ppm, 4),
-                'skew_ppm': round(t.skew_ppm, 4),
-                'root_delay_ms': round(t.root_delay_s * 1000, 4),
-                'root_dispersion_ms': round(t.root_dispersion_s * 1000, 4),
-                'update_interval_s': round(t.update_interval_s, 1),
-                'leap_status': t.leap_status,
-            }
-
-        return {
-            'timestamp_utc': snap.timestamp_utc,
-            'tracking': tracking,
-            'sources': sources,
-        }
+            return {"sources": [], "stale": True, "age_s": None, "note": "no DIAG_chrony_stats rows"}
+        return {"sources": snap["sources"], "tracking": snap["tracking"],
+                "stale": snap["stale"], "age_s": snap["age_s"], "timestamp_utc": snap["timestamp_utc"]}
 
     def get_history(self, hours: int = 24) -> Dict[str, Any]:
         """Get historical chrony stats from the DIAG_chrony_stats SQLite
@@ -127,15 +99,13 @@ class ChronyService:
         start_iso = (now - timedelta(hours=hours)).isoformat().replace('+00:00', 'Z')
         end_iso = now.isoformat().replace('+00:00', 'Z')
 
-        storage_config = getattr(_web_config, 'storage', {}) if _web_config else {}
-
         try:
             reader = make_data_product_reader(
                 data_dir=self.fusion_dir,
                 product_level='DIAG',
                 product_name='chrony_stats',
                 channel='fusion',
-                storage_config=storage_config,
+                storage_config=self.storage_config or {},
             )
         except Exception as e:
             logger.warning(f"chrony history reader init failed: {e}")

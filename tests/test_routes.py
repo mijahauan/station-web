@@ -181,14 +181,12 @@ ROUTES_WITH_DATA = [
      and j["WWV_20000"]["latest_date"] == TODAY),
     ("/api/grape/spectrograms/WWV_20000", lambda j: j["dates"] == [TODAY]),
 
-    # ── Rebuilt in Tasks 9–11.  Each check names what the seeded row
+    # ── DIAG_chrony_stats: live snapshot + comparison (Task 9) ─────────
+    ("/api/chrony/snapshot", lambda j: len(j["sources"]) == 2),
+    ("/api/chrony/comparison", lambda j: any(s["name"] == "FUSE" for s in j["sources"])),
+
+    # ── Rebuilt in Tasks 10–11.  Each check names what the seeded row
     #    should surface once the rebuild lands; today it does not.
-    pytest.param("/api/chrony/snapshot",
-                 lambda j: len(j["sources"]) == 2,
-                 marks=pytest.mark.xfail(strict=True, reason="Task 9")),
-    pytest.param("/api/chrony/comparison",
-                 lambda j: any(s["name"] == "FUSE" for s in j["sources"]),
-                 marks=pytest.mark.xfail(strict=True, reason="Task 9")),
     pytest.param("/api/space-weather/current",
                  lambda j: j.get("f107") == 142.0,
                  marks=pytest.mark.xfail(strict=True, reason="Task 10")),
