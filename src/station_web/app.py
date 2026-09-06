@@ -1,0 +1,90 @@
+"""FastAPI application factory.  No CORS (same origin), no import-time
+side effects, no writes.  Routers register here (Task 7 onward)."""
+from __future__ import annotations
+
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from station_web.config import Settings
+from station_web.control_socket import ControlSocketServer
+
+try:
+    from systemd import daemon as systemd_daemon
+except ImportError:                                 # pragma: no cover
+    systemd_daemon = None
+
+logger = logging.getLogger(__name__)
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+#: Snapshot served by the control socket.  Task 11 refreshes ``products``.
+STATUS: dict = {"ready": False, "products": {}, "updated_at": None}
+
+
+async def _watchdog():
+    while True:
+        if systemd_daemon:
+            systemd_daemon.notify("WATCHDOG=1")
+        await asyncio.sleep(10)
+
+
+def create_app(settings: Settings, control_socket: Path | None = Path("/run/station-web/control.sock")) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        sock = ControlSocketServer(control_socket, status_fn=lambda: STATUS) if control_socket else None
+        if sock:
+            sock.start()
+        STATUS["ready"] = True
+        STATUS["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if systemd_daemon:
+            systemd_daemon.notify("READY=1")
+        task = asyncio.create_task(_watchdog())
+        logger.info("station-web serving %s for %s", settings.data_root, settings.station.get("callsign", "?"))
+        try:
+            yield
+        finally:
+            task.cancel()
+            if sock:
+                sock.stop()
+
+    app = FastAPI(title="station-web", version="0.1.0", docs_url="/api/docs",
+                  redoc_url="/api/redoc", lifespan=lifespan)
+    app.state.settings = settings
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+    def page(name: str):
+        p = STATIC_DIR / name
+        if p.exists():
+            return FileResponse(p)
+        return HTMLResponse(f"<h1>station-web</h1><p>{name} not shipped</p>", status_code=404)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def root():
+        return page("index.html")
+
+    @app.get("/phase", response_class=HTMLResponse)
+    async def phase_page():
+        return page("phase.html")
+
+    @app.get("/grape", response_class=HTMLResponse)
+    async def grape_page():
+        return page("grape.html")
+
+    @app.get("/health")
+    async def health():
+        return JSONResponse({"status": "ok", "data_root": str(settings.data_root),
+                             "callsign": settings.station.get("callsign", "")})
+
+    _register_routers(app)
+    return app
+
+
+def _register_routers(app: FastAPI) -> None:
+    """Filled in Task 7."""
+    return None

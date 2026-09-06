@@ -49,6 +49,17 @@ def test_endpoints(tmp_path):
     assert not sock.exists()
 
 
+def test_readyz_503_when_not_ready(tmp_path):
+    sock = tmp_path / "nr.sock"
+    srv = ControlSocketServer(sock, status_fn=lambda: {"ready": False}, group=None)
+    srv.start()
+    try:
+        st, body, _ = _get(sock, "/readyz")
+        assert st == 503 and json.loads(body) == {"ready": False}
+    finally:
+        srv.stop()
+
+
 def test_answers_fast(tmp_path):
     sock = tmp_path / "c.sock"
     srv = ControlSocketServer(sock, status_fn=lambda: {"ready": True}, group=None)
