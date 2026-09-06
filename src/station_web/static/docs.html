@@ -188,7 +188,10 @@
         
         <div class="doc-container">
             <div class="doc-selector">
-                <select id="doc-select" onchange="loadDocument(this.value)">
+                <select id="root-select" onchange="selectRoot(this.value)">
+                    <option value="">Loading roots...</option>
+                </select>
+                <select id="doc-select" onchange="loadDocument(currentRoot, this.value)">
                     <option value="">Loading documents...</option>
                 </select>
                 <select id="section-select" onchange="scrollToSection(this.value)">
@@ -217,61 +220,99 @@
     <script>
         // State
         let currentDoc = null;
+        let currentRoot = null;
+        let docsByRoot = {};       // { rootName: [doc names] }
         let liveData = { fusion: null, stability: null, logs: [] };
         let logBuffer = [];
-        
+
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             await loadDocumentList();
             await fetchLiveData();
             setInterval(fetchLiveData, 5000);
-            // setInterval(fetchLogs, 3000);  // Disabled until logs endpoint is fixed
+            // setInterval(fetchLogs, 3000);  // Disabled — evidence/log endpoints removed
         });
-        
-        // Load document list
+
+        // Load the root list, then the documents for the first present root
         async function loadDocumentList() {
-            console.log('loadDocumentList called');
             try {
                 const res = await fetch('/api/living-docs/list');
-                console.log('API response status:', res.status);
                 const data = await res.json();
-                console.log('Documents loaded:', data);
-                const select = document.getElementById('doc-select');
-                select.innerHTML = data.documents.map(d => 
-                    `<option value="${d.key}">${d.title}</option>`
+                docsByRoot = {};
+                (data.roots || []).forEach(r => { docsByRoot[r.name] = r.documents || []; });
+
+                const rootSelect = document.getElementById('root-select');
+                rootSelect.innerHTML = (data.roots || []).map(r =>
+                    `<option value="${r.name}"${r.present ? '' : ' disabled'}>${r.name}${r.present ? '' : ' (unavailable)'}</option>`
                 ).join('');
-                
-                // Load first document (or METROLOGY if available)
-                const defaultDoc = data.documents.find(d => d.key === 'METROLOGY') || data.documents[0];
-                if (defaultDoc) {
-                    select.value = defaultDoc.key;
-                    loadDocument(defaultDoc.key);
+
+                const defaultRoot = (data.roots || []).find(r => r.present) || (data.roots || [])[0];
+                if (defaultRoot) {
+                    rootSelect.value = defaultRoot.name;
+                    selectRoot(defaultRoot.name);
                 }
             } catch (e) {
                 console.error('Failed to load document list:', e);
             }
         }
-        
+
+        // Populate the document selector for a chosen root, then load its first doc
+        function selectRoot(rootName) {
+            if (!rootName) return;
+            currentRoot = rootName;
+            const docs = docsByRoot[rootName] || [];
+            const docSelect = document.getElementById('doc-select');
+            docSelect.innerHTML = docs.length
+                ? docs.map(name => `<option value="${name}">${name}</option>`).join('')
+                : '<option value="">No documents</option>';
+            if (docs.length) {
+                docSelect.value = docs[0];
+                loadDocument(rootName, docs[0]);
+            } else {
+                document.getElementById('doc-content').innerHTML =
+                    '<div style="color: #64748b; padding: 20px;">No documents in this root.</div>';
+            }
+        }
+
         // Load a document
-        async function loadDocument(docName) {
-            if (!docName) return;
-            
+        async function loadDocument(rootName, docName) {
+            if (!rootName || !docName) return;
+
             try {
-                const res = await fetch(`/api/living-docs/${docName}`);
+                const res = await fetch(`/api/living-docs/${rootName}/${docName}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const doc = await res.json();
+                doc.sections = parseSections(doc.content);
                 currentDoc = doc;
-                
+
                 // Render markdown
                 renderDocument(doc);
-                
+
                 // Update section navigation
                 updateSectionNav(doc.sections);
-                
+
             } catch (e) {
                 console.error('Failed to load document:', e);
-                document.getElementById('doc-content').innerHTML = 
+                document.getElementById('doc-content').innerHTML =
                     `<div style="color: #ef4444; padding: 20px;">Failed to load document: ${e.message}</div>`;
             }
+        }
+
+        // Client-side heading walk — mirrors the server's slug rule so IDs agree
+        // with GET /api/living-docs/{root}/{doc}/section/{id}.
+        function parseSections(markdown) {
+            const sections = [];
+            const lines = markdown.split('\n');
+            lines.forEach((line, idx) => {
+                const m = line.match(/^(#{1,6})\s+(.+)$/);
+                if (m) {
+                    const level = m[1].length;
+                    const title = m[2].trim();
+                    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                    sections.push({ id, title, level, line: idx + 1 });
+                }
+            });
+            return sections;
         }
         
         // Render document with widgets
@@ -283,7 +324,7 @@
             });
             
             // Process markdown - replace directives with HTML placeholders BEFORE marked parsing
-            let markdown = doc.markdown;
+            let markdown = doc.content;
             let widgetIndex = 0;
             let logIndex = 0;
             
@@ -1202,66 +1243,13 @@
             }
         }
         
-        // Render log panel - unified Living Documentation evidence system
-        // Fetches evidence from /api/living-docs/evidence/{source}/{filter}
+        // Log panels: the LOGS directive's evidence endpoint (it shelled out
+        // to read the unit journal) was removed as a command-injection
+        // surface — see routers/docs.py.  The placeholder still renders so
+        // the directive comment doesn't leak into the page, but there is
+        // nothing left to fetch.
         async function renderLogPanel(container, source, filter) {
-            if (!source || !filter) {
-                container.innerHTML = '<div class="log-empty">Invalid LOGS directive - requires source and filter</div>';
-                return;
-            }
-            
-            try {
-                // URL-encode the filter in case it has spaces or special chars
-                const encodedFilter = encodeURIComponent(filter);
-                const res = await fetch(`/api/living-docs/evidence/${source}/${encodedFilter}`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-                
-                // Check for no results
-                if (data.lines.length === 0 || 
-                    (data.lines.length === 1 && (data.lines[0].includes('No ') || data.lines[0].includes('Unknown')))) {
-                    container.innerHTML = `<div class="log-empty">${escapeHtml(data.lines[0] || 'No evidence found')}</div>`;
-                    return;
-                }
-                
-                // Show installation location if available (for bootstrap)
-                let headerHtml = '';
-                if (data.installation_location) {
-                    headerHtml = `<div style="padding: 8px 16px; background: rgba(59,130,246,0.1); border-bottom: 1px solid #334155; font-size: 12px; color: #60a5fa;">
-                        📍 This installation: <strong>${data.installation_location}</strong>
-                    </div>`;
-                }
-                
-                // Render log lines
-                container.innerHTML = headerHtml + data.lines.map(line => {
-                    // Try to parse standard Python log format: "2026-01-26 21:54:08,199 - INFO - message"
-                    const pyMatch = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}),\d+\s+-\s+(\w+)\s+-\s+(.*)$/);
-                    if (pyMatch) {
-                        const [, timestamp, level, msg] = pyMatch;
-                        const time = timestamp.split(' ')[1];
-                        return `<div class="log-line">
-                            <span class="log-time">${time}</span>
-                            <span class="log-level-${level}">[${level}]</span>
-                            <span class="log-message">${escapeHtml(msg)}</span>
-                        </div>`;
-                    }
-                    
-                    // Try journalctl format: "Jan 26 21:54:08 hostname service[pid]: message"
-                    const jctlMatch = line.match(/^(\w+\s+\d+\s+\d{2}:\d{2}:\d{2})\s+\S+\s+\S+:\s+(.*)$/);
-                    if (jctlMatch) {
-                        const [, timestamp, msg] = jctlMatch;
-                        return `<div class="log-line">
-                            <span class="log-time">${timestamp}</span>
-                            <span class="log-message">${escapeHtml(msg)}</span>
-                        </div>`;
-                    }
-                    
-                    // Fallback for lines without standard format (like indented station info)
-                    return `<div class="log-line"><span class="log-message">${escapeHtml(line)}</span></div>`;
-                }).join('');
-            } catch (e) {
-                container.innerHTML = `<div class="log-empty">Failed to fetch ${source}/${filter} evidence: ${e.message}</div>`;
-            }
+            container.innerHTML = '<div class="log-empty">Log evidence is no longer served here — check the unit logs on the station directly.</div>';
         }
         
         function escapeHtml(text) {
