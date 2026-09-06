@@ -1,0 +1,43 @@
+[Unit]
+Description=station-web — station data reports and documentation (%i)
+Documentation=https://github.com/mijahauan/station-web
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=20
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=60
+User=stationweb
+Group=timestd
+# CLIENT-CONTRACT §4: station identity and per-instance env, both optional.
+EnvironmentFile=-/etc/sigmond/coordination.env
+EnvironmentFile=-/etc/station-web/env/%i.env
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/opt/git/sigmond/station-web/venv/bin/station-web serve --instance %i
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Read-only client.  The one writable path under the data root is the
+# directory holding timestd.db: a WAL reader in another uid needs to create
+# the -wal/-shm sidecars.  The control socket lives in RuntimeDirectory.
+RuntimeDirectory=station-web
+RuntimeDirectoryMode=0750
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/timestd /opt/git/sigmond
+ReadWritePaths=/var/lib/timestd/phase2
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+Nice=5
+MemoryMax=600M
+MemorySwapMax=0
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=station-web
+
+[Install]
+WantedBy=multi-user.target

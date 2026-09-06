@@ -1,0 +1,81 @@
+# station-web deploy manifest — CLIENT-CONTRACT §5.
+#
+# station-web is Phase 5 of the 2026-08-10 hf-timestd split: the web UI
+# as its own read-only client.  It reads products under /var/lib/timestd
+# (frozen root, owned by hf-timestd) and writes nothing there.
+
+[package]
+name             = "station-web"
+version          = "0.1.0"
+description      = "Station data reports and documentation (metrology, ionospheric science, GNSS vTEC)"
+contract_version = "0.8"
+license          = "MIT"
+
+[contract.config]
+init = "scripts/setup-station.sh"
+edit = "scripts/config-review.sh"
+
+# The interpreter path names the MINOR series (uv's stable symlink), never a
+# patch release — see hamsci-physics/deploy.toml for the breakage that taught it.
+# Siblings are not on PyPI: install them editable BEFORE this package.
+# hamsci-physics itself depends on hs-uploader, also not on PyPI, so that
+# sibling installs before hamsci-physics.
+[build]
+steps = [
+    "/opt/uv/python/cpython-3.11-linux-x86_64-gnu/bin/python3.11 -m venv /opt/git/sigmond/station-web/venv",
+    "/opt/git/sigmond/station-web/venv/bin/pip install --upgrade pip setuptools wheel",
+    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hamsci-dsp",
+    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hs-uploader",
+    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hamsci-physics",
+    "/opt/git/sigmond/station-web/venv/bin/pip install -e .",
+]
+produces = ["/opt/git/sigmond/station-web/venv/bin/station-web"]
+
+[install]
+user  = "stationweb"
+group = "timestd"
+
+# Only kind = "link" executes in sigmond today.  Directory and config creation
+# belong to [contract.config].init (setup-station.sh), which also creates the
+# stationweb user when absent.
+[[install.steps]]
+kind = "link"
+src  = "venv/bin/station-web"
+dst  = "/usr/local/bin/station-web"
+
+[[install.steps]]
+kind = "link"
+src  = "systemd/station-web@.service"
+dst  = "/etc/systemd/system/station-web@.service"
+
+[[install.steps]]
+kind = "link"
+src  = "systemd/station-web.service"
+dst  = "/etc/systemd/system/station-web.service"
+
+[systemd]
+units           = ["station-web.service"]
+templated_units = ["station-web@.service"]
+
+[[deps.git]]
+name       = "hamsci-dsp"
+url        = "https://github.com/HamSCI/hamsci-dsp"
+install_to = "/opt/git/sigmond/hamsci-dsp"
+why        = "data-product readers, registry, station catalog, stability"
+
+[[deps.git]]
+name       = "hamsci-physics"
+url        = "https://github.com/mijahauan/hamsci-physics"
+install_to = "/opt/git/sigmond/hamsci-physics"
+why        = "solar geometry for the dashboards"
+
+[[deps.git]]
+name       = "hs-uploader"
+url        = "https://github.com/HamSCI/hs-uploader"
+install_to = "/opt/git/sigmond/hs-uploader"
+why        = "hamsci-physics dependency (not on PyPI)"
+
+[[deps.pypi]]
+name    = "fastapi"
+version = ">=0.104.0"
+venv    = "/opt/git/sigmond/station-web/venv"

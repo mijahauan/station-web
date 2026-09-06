@@ -1,0 +1,12 @@
+[Unit]
+Description=station-web (single-instance alias for station-web@default)
+Requires=station-web@default.service
+After=station-web@default.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+
+[Install]
+WantedBy=multi-user.target
