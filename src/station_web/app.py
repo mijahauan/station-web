@@ -93,5 +93,10 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
 
 
 def _register_routers(app: FastAPI) -> None:
-    """Filled in Task 7."""
-    return None
+    from station_web.routers import (chrony, correlations, dashboard, docs, grape, health,
+                                     ionogram, metrology, phase, physics, propagation,
+                                     space_weather, stability, station, stations, tec, tid)
+    for mod in (station, stations, health, metrology, stability, propagation, space_weather,
+                correlations, physics, tec, tid, dashboard, phase, grape, ionogram, chrony):
+        app.include_router(mod.router, prefix="/api")
+    app.include_router(docs.router)          # carries its own /api/docs prefix
