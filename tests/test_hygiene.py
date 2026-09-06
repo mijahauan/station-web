@@ -2,6 +2,8 @@
 import re
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 SRC = Path(__file__).resolve().parents[1] / "src" / "station_web"
 PY = [p for p in SRC.rglob("*.py")]
 
@@ -46,3 +48,13 @@ def test_root_and_health(client):
     assert client.get("/").status_code == 200
     r = client.get("/health")
     assert r.status_code == 200 and r.json()["callsign"] == "AC0G"
+
+
+def test_app_serves_when_control_socket_cannot_start(settings, tmp_path):
+    from station_web.app import create_app, STATUS
+    blocker = tmp_path / "notadir"
+    blocker.write_text("x")                      # parent path is a regular file → mkdir fails
+    app = create_app(settings, control_socket=blocker / "control.sock")
+    with TestClient(app) as c:
+        assert c.get("/").status_code == 200
+        assert str(STATUS["control_socket"]).startswith("failed:")

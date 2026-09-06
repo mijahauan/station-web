@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 #: Snapshot served by the control socket.  Task 11 refreshes ``products``.
-STATUS: dict = {"ready": False, "products": {}, "updated_at": None}
+STATUS: dict = {"ready": False, "products": {}, "updated_at": None, "control_socket": None}
 
 
 async def _watchdog():
@@ -37,9 +37,16 @@ async def _watchdog():
 def create_app(settings: Settings, control_socket: Path | None = Path("/run/station-web/control.sock")) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        sock = ControlSocketServer(control_socket, status_fn=lambda: STATUS) if control_socket else None
-        if sock:
-            sock.start()
+        sock = None
+        if control_socket:
+            sock = ControlSocketServer(control_socket, status_fn=lambda: STATUS)
+            try:
+                sock.start()
+                STATUS["control_socket"] = str(control_socket)
+            except Exception as exc:          # noqa: BLE001 — auxiliary channel; the pages are the product
+                logger.error("control socket %s failed to start: %s — serving without it", control_socket, exc)
+                STATUS["control_socket"] = f"failed: {exc}"
+                sock = None
         STATUS["ready"] = True
         STATUS["updated_at"] = datetime.now(timezone.utc).isoformat()
         if systemd_daemon:
