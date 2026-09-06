@@ -116,6 +116,15 @@ def test_validate_warns_on_missing_docs_root(tmp_path):
     assert any("docs root" in i["message"] and "gone" in i["message"] for i in warns)
 
 
+def test_config_path_is_absolute_for_relative_flag(tmp_path):
+    (tmp_path / "rel.toml").write_text('[station]\ncallsign = "AC0G"\n')
+    env = {"PATH": "/usr/bin:/bin", "PYTHONPATH": SRC}
+    proc = subprocess.run([sys.executable, "-m", "station_web.cli", "inventory", "--json", "-c", "rel.toml"],
+                          capture_output=True, text=True, timeout=120, env=env, cwd=tmp_path)
+    doc = json.loads(proc.stdout)
+    assert doc["config_path"] == str(tmp_path / "rel.toml")
+
+
 def test_main_guard_present():
     """§12.1 entry-point reachability."""
     text = (ROOT / "src/station_web/cli.py").read_text()

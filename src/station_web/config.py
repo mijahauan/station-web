@@ -29,7 +29,7 @@ DEFAULT_DOCS_ROOTS = [
 
 def resolve_config_path() -> Path:
     env = os.environ.get("STATION_WEB_CONFIG")
-    return Path(env) if env else DEFAULT_CONFIG_PATH
+    return Path(env).resolve() if env else DEFAULT_CONFIG_PATH
 
 
 @dataclass
@@ -88,7 +88,9 @@ class Settings:
 
 
 def load_settings(path: Path | None = None) -> Settings:
-    p = Path(path) if path is not None else resolve_config_path()
+    # §12.3: config_path is always absolute, whether it came from -c/--config
+    # (possibly a relative flag), STATION_WEB_CONFIG, or the compiled default.
+    p = (Path(path) if path is not None else resolve_config_path()).resolve()
     if not p.exists():
         logger.warning("station-web: no config at %s — serving with defaults", p)
         return Settings(config_path=p, loaded=False, raw={})
