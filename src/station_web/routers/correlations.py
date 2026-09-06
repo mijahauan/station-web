@@ -240,6 +240,16 @@ async def get_correlation_summary(
             _service().analyze_propagation_mode_kp, start, end
         )
         
+        # Both series-dependent analyses currently always come back as the
+        # {"available": False, ...} marker — station-web has no X-ray or Kp
+        # time series product yet.  Surface that at the top level so a
+        # consumer can't mistake it for quiet conditions (detected: 0,
+        # kp_bins: {}); the product-only parts of the summary stay as-is.
+        both_series_unavailable = (
+            sid_result.get('available') is False
+            and kp_result.get('available') is False
+        )
+
         summary = {
             'timestamp': datetime.utcnow().isoformat() + 'Z',
             'period': {
@@ -258,7 +268,11 @@ async def get_correlation_summary(
             },
             'recommendations': []
         }
-        
+
+        if both_series_unavailable:
+            summary['available'] = False
+            summary['reason'] = 'space weather time series not available from products'
+
         # Add recommendations based on findings
         if sid_result.get('correlated_events', 0) > 0:
             summary['recommendations'].append({
@@ -267,6 +281,7 @@ async def get_correlation_summary(
                 'action': 'Monitor lower frequencies for absorption'
             })
         
+        # Inert until a Kp product exists: kp_result never carries 'kp_bins' today.
         if kp_result.get('kp_bins', {}).get('storm', {}).get('channels'):
             summary['recommendations'].append({
                 'type': 'GEOMAGNETIC_STORM',

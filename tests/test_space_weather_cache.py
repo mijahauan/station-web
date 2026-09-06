@@ -32,3 +32,16 @@ def test_series_endpoints_say_unavailable(seeded_client):
 def test_no_poller_thread_started(seeded_client):
     import threading
     assert not any("space" in t.name.lower() for t in threading.enumerate())
+
+
+def test_space_weather_summary_shape(seeded_client):
+    j = seeded_client.get("/api/space-weather/summary").json()
+    assert set(j) >= {"current", "xray", "geomagnetic", "protons", "events"}
+    assert j["current"]["f107"] == 142.0
+    for k in ("xray", "geomagnetic", "protons", "events"):
+        assert j[k]["available"] is False
+
+
+def test_correlations_summary_says_unavailable(seeded_client):
+    j = seeded_client.get("/api/correlations/summary").json()
+    assert j["available"] is False and "reason" in j
