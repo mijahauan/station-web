@@ -23,6 +23,58 @@ def test_seeded_products_valid(seeded):
     assert t["status"] == "healthy"
 
 
+def test_tid_is_an_informational_event_product(seeded):
+    """TID is written only when hamsci-physics detects a travelling
+    ionospheric disturbance — there is no cadence to violate.  A fresh row
+    (the seeded fixture writes one ~90 s old) still reports INFORMATIONAL,
+    never VALID, and never counts toward ``status``."""
+    p = freshness.table(seeded)["products"]["L3_tid"]
+    assert p["verdict"] == "INFORMATIONAL"
+    assert p["expected_s"] is None
+    assert isinstance(p["age_s"], float)
+    assert p["channel"] == "AGGREGATED"
+    assert p["applicable"] is True
+    assert "event product" in p["reason"]
+
+
+def test_physics_cadence_is_300s(seeded):
+    assert freshness.EXPECTED[("L3", "physics")] == 300
+    assert freshness.table(seeded)["products"]["L3_physics"]["expected_s"] == 300
+
+
+def test_stale_tid_does_not_affect_status(seeded):
+    """A TID row three days old must not turn the station unhealthy: it is
+    evidence there was no event recently, not evidence of a broken writer.
+
+    Replaces the seeded fixture's fresh row (written ~90 s ago) with a
+    3-day-old one via the same writer helper conftest uses, so the row
+    ``_max_timestamp`` actually sees is the stale one."""
+    root, storage = seeded.data_root, seeded.storage
+    con = sqlite3.connect(storage["sqlite_path"])
+    con.execute('DELETE FROM "L3_tid"')
+    con.commit()
+    con.close()
+
+    old = datetime.now(timezone.utc) - timedelta(days=3)
+    old_ts = old.isoformat().replace("+00:00", "Z")
+    old_mb = int(old.replace(second=0, microsecond=0).timestamp())
+    _write_rows(root, storage, "L3", "tid", "AGGREGATED", "fusion/tid", [
+        {"timestamp_utc": old_ts, "minute_boundary_utc": old_mb,
+         "event_id": "TID-OLD-0001", "period_minutes": 24.0,
+         "amplitude_ms": 0.18, "velocity_m_s": 210.0, "direction_deg": 137.0,
+         "correlation_coefficient": 0.74, "significance_p": 0.01,
+         "confidence": 0.72, "n_paths_correlated": 3,
+         "leading_path": "WWV_20000", "lagging_path": "WWV_15000",
+         "lag_minutes": 6.5, "processing_version": PROC_VERSION},
+    ])
+
+    t = freshness.table(seeded)
+    p = t["products"]["L3_tid"]
+    assert p["verdict"] == "INFORMATIONAL"
+    assert p["age_s"] > 3 * 24 * 3600 - 10
+    assert t["status"] == "healthy"
+
+
 def test_gnss_vtec_reads_the_gnss_channel(seeded):
     """Both writers of L3_gnss_vtec use channel 'GNSS'.  A row on that
     channel must register — before the FIXED_CHANNEL entry existed, the
@@ -41,10 +93,15 @@ def test_gnss_vtec_reads_the_gnss_channel(seeded):
 
 def test_empty_root_is_indeterminate_not_error(settings):
     """No database at all: nothing is applicable, so nothing is a fault —
-    but the station is not healthy either."""
+    but the station is not healthy either.  ``L3_tid`` is the one exception:
+    an event product reports INFORMATIONAL regardless of data, never
+    INDETERMINATE — there is no cadence for it to have failed."""
     t = freshness.table(settings)
-    assert all(p["verdict"] == "INDETERMINATE" for p in t["products"].values())
+    non_event = {k: v for k, v in t["products"].items() if k != "L3_tid"}
+    assert all(p["verdict"] == "INDETERMINATE" for p in non_event.values())
     assert all(p["applicable"] is False for p in t["products"].values())
+    assert t["products"]["L3_tid"]["verdict"] == "INFORMATIONAL"
+    assert t["products"]["L3_tid"]["age_s"] is None
     assert t["status"] == "degraded"
 
 

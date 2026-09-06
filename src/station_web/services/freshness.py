@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 #: (level, name) -> expected max age in seconds
 EXPECTED = {
     ("L2", "timing_measurements"): 120, ("L3", "fusion_timing"): 120, ("DIAG", "chrony_stats"): 120,
-    ("L3", "tec"): 3600, ("L3", "dtec"): 300, ("L3", "tid"): 3600, ("L3", "physics"): 120,
+    ("L3", "tec"): 3600, ("L3", "dtec"): 300, ("L3", "physics"): 300,
     ("L3", "gnss_vtec"): 900,
 }
 #: products written under a fixed channel rather than per receiver channel
@@ -26,8 +26,14 @@ EXPECTED = {
 #: sweep would never have found a row.
 FIXED_CHANNEL = {("L3", "fusion_timing"): "fusion", ("DIAG", "chrony_stats"): "fusion",
                  ("L3", "physics"): "global", ("L3", "tec"): "AGGREGATED",
-                 ("L3", "dtec"): "AGGREGATED", ("L3", "tid"): "AGGREGATED",
-                 ("L3", "gnss_vtec"): "GNSS"}
+                 ("L3", "dtec"): "AGGREGATED", ("L3", "gnss_vtec"): "GNSS"}
+
+#: (level, name) -> fixed channel, for products with no cadence expectation at
+#: all: hamsci-physics writes a TID row only when it detects a travelling
+#: ionospheric disturbance, so "older than N seconds" is not a fault — it is
+#: just quiet.  These never get a VALID/INVALID verdict and never count
+#: toward ``status``; age is reported for operator information only.
+EVENT_PRODUCTS = {("L3", "tid"): "AGGREGATED"}
 
 
 def _parse_utc(ts: str) -> datetime:
@@ -59,7 +65,7 @@ def _existing_tables(settings: Settings) -> set[str]:
     try:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            for level, name in EXPECTED:
+            for level, name in list(EXPECTED) + list(EVENT_PRODUCTS):
                 tbl = f"{level}_{name}"
                 if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                                (tbl,)).fetchone():
@@ -141,9 +147,19 @@ def table(settings: Settings) -> dict:
         if not entry["applicable"]:
             entry["reason"] = f"no {tbl} table — producing client not installed"
         products[tbl] = entry
-    applicable = [p for p in products.values() if p["applicable"]]
-    verdicts = {p["verdict"] for p in applicable}
-    if not applicable:
+    for (level, name), channel in EVENT_PRODUCTS.items():
+        ts = _max_timestamp(settings, level, name, channel)
+        age = None if ts is None else round((now - _parse_utc(ts)).total_seconds(), 1)
+        tbl = f"{level}_{name}"
+        entry = {"verdict": "INFORMATIONAL", "age_s": age, "expected_s": None,
+                 "channel": channel, "applicable": tbl in present,
+                 "reason": "event product — written only when an event is "
+                           "detected; age is informational"}
+        products[tbl] = entry
+    judged = [p for p in products.values()
+              if p["applicable"] and p["verdict"] != "INFORMATIONAL"]
+    verdicts = {p["verdict"] for p in judged}
+    if not judged:
         status = "degraded"                      # nothing to judge: not healthy, not an error
     elif "INVALID" in verdicts:
         status = "error"
