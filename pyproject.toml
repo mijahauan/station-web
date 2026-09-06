@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "station-web"
+version = "0.1.0"
+description = "Station data reports and documentation: metrology, ionospheric science, GNSS vTEC, read from sigmond data products"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Michael James Hauan AC0G", email = "ac0g@hauan.org" }]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "hamsci-dsp>=0.7.0",      # readers, registry, station catalog, stability (editable sibling)
+    "hamsci-physics>=0.1.0",  # solar_zenith (editable sibling)
+    "systemd-python>=235",    # Type=notify + WatchdogSec
+    "toml>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0", "httpx>=0.25.0"]
+
+[project.scripts]
+station-web = "station_web.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+station_web = ["static/**/*"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+
+[tool.uv.sources]
+hamsci-dsp = { path = "../hamsci-dsp", editable = true }
+hamsci-physics = { path = "../hamsci-physics", editable = true }
+hs-uploader = { path = "../hs-uploader", editable = true }
