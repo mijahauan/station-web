@@ -113,31 +113,22 @@ class SpaceWeatherService:
     STALE_MAX_AGE = timedelta(hours=6)     # Treat cache as absent beyond this
 
     def __init__(self, cache_dir: Optional[Path] = None):
-        """Initialize space weather service and start background poller."""
+        """Read whatever is in the cache.  The poller does not run here.
+
+        station-web reaches no network — that is the remit, and the hygiene
+        test fails on this file's ``requests`` import until Task 10 removes
+        the fetching outright.  So the background thread that polls NOAA is
+        not started: every ``get_*()`` reads the cache directory and returns
+        empty when nothing has filled it.  ``_poll_loop`` and the ``_fetch_*``
+        methods stay in place for Task 10 to delete along with the rest.
+        """
         self.cache_dir = cache_dir or self.CACHE_DIR
         self._session = _make_session()
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
-        try:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            # Without a cache directory the poller has nowhere to put what it
-            # fetches, so it does not run: every get_*() then reads an absent
-            # cache and returns an empty result.  Task 10 drops the polling.
-            logger.warning(
-                "space weather cache %s unavailable (%s) - serving empty payloads",
-                self.cache_dir, exc,
-            )
-            return
-        self._thread = threading.Thread(
-            target=self._poll_loop,
-            name="SpaceWeatherPoller",
-            daemon=True,
-        )
-        self._thread.start()
         logger.info(
-            f"Space Weather Service initialized, cache: {self.cache_dir}, "
-            f"polling every {self.POLL_INTERVAL}"
+            "Space Weather Service reading cache %s; polling disabled "
+            "(station-web makes no outbound requests)", self.cache_dir,
         )
 
     def stop(self):

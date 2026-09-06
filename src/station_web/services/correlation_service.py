@@ -28,7 +28,10 @@ class CorrelationService:
     def __init__(self, data_root: Path, space_weather: Optional[SpaceWeatherService] = None):
         """Initialize correlation service."""
         self.data_root = data_root
-        self.space_weather = space_weather if space_weather is not None else SpaceWeatherService()
+        # The fallback caches under the configured data root, never the
+        # compiled default; callers normally hand in the shared instance.
+        self.space_weather = space_weather if space_weather is not None else SpaceWeatherService(
+            cache_dir=Path(data_root) / "space_weather_cache")
         self.propagation = PropagationService(data_root)
         logger.info("Correlation Service initialized")
     

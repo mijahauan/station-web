@@ -68,3 +68,12 @@ def test_no_import_time_config_reads():
             if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=\s*.*\bconfig\.", line):
                 bad.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
     assert not bad, "module-level config reads defeat per-request settings:\n" + "\n".join(bad)
+
+
+def test_suite_never_touches_the_real_data_root(client):
+    from pathlib import Path
+    real = Path("/var/lib/timestd/space_weather_cache")
+    before = real.exists()
+    client.get("/api/space-weather/current")
+    client.get("/api/correlations/summary")
+    assert real.exists() == before

@@ -5,7 +5,8 @@ import pytest
 KEPT_PREFIXES = ["/api/station", "/api/stations", "/api/health", "/api/metrology",
                  "/api/stability", "/api/propagation", "/api/space-weather", "/api/correlations",
                  "/api/physics", "/api/tec", "/api/tid", "/api/dashboard", "/api/phase",
-                 "/api/grape", "/api/ionogram", "/api/chrony", "/api/docs"]
+                 "/api/grape", "/api/ionogram", "/api/chrony", "/api/docs",
+                 "/api/living-docs"]
 CUT_PATHS = ["/api/logs/services", "/api/timing-validation/status", "/api/health/storage"]
 
 
@@ -38,7 +39,9 @@ def test_cut_routes_are_gone(client):
 def test_parameterless_gets_never_500_on_empty_root(client):
     failures = []
     for path in _routes(client):
-        if "{" in path or path.startswith("/api/docs"):
+        # "/api/docs" exactly is FastAPI's own Swagger page; the docs router
+        # lives at /api/living-docs and IS swept.
+        if "{" in path or path == "/api/docs":
             continue
         r = client.get(path)
         if r.status_code >= 500:

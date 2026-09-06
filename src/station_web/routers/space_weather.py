@@ -23,10 +23,17 @@ _space_weather_service: SpaceWeatherService | None = None
 
 
 def _service() -> SpaceWeatherService:
-    """Return the shared SpaceWeatherService, constructing it on first use."""
+    """Return the shared SpaceWeatherService, constructing it on first use.
+
+    The cache lives under the configured data root, not under the compiled
+    ``/var/lib/timestd`` default: a test pointed at a temporary root must not
+    be able to write into the real one, and whether it can must not depend on
+    the host's permissions.  Task 10 removes the polling this caches for.
+    """
     global _space_weather_service
     if _space_weather_service is None:
-        _space_weather_service = SpaceWeatherService()
+        _space_weather_service = SpaceWeatherService(
+            cache_dir=config.data_root / "space_weather_cache")
     return _space_weather_service
 
 

@@ -99,4 +99,4 @@ def _register_routers(app: FastAPI) -> None:
     for mod in (station, stations, health, metrology, stability, propagation, space_weather,
                 correlations, physics, tec, tid, dashboard, phase, grape, ionogram, chrony):
         app.include_router(mod.router, prefix="/api")
-    app.include_router(docs.router)          # carries its own /api/docs prefix
+    app.include_router(docs.router)          # carries its own /api/living-docs prefix
