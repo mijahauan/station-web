@@ -21,8 +21,39 @@ fi
 
 install -d -m 0755 "$CONFIG_DIR" "$CONFIG_DIR/env"
 
+# The one directory station-web needs to WRITE in: SQLite's -wal and -shm
+# sidecars are created by whichever process opens the database, so a reader
+# running as stationweb (group timestd) needs group write on the directory
+# holding timestd.db.  hf-timestd creates that directory 0755 root:timestd,
+# and `station-web validate` then fails it.  setgid so a sidecar created by
+# either uid keeps group timestd.  Nothing else under the data root is
+# touched: the root itself stays read-only to this client.
+#
+# Runs on BOTH paths below — a re-run against an existing config must still
+# be able to repair the directory, which is the state a cutover meets.
+grant_group_write_on_db_dir() {
+    local seed=${1:-}
+    local sqlite_path db_dir before
+    sqlite_path=$(sed -n 's/^ *sqlite_path *= *"\([^"]*\)".*/\1/p' "$seed" 2>/dev/null | head -1)
+    db_dir=${sqlite_path:+$(dirname "$sqlite_path")}
+    db_dir=${db_dir:-/var/lib/timestd/phase2}
+    if [[ $EUID -ne 0 ]]; then
+        echo "station-web: not root — leaving $db_dir permissions alone"
+        return 0
+    fi
+    if [[ ! -d $db_dir ]]; then
+        echo "station-web: $db_dir absent — hf-timestd has not written yet; re-run after it has"
+        return 0
+    fi
+    before=$(stat -c '%a %U:%G' "$db_dir")
+    chmod g+ws "$db_dir"
+    echo "station-web: chmod g+ws $db_dir  ($before -> $(stat -c '%a %U:%G' "$db_dir"))"
+    echo "  (WAL sidecars: a reader in another uid must create timestd.db-wal/-shm)"
+}
+
 if [[ -f $CONFIG ]]; then
     echo "station-web: $CONFIG exists — leaving it alone (use 'smd config edit')."
+    grant_group_write_on_db_dir "$CONFIG"
     exit 0
 fi
 
@@ -53,4 +84,6 @@ fi
 install -m 0644 "$tmp" "$CONFIG"
 echo "station-web: wrote $CONFIG"
 echo "  station: ${STATION_CALL:-${STATION_CALLSIGN:-<unset>}} / ${STATION_GRID:-<unset>}"
+
+grant_group_write_on_db_dir "$CONFIG"
 exit 0

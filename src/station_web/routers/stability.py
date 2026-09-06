@@ -26,7 +26,7 @@ def _service() -> StabilityService:
 
 
 @router.get("/adev")
-async def get_allan_deviation(
+def get_allan_deviation(
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
 ):

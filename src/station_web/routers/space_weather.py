@@ -21,13 +21,13 @@ router = APIRouter(prefix="/space-weather", tags=["space-weather"])
 
 
 @router.get("/current")
-async def get_current_conditions():
+def get_current_conditions():
     """Current space weather as hamsci-physics last cached it."""
     return SpaceWeatherCache(config.data_root).current()
 
 
 @router.get("/xray")
-async def get_xray_flux(
+def get_xray_flux(
     hours: int = Query(24, ge=1, le=168, description="Hours of history (max 168)")
 ):
     """X-ray flux time series — no such product exists yet."""
@@ -35,7 +35,7 @@ async def get_xray_flux(
 
 
 @router.get("/kp")
-async def get_kp_index(
+def get_kp_index(
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """Kp index time series — no such product exists yet."""
@@ -43,7 +43,7 @@ async def get_kp_index(
 
 
 @router.get("/protons")
-async def get_proton_flux(
+def get_proton_flux(
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """Proton flux time series — no such product exists yet."""
@@ -51,7 +51,7 @@ async def get_proton_flux(
 
 
 @router.get("/events/sid")
-async def get_sid_events(
+def get_sid_events(
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """Sudden Ionospheric Disturbance events — depend on an X-ray time series that doesn't exist yet."""
@@ -59,7 +59,7 @@ async def get_sid_events(
 
 
 @router.get("/summary")
-async def get_summary(
+def get_summary(
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """
@@ -82,7 +82,7 @@ async def get_summary(
 
 
 @router.get("/solar/elevation")
-async def get_solar_elevation(
+def get_solar_elevation(
     start: str = Query("-6h", description="Start time (relative like '-6h' or ISO8601)"),
     end: str = Query("now", description="End time"),
     interval_minutes: int = Query(5, ge=1, le=60, description="Sample interval in minutes"),

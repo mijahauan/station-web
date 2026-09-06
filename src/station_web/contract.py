@@ -28,6 +28,14 @@ DEPLOY_TOML_PATH = "/opt/git/sigmond/station-web/deploy.toml"
 VENDOR_DIR = Path(__file__).resolve().parent / "static" / "vendor"
 CONTROL_SOCKET = "/run/station-web/control.sock"
 
+#: The repo checkout this package was installed from (editable install, which
+#: is how every client on a station is installed).  ``src/station_web/`` sits
+#: two directories below it.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TEMPLATED_UNIT = "station-web@.service"
+TEMPLATED_UNIT_PATH = Path("/etc/systemd/system") / TEMPLATED_UNIT
+CONSOLE_SCRIPT = "station-web"
+
 
 def _version() -> str:
     try:
@@ -93,6 +101,62 @@ def build_inventory(settings: Settings) -> dict:
     return payload
 
 
+def _deploy_manifest_issues(deploy_toml: Path | None) -> list[dict]:
+    """§12.6: the manifest's declared contract version must match the code's.
+
+    A manifest that says 0.7 while the code answers 0.8 makes sigmond
+    reason about the wrong surface, and nothing else would notice: both
+    numbers are self-reported.
+    """
+    import tomllib
+
+    path = deploy_toml
+    if path is None:
+        installed = Path(DEPLOY_TOML_PATH)
+        path = installed if installed.exists() else REPO_ROOT / "deploy.toml"
+    if not path.exists():
+        return [_issue("warn", f"deploy manifest {path} not found — cannot check "
+                               f"[package].contract_version", "all")]
+    try:
+        with open(path, "rb") as fh:
+            declared = (tomllib.load(fh).get("package", {}) or {}).get("contract_version")
+    except (OSError, ValueError) as exc:
+        return [_issue("fail", f"deploy manifest {path} unreadable: {exc}", "all")]
+    if declared != CONTRACT_VERSION:
+        return [_issue("fail", f"{path} declares [package].contract_version = {declared!r} "
+                               f"but this build implements {CONTRACT_VERSION!r}", "all")]
+    return []
+
+
+def _entry_point_issues() -> list[dict]:
+    """§12.1: the unit's ExecStart must actually reach ``main()``.
+
+    Two halves, both of which have broken a client before: the templated
+    unit has to invoke the console script (not ``python -m`` against a path
+    that the venv rebuild moves), and ``cli.py`` needs its ``__main__``
+    guard so ``python -m station_web.cli`` runs rather than exiting silently.
+    """
+    issues: list[dict] = []
+    unit = TEMPLATED_UNIT_PATH if TEMPLATED_UNIT_PATH.exists() else REPO_ROOT / "systemd" / TEMPLATED_UNIT
+    if not unit.exists():
+        issues.append(_issue("warn", f"templated unit {unit} not found — cannot check ExecStart", "all"))
+    else:
+        exec_lines = [ln for ln in unit.read_text().splitlines() if ln.startswith("ExecStart=")]
+        if not any(f"/{CONSOLE_SCRIPT} " in ln or ln.rstrip().endswith(f"/{CONSOLE_SCRIPT}")
+                   for ln in exec_lines):
+            issues.append(_issue("fail", f"{unit}: no ExecStart names the {CONSOLE_SCRIPT} "
+                                         f"console script (found {exec_lines or ['nothing']})", "all"))
+    cli = REPO_ROOT / "src" / "station_web" / "cli.py"
+    if cli.exists():
+        text = cli.read_text()
+        if 'if __name__ == "__main__":' not in text and "if __name__ == '__main__':" not in text:
+            issues.append(_issue("fail", f"{cli} has no __main__ guard — "
+                                         f"`python -m station_web.cli` would do nothing", "all"))
+    else:
+        issues.append(_issue("warn", f"{cli} not found — cannot check the __main__ guard", "all"))
+    return issues
+
+
 def build_validate(settings: Settings) -> dict:
     issues = collect_issues(settings)
     return {
@@ -106,12 +170,17 @@ def _issue(severity: str, message: str, instance: str = "default") -> dict:
     return {"severity": severity, "instance": instance, "message": message}
 
 
-def collect_issues(settings: Settings) -> list[dict]:
+def collect_issues(settings: Settings, deploy_toml: Path | None = None) -> list[dict]:
     issues: list[dict] = []
     if not settings.loaded:
         issues.append(_issue("fail", f"no configuration loaded from {settings.config_path} "
                                      f"— run `smd config init station-web`", "all"))
         return issues
+
+    # Deployment integrity first: these hold whatever the data plane looks
+    # like, and the data-root check below returns early on a bare station.
+    issues.extend(_deploy_manifest_issues(deploy_toml))
+    issues.extend(_entry_point_issues())
 
     for key in ("callsign", "grid_square"):
         if not settings.station.get(key):

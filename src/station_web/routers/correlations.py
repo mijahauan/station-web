@@ -8,8 +8,7 @@ from fastapi import APIRouter, Query, HTTPException
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from functools import partial
 
 from station_web.services.correlation_service import CorrelationService
@@ -33,15 +32,19 @@ _executor = ThreadPoolExecutor(max_workers=2)
 CORRELATION_TIMEOUT_S = 15
 
 
-async def _run_with_timeout(func, *args, **kwargs):
-    """Run a sync function in a thread pool with a timeout."""
-    loop = asyncio.get_event_loop()
+def _run_with_timeout(func, *args, **kwargs):
+    """Run a sync function in a thread pool with a timeout.
+
+    These routes are sync (FastAPI runs them in its own threadpool), so the
+    timeout comes from ``Future.result(timeout=)`` rather than
+    ``asyncio.wait_for``.  Both abandon a slow call without cancelling it —
+    a running thread is not interruptible either way — so the semantics are
+    unchanged; only the caller's colour is.
+    """
     try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(_executor, partial(func, *args, **kwargs)),
-            timeout=CORRELATION_TIMEOUT_S
-        )
-    except asyncio.TimeoutError:
+        return _executor.submit(partial(func, *args, **kwargs)).result(
+            timeout=CORRELATION_TIMEOUT_S)
+    except FutureTimeoutError:
         raise HTTPException(
             status_code=504,
             detail=f"Correlation analysis timed out after {CORRELATION_TIMEOUT_S}s — try a shorter time range"
@@ -57,7 +60,7 @@ STATION_COORDS = {
 
 
 @router.get("/snr-solar")
-async def get_snr_solar_correlation(
+def get_snr_solar_correlation(
     station: str = Query(..., description="Station ID (WWV, WWVH, CHU, BPM)"),
     frequency: float = Query(..., description="Frequency in MHz"),
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
@@ -83,7 +86,7 @@ async def get_snr_solar_correlation(
         rx_coords = (config.station_metadata['latitude'], config.station_metadata['longitude'])
         tx_coords = STATION_COORDS[station]
         
-        result = await _run_with_timeout(
+        result = _run_with_timeout(
             _service().analyze_snr_solar_zenith,
             station=station,
             frequency=frequency,
@@ -106,7 +109,7 @@ async def get_snr_solar_correlation(
 
 
 @router.get("/sid-detection")
-async def get_sid_correlation(
+def get_sid_correlation(
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
     """
@@ -122,7 +125,7 @@ async def get_sid_correlation(
         end = datetime.utcnow()
         start = end - timedelta(hours=hours)
         
-        result = await _run_with_timeout(
+        result = _run_with_timeout(
             _service().detect_sid_correlation, start, end
         )
         
@@ -139,7 +142,7 @@ async def get_sid_correlation(
 
 
 @router.get("/tec-f107")
-async def get_tec_f107_correlation(
+def get_tec_f107_correlation(
     station: str = Query(..., description="Station ID (WWV, WWVH, CHU, BPM)"),
     days: int = Query(30, ge=7, le=90, description="Days of history")
 ):
@@ -157,7 +160,7 @@ async def get_tec_f107_correlation(
         if station not in STATION_COORDS:
             raise HTTPException(status_code=400, detail=f"Invalid station: {station}")
         
-        result = await _run_with_timeout(
+        result = _run_with_timeout(
             _service().analyze_tec_f107_correlation,
             station=station,
             days=days
@@ -176,7 +179,7 @@ async def get_tec_f107_correlation(
 
 
 @router.get("/propagation-kp")
-async def get_propagation_kp_correlation(
+def get_propagation_kp_correlation(
     hours: int = Query(72, ge=24, le=168, description="Hours of history")
 ):
     """
@@ -194,7 +197,7 @@ async def get_propagation_kp_correlation(
         end = datetime.utcnow()
         start = end - timedelta(hours=hours)
         
-        result = await _run_with_timeout(
+        result = _run_with_timeout(
             _service().analyze_propagation_mode_kp, start, end
         )
         
@@ -211,7 +214,7 @@ async def get_propagation_kp_correlation(
 
 
 @router.get("/summary")
-async def get_correlation_summary(
+def get_correlation_summary(
     station: Optional[str] = Query(None, description="Station ID (optional)"),
     hours: int = Query(24, ge=6, le=168, description="Hours of history")
 ):
@@ -231,12 +234,12 @@ async def get_correlation_summary(
         start = end - timedelta(hours=hours)
         
         # Get SID correlation
-        sid_result = await _run_with_timeout(
+        sid_result = _run_with_timeout(
             _service().detect_sid_correlation, start, end
         )
         
         # Get propagation-Kp correlation
-        kp_result = await _run_with_timeout(
+        kp_result = _run_with_timeout(
             _service().analyze_propagation_mode_kp, start, end
         )
         

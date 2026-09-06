@@ -45,7 +45,7 @@ def _parse_relative_time(s: str, now: datetime) -> datetime:
 
 
 @router.get("/dtec")
-async def get_dtec_timeseries(
+def get_dtec_timeseries(
     start: str = Query("-6h", description="Start time (ISO8601 or relative like '-6h', '-1d')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
     station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, CHU, BPM)"),
@@ -171,7 +171,7 @@ async def get_dtec_timeseries(
 
 
 @router.get("/current")
-async def get_current_tec():
+def get_current_tec():
     """
     Get the most recent TEC estimates.
     
@@ -187,11 +187,18 @@ async def get_current_tec():
                 "timestamp": datetime.utcnow().isoformat() + 'Z'
             }
         
+        # TECService.get_current_tec() keys its payload by STATION, under
+        # 'stations'.  This route used to read 'paths', which the service has
+        # never produced, so /current answered 200 with an empty body on a
+        # station that had TEC.  No page reads this endpoint (only
+        # /api/propagation/tec, a different router, uses 'paths'), so the
+        # response key follows the product instead of the other way round.
+        stations = data.get('stations', {})
         return {
             "status": "ok",
             "timestamp": data.get('timestamp', ''),
-            "paths": data.get('paths', {}),
-            "n_paths": len(data.get('paths', {}))
+            "stations": stations,
+            "n_stations": len(stations)
         }
     
     except Exception as e:
@@ -200,7 +207,7 @@ async def get_current_tec():
 
 
 @router.get("/history")
-async def get_tec_history(
+def get_tec_history(
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
     station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, CHU, BPM)")
@@ -245,7 +252,7 @@ async def get_tec_history(
 
 
 @router.get("/station/{station}")
-async def get_tec_by_station(
+def get_tec_by_station(
     station: str,
     hours: int = Query(24, description="Number of hours of history")
 ):

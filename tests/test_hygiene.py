@@ -77,3 +77,32 @@ def test_suite_never_touches_the_real_data_root(client):
     client.get("/api/space-weather/current")
     client.get("/api/correlations/summary")
     assert real.exists() == before
+
+
+def test_routers_hold_no_async_def():
+    """Every route in ``routers/`` reads the filesystem, SQLite or HDF5.
+
+    An ``async def`` endpoint runs ON the event loop, so one slow SQLite
+    scan stalls every other request in the process — including /health,
+    which the systemd watchdog and sigmond both poll.  A plain ``def``
+    endpoint runs in FastAPI's threadpool instead.  Keep them all sync;
+    there is no non-blocking work in this package to justify a coroutine.
+    """
+    offenders = []
+    for p in sorted((SRC / "routers").glob("*.py")):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            if re.match(r"\s*async def\s", line):
+                offenders.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
+    assert not offenders, "blocking IO on the event loop:\n" + "\n".join(offenders)
+
+
+def test_no_await_left_in_routers():
+    """The other half of the conversion: a converted body that still
+    awaits would be a SyntaxError at import, but an ``await`` inside a
+    string or a stray helper would not.  None should remain."""
+    offenders = []
+    for p in sorted((SRC / "routers").glob("*.py")):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            if re.search(r"(^|[^\w.])await\s", line):
+                offenders.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
+    assert not offenders, "\n".join(offenders)

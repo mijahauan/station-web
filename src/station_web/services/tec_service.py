@@ -93,7 +93,7 @@ class TECService:
             for m in measurements:
                 station = m.get('station', 'UNKNOWN')
                 ts = m.get('unix_timestamp', 0)
-                if station not in latest_by_station or ts > latest_by_station[station]['unix_timestamp']:
+                if station not in latest_by_station or ts > latest_by_station[station].get('unix_timestamp', 0):
                     latest_by_station[station] = m
             
             return {
@@ -163,7 +163,10 @@ class TECService:
                 if station and station_name != station:
                     continue
                 
-                ts_iso = m.get('timestamp_iso', '')
+                # L3_tec stores 'timestamp_utc' (hamsci-dsp schema);
+                # 'timestamp_iso' never existed, so every timestamp
+                # list came back empty.
+                ts_iso = m.get('timestamp_utc', '')
                 if ts_iso and ts_iso not in result['timestamps']:
                     result['timestamps'].append(ts_iso)
                 

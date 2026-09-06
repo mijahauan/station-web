@@ -98,9 +98,20 @@ ROUTES_WITH_DATA = [
      and j["latest_by_frequency"]["20.0"]["delay_spread_ms"] == 0.42),
 
     # ── L3_tec ─────────────────────────────────────────────────────────
+    # The timestamp assertion is the load-bearing half: the service read
+    # 'timestamp_iso', a field the L3_tec schema has never had, so every
+    # timestamp list came back empty while the values looked right.
     ("/api/tec/history?start=-24h&end=now",
      lambda j: j["stations"]["WWV"]["tec_tecu"] == [14.7]
-     and j["stations"]["WWV"]["confidence"] == [0.81]),
+     and j["stations"]["WWV"]["confidence"] == [0.81]
+     and len(j["timestamps"]) == 1
+     and j["stations"]["WWV"]["timestamps"] == j["timestamps"]),
+    # /current keys by STATION: the route used to read a 'paths' block the
+    # service never produced, so it answered 200 with nothing in it.
+    ("/api/tec/current",
+     lambda j: j["n_stations"] == 1
+     and j["stations"]["WWV"]["tec_tecu"] == 14.7
+     and j["stations"]["WWV"]["confidence"] == 0.81),
     ("/api/propagation/tec?start=-24h&end=now",
      lambda j: j["paths"]["WWV"]["mean_tec"] == 14.7
      and j["paths"]["WWV"]["quality"] == ["GOOD"]),
@@ -190,11 +201,15 @@ ROUTES_WITH_DATA = [
     ("/api/space-weather/current", lambda j: j.get("f107") == 142.0),
 
     # ── Health as product freshness (Task 11) ──────────────────────────
+    # gnss-vtec is not installed here, so L3_gnss_vtec is NOT APPLICABLE
+    # and the station reads healthy rather than permanently degraded.
     ("/api/health/system",
      lambda j: j["products"]["L3_fusion_timing"]["verdict"] == "VALID"
      and j["products"]["DIAG_chrony_stats"]["verdict"] == "VALID"
      and j["products"]["L3_gnss_vtec"]["verdict"] == "INDETERMINATE"
-     and j["status"] in {"healthy", "degraded"}),
+     and j["products"]["L3_gnss_vtec"]["applicable"] is False
+     and j["products"]["L3_fusion_timing"]["applicable"] is True
+     and j["status"] == "healthy"),
     ("/api/health/channels",
      lambda j: "WWV_20000" in [c["name"] for c in j["channels"]]),
 ]

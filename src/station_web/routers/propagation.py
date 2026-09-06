@@ -27,7 +27,7 @@ def _service() -> PropagationService:
 
 @router.get("/conditions")
 @router.get("/current")  # Alias for frontend compatibility
-async def get_current_conditions():
+def get_current_conditions():
     """
     Get current propagation conditions.
     
@@ -53,7 +53,7 @@ async def get_current_conditions():
 
 
 @router.get("/timeline")
-async def get_mode_timeline(
+def get_mode_timeline(
     start: str = Query("-6h", description="Start time (ISO8601 or relative like '-6h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
     station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, CHU, BPM)")
@@ -107,7 +107,7 @@ async def get_mode_timeline(
 
 
 @router.get("/tec")
-async def get_tec_summary(
+def get_tec_summary(
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')")
 ):
@@ -157,7 +157,7 @@ async def get_tec_summary(
 
 
 @router.get("/test-signals")
-async def get_test_signals(
+def get_test_signals(
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')")
 ):

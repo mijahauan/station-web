@@ -26,7 +26,7 @@ def _service() -> TIDService:
 
 
 @router.get("/events")
-async def get_tid_events(
+def get_tid_events(
     hours: int = Query(24, description="Number of hours to look back")
 ):
     """
@@ -50,7 +50,7 @@ async def get_tid_events(
 
 
 @router.get("/events/{event_id}")
-async def get_tid_event_details(event_id: str):
+def get_tid_event_details(event_id: str):
     """
     Get detailed information about a specific TID event.
     
@@ -78,7 +78,7 @@ async def get_tid_event_details(event_id: str):
 
 
 @router.get("/statistics")
-async def get_tid_statistics(
+def get_tid_statistics(
     days: int = Query(7, description="Number of days to analyze")
 ):
     """
@@ -101,7 +101,7 @@ async def get_tid_statistics(
 
 
 @router.get("/history")
-async def get_tid_history(
+def get_tid_history(
     start: str = Query("-7d", description="Start time (ISO8601 or relative like '-7d')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')")
 ):

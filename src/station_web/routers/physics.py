@@ -37,7 +37,7 @@ def parse_time_param(time_str: str) -> datetime:
 
 
 @router.get("/latest")
-async def get_latest_physics():
+def get_latest_physics():
     """Get latest physics data (TEC, UTC consistency)."""
     try:
         service = PhysicsService(data_root=config.data_root)
@@ -52,7 +52,7 @@ async def get_latest_physics():
 
 
 @router.get("/history")
-async def get_physics_history(
+def get_physics_history(
     start: str = Query("-6h", description="Start time"),
     end: str = Query("now", description="End time")
 ):
@@ -78,7 +78,7 @@ async def get_physics_history(
 # ============================================================================
 
 @router.get("/scintillation/paths")
-async def get_scintillation_by_path():
+def get_scintillation_by_path():
     """
     Get scintillation indices organized by propagation path.
     
@@ -93,7 +93,7 @@ async def get_scintillation_by_path():
 
 
 @router.get("/scintillation/history")
-async def get_scintillation_history(
+def get_scintillation_history(
     start: str = Query("-6h", description="Start time"),
     end: str = Query("now", description="End time"),
     station: Optional[str] = Query(None, description="Station filter (WWV, WWVH, CHU, BPM)")
@@ -116,7 +116,7 @@ async def get_scintillation_history(
 # ============================================================================
 
 @router.get("/channels/latest")
-async def get_channel_characterization():
+def get_channel_characterization():
     """
     Get latest test signal analysis results.
     
@@ -131,7 +131,7 @@ async def get_channel_characterization():
 
 
 @router.get("/channels/summary")
-async def get_channel_summary():
+def get_channel_summary():
     """
     Get channel quality summary across all frequencies.
     """
@@ -143,7 +143,7 @@ async def get_channel_summary():
 
 
 @router.get("/channels/history")
-async def get_channel_history(
+def get_channel_history(
     start: str = Query("-24h", description="Start time"),
     end: str = Query("now", description="End time"),
     frequency_mhz: Optional[float] = Query(None, description="Frequency filter"),
@@ -163,7 +163,7 @@ async def get_channel_history(
 
 
 @router.get("/channels/daily")
-async def get_channel_daily_comparison(
+def get_channel_daily_comparison(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (defaults to today)"),
     hours: Optional[int] = Query(None, description="Hours of data to return (overrides date, counts back from now)", ge=1, le=336)
 ):
@@ -196,7 +196,7 @@ async def get_channel_daily_comparison(
 # ============================================================================
 
 @router.get("/events/recent")
-async def get_recent_events(
+def get_recent_events(
     hours: int = Query(24, description="Hours to look back", ge=1, le=168)
 ):
     """
@@ -216,7 +216,7 @@ async def get_recent_events(
 
 
 @router.get("/events/conditions")
-async def get_current_conditions():
+def get_current_conditions():
     """
     Get current ionospheric conditions summary.
     

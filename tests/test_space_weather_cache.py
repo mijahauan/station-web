@@ -45,3 +45,19 @@ def test_space_weather_summary_shape(seeded_client):
 def test_correlations_summary_says_unavailable(seeded_client):
     j = seeded_client.get("/api/correlations/summary").json()
     assert j["available"] is False and "reason" in j
+
+
+def test_naive_fetched_at_does_not_raise(seeded):
+    """A NAIVE ``fetched_at`` (a producer that formatted ``utcnow()``)
+    raises TypeError against an aware ``now`` — not the ValueError the
+    guard caught — so one malformed cache file used to 500 every
+    space-weather page.  Naive can only mean UTC here."""
+    p = seeded.data_root / "iono_cache" / "space_weather.json"
+    d = json.loads(p.read_text())
+    naive = (datetime.now(timezone.utc) - timedelta(seconds=60)).replace(tzinfo=None).isoformat()
+    assert not naive.endswith("Z") and "+" not in naive
+    d["fetched_at"] = naive
+    p.write_text(json.dumps(d))
+
+    c = SpaceWeatherCache(seeded.data_root).current()
+    assert c["age_s"] is not None and 30 < c["age_s"] < 300 and c["stale"] is False

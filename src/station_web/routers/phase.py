@@ -61,7 +61,7 @@ def _parse_time_range(start: str, end: str):
 
 
 @router.get("/timeseries")
-async def get_phase_timeseries(
+def get_phase_timeseries(
     start: str = Query("-1h", description="Start time (ISO8601 or relative like '-1h', '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
     channel: Optional[str] = Query(None, description="Channel name (e.g., SHARED_10000, CHU_14670)"),
@@ -96,7 +96,7 @@ async def get_phase_timeseries(
 
 
 @router.get("/doppler")
-async def get_doppler(
+def get_doppler(
     start: str = Query("-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     channel: Optional[str] = Query(None, description="Channel name"),
@@ -127,7 +127,7 @@ async def get_doppler(
 
 
 @router.get("/scintillation")
-async def get_scintillation(
+def get_scintillation(
     start: str = Query("-1h", description="Start time"),
     end: str = Query("now", description="End time"),
     channel: Optional[str] = Query(None, description="Channel name"),
@@ -157,7 +157,7 @@ async def get_scintillation(
 
 
 @router.get("/channels")
-async def get_available_channels():
+def get_available_channels():
     """
     List all channels and stations that have tick_phase data on disk.
 
@@ -173,7 +173,7 @@ async def get_available_channels():
 
 
 @router.get("/summary")
-async def get_phase_summary():
+def get_phase_summary():
     """
     Get current phase/Doppler state across all channels.
 

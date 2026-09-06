@@ -237,7 +237,7 @@ def _kde_contours(x, y, n_grid=60, bandwidth=None):
 
 
 @router.get("/arrivals")
-async def get_all_arrivals(
+def get_all_arrivals(
     channel: str = Query("CHU_7850", description="Channel name, e.g. CHU_7850, WWV_10000"),
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-6h')"),
     end: str = Query("now", description="End time"),
@@ -391,7 +391,7 @@ async def get_all_arrivals(
 
 
 @router.get("/arrivals/timeseries")
-async def get_arrivals_timeseries(
+def get_arrivals_timeseries(
     channel: str = Query("CHU_7850", description="Channel name"),
     start: str = Query("-24h", description="Start time"),
     end: str = Query("now", description="End time"),
@@ -558,7 +558,7 @@ async def get_arrivals_timeseries(
 
 
 @router.get("/doppler-delay")
-async def get_doppler_delay(
+def get_doppler_delay(
     channel: str = Query("CHU_7850", description="Channel name"),
     start: str = Query("-6h", description="Start time"),
     end: str = Query("now", description="End time"),
@@ -730,7 +730,7 @@ async def get_doppler_delay(
 
 
 @router.get("/channels")
-async def list_ionogram_channels():
+def list_ionogram_channels():
     """List channels that have all_arrivals data available."""
     data_root = Path(config.data_root)
     available = []

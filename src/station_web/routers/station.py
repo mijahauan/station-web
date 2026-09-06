@@ -12,7 +12,7 @@ router = APIRouter(prefix="/station", tags=["station"])
 
 
 @router.get("/metadata", response_model=StationMetadata)
-async def get_station_metadata():
+def get_station_metadata():
     """
     Get station metadata and configuration.
     

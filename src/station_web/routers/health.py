@@ -10,13 +10,17 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("/system")
-async def get_system_health():
+def get_system_health():
     t = freshness.table(config)
-    appmod.STATUS["products"] = {k: v["verdict"] for k, v in t["products"].items()}
+    # Only APPLICABLE products reach the control socket's /metrics: a product
+    # whose table does not exist has no producing client here, and exporting a
+    # permanent station_web_product_valid{...} 0 for it would alert forever.
+    appmod.STATUS["products"] = {k: v["verdict"] for k, v in t["products"].items()
+                                 if v["applicable"]}
     appmod.STATUS["updated_at"] = t["timestamp"]
     return t
 
 
 @router.get("/channels")
-async def get_channel_status():
+def get_channel_status():
     return {"channels": discover_channels(config)}

@@ -72,7 +72,7 @@ def sanitize_for_json(obj):
     return obj
 
 @router.get("/")
-async def list_stations():
+def list_stations():
     """
     List all broadcast stations with summary info.
     
@@ -125,7 +125,7 @@ async def list_stations():
 
 
 @router.get("/broadcasts")
-async def list_broadcasts():
+def list_broadcasts():
     """
     List all 17 broadcasts with computed geometry.
     
@@ -161,7 +161,7 @@ async def list_broadcasts():
 
 
 @router.get("/channels")
-async def list_channels():
+def list_channels():
     """
     List derived channels for recording.
     
@@ -194,7 +194,7 @@ async def list_channels():
 
 
 @router.get("/{station_id}")
-async def get_station_dashboard(station_id: str):
+def get_station_dashboard(station_id: str):
     """
     Get comprehensive dashboard data for a specific station.
     """
@@ -280,7 +280,7 @@ async def get_station_dashboard(station_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{station_id}/history")
-async def get_station_history(
+def get_station_history(
     station_id: str,
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):

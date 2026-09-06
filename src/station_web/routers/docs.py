@@ -48,7 +48,7 @@ def _resolve(root: str, doc_name: str) -> Path:
 
 
 @router.get("/list")
-async def list_docs():
+def list_docs():
     out = []
     for r in config.docs_roots:
         base = Path(r["path"])
@@ -74,7 +74,7 @@ async def list_docs():
 
 
 @router.get("/{root}/{doc_name}")
-async def get_doc(root: str, doc_name: str):
+def get_doc(root: str, doc_name: str):
     p = _resolve(root, doc_name)
     try:
         content = p.read_text(errors="replace")
@@ -88,7 +88,7 @@ def _slug(heading: str) -> str:
 
 
 @router.get("/{root}/{doc_name}/section/{section_id}")
-async def get_section(root: str, doc_name: str, section_id: str):
+def get_section(root: str, doc_name: str, section_id: str):
     p = _resolve(root, doc_name)
     try:
         text = p.read_text(errors="replace")

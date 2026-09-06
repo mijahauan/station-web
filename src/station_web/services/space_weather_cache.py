@@ -13,6 +13,19 @@ FIELDS = ("f107", "f107_time", "f107_source", "kp", "kp_time", "kp_source",
           "ap", "ap_time", "ap_source", "fetched_at")
 
 
+def _parse_utc(ts: str) -> datetime:
+    """A cached timestamp as an AWARE UTC datetime.
+
+    hamsci-physics writes ``fetched_at`` with a ``Z``, but a naive value
+    has appeared in this cache before.  Subtracting naive from aware
+    raises TypeError, which is not a ValueError and so escaped the guard
+    below — one malformed cache file would 500 every space-weather page.
+    Naive can only mean UTC here.
+    """
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
 class SpaceWeatherCache:
     def __init__(self, data_root: Path):
         self.path = Path(data_root) / CACHE_REL
@@ -32,7 +45,7 @@ class SpaceWeatherCache:
         fetched = data.get("fetched_at")
         if fetched:
             try:
-                age = (datetime.now(timezone.utc) - datetime.fromisoformat(fetched.replace("Z", "+00:00"))).total_seconds()
+                age = (datetime.now(timezone.utc) - _parse_utc(fetched)).total_seconds()
                 out["age_s"] = round(age, 1)
                 out["stale"] = age > STALE_AFTER_S
             except ValueError:

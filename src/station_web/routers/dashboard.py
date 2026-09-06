@@ -71,7 +71,7 @@ def deep_sanitize(obj: Any) -> Any:
 
 
 @router.get("/broadcasts/24h")
-async def get_24h_broadcast_data(
+def get_24h_broadcast_data(
     date: Optional[str] = Query(None, description="Date in YYYYMMDD format (default: today)"),
     interval_minutes: int = Query(15, ge=5, le=60, description="Aggregation interval in minutes")
 ):
@@ -302,7 +302,7 @@ async def get_24h_broadcast_data(
 
 
 @router.get("/solar-zenith/24h")
-async def get_24h_solar_zenith(
+def get_24h_solar_zenith(
     date: Optional[str] = Query(None, description="Date in YYYYMMDD format (default: today)"),
     interval_minutes: int = Query(5, ge=1, le=60, description="Interval in minutes")
 ):
@@ -378,7 +378,7 @@ async def get_24h_solar_zenith(
 
 
 @router.get("/timing-error/24h")
-async def get_24h_timing_error(
+def get_24h_timing_error(
     broadcast_id: Optional[str] = Query(None, description="Filter by broadcast ID (e.g., WWV_10000)"),
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):
@@ -480,7 +480,7 @@ async def get_24h_timing_error(
 
 
 @router.get("/doppler/24h")
-async def get_24h_doppler(
+def get_24h_doppler(
     broadcast_id: Optional[str] = Query(None, description="Filter by broadcast ID"),
     hours: int = Query(24, ge=1, le=168, description="Hours of history")
 ):

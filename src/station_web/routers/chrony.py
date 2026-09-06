@@ -14,7 +14,7 @@ router = APIRouter(prefix="/chrony", tags=["chrony"])
 
 
 @router.get("/snapshot")
-async def get_live_snapshot() -> Dict[str, Any]:
+def get_live_snapshot() -> Dict[str, Any]:
     """Get a live chrony snapshot (sources + sourcestats + tracking)."""
     try:
         service = ChronyService(data_root=config.data_root, storage_config=config.storage)
@@ -32,7 +32,7 @@ async def get_live_snapshot() -> Dict[str, Any]:
 
 
 @router.get("/comparison")
-async def get_source_comparison() -> Dict[str, Any]:
+def get_source_comparison() -> Dict[str, Any]:
     """Get a formatted source comparison table.
 
     Returns all chrony sources with their offsets, errors, states,
@@ -46,7 +46,7 @@ async def get_source_comparison() -> Dict[str, Any]:
 
 
 @router.get("/history")
-async def get_source_history(
+def get_source_history(
     hours: int = Query(default=24, ge=1, le=168, description="Hours of history to return"),
 ) -> Dict[str, Any]:
     """Get historical chrony source statistics from HDF5.

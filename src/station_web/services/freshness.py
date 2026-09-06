@@ -20,10 +20,56 @@ EXPECTED = {
 }
 #: products written under a fixed channel rather than per receiver channel
 #: (matches tests/conftest.py's ``seeded`` fixture — the only ground truth
-#: for which channel each writer actually uses).
+#: for which channel each writer actually uses).  ``L3_gnss_vtec`` carries
+#: channel 'GNSS': both writers that produce it (gnss-vtec's own service and
+#: the hf-timestd bridge) hard-code that literal, so the per-receiver channel
+#: sweep would never have found a row.
 FIXED_CHANNEL = {("L3", "fusion_timing"): "fusion", ("DIAG", "chrony_stats"): "fusion",
                  ("L3", "physics"): "global", ("L3", "tec"): "AGGREGATED",
-                 ("L3", "dtec"): "AGGREGATED", ("L3", "tid"): "AGGREGATED"}
+                 ("L3", "dtec"): "AGGREGATED", ("L3", "tid"): "AGGREGATED",
+                 ("L3", "gnss_vtec"): "GNSS"}
+
+
+def _parse_utc(ts: str) -> datetime:
+    """A stored timestamp as an AWARE UTC datetime.
+
+    Every writer is supposed to store ``...Z``, but a naive value has
+    reached these tables before (a producer that formatted a naive
+    ``datetime.utcnow()``).  Subtracting a naive datetime from an aware
+    ``now`` raises TypeError, which would turn one malformed row into a
+    500 on /api/health/system.  Treat naive as UTC — the only meaning it
+    could have here — rather than failing the whole health table.
+    """
+    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _existing_tables(settings: Settings) -> set[str]:
+    """The product tables that actually exist in the database.
+
+    A table that was never created means its producing client is not
+    installed on this station, which is a different fact from "installed
+    and silent".  ``table()`` uses it to mark a product not applicable
+    instead of reporting a permanent INDETERMINATE that reads as a fault.
+    """
+    db = _db_path(settings)
+    if not db.exists():
+        return set()
+    names: set[str] = set()
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            for level, name in EXPECTED:
+                tbl = f"{level}_{name}"
+                if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                               (tbl,)).fetchone():
+                    names.add(tbl)
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        logger.warning("freshness table probe on %s failed: %s", db, exc)
+        return set()
+    return names
 
 
 def _max_timestamp(settings: Settings, level: str, name: str, channel: str) -> str | None:
@@ -66,7 +112,7 @@ def _newest_across_channels(settings: Settings, level: str, name: str, channels:
         ts = _max_timestamp(settings, level, name, ch)
         if ts is None:
             continue
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = _parse_utc(ts)
         if best_dt is None or dt > best_dt:
             best_dt, best_ts, best_channel = dt, ts, ch
     return best_ts, best_channel
@@ -75,6 +121,7 @@ def _newest_across_channels(settings: Settings, level: str, name: str, channels:
 def table(settings: Settings) -> dict:
     now = datetime.now(timezone.utc)
     channels = [c["name"] for c in discover_channels(settings)]
+    present = _existing_tables(settings)
     products: dict[str, dict] = {}
     for (level, name), expected in EXPECTED.items():
         fixed = FIXED_CHANNEL.get((level, name))
@@ -85,11 +132,24 @@ def table(settings: Settings) -> dict:
         if ts is None:
             verdict, age = "INDETERMINATE", None
         else:
-            age = (now - datetime.fromisoformat(ts.replace("Z", "+00:00"))).total_seconds()
+            age = (now - _parse_utc(ts)).total_seconds()
             verdict = "VALID" if age <= expected else "INVALID"
-        products[f"{level}_{name}"] = {"verdict": verdict, "age_s": None if age is None else round(age, 1),
-                                       "expected_s": expected, "channel": channel}
-    verdicts = {p["verdict"] for p in products.values()}
-    status = "healthy" if verdicts == {"VALID"} else ("error" if "INVALID" in verdicts else "degraded")
+        tbl = f"{level}_{name}"
+        entry = {"verdict": verdict, "age_s": None if age is None else round(age, 1),
+                 "expected_s": expected, "channel": channel,
+                 "applicable": tbl in present}
+        if not entry["applicable"]:
+            entry["reason"] = f"no {tbl} table — producing client not installed"
+        products[tbl] = entry
+    applicable = [p for p in products.values() if p["applicable"]]
+    verdicts = {p["verdict"] for p in applicable}
+    if not applicable:
+        status = "degraded"                      # nothing to judge: not healthy, not an error
+    elif "INVALID" in verdicts:
+        status = "error"
+    elif verdicts == {"VALID"}:
+        status = "healthy"
+    else:
+        status = "degraded"
     return {"status": status, "timestamp": now.isoformat().replace("+00:00", "Z"),
             "products": products, "channels": channels}

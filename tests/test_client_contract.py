@@ -129,3 +129,54 @@ def test_main_guard_present():
     """§12.1 entry-point reachability."""
     text = (ROOT / "src/station_web/cli.py").read_text()
     assert 'if __name__ == "__main__":' in text or "if __name__ == '__main__':" in text
+
+
+# ---------------------------------------------------------------------------
+# §12.6 / §12.1: validate must catch a deployment whose manifest disagrees
+# with the code, and an entry point the unit could not actually reach.  Both
+# numbers are self-reported, so nothing else in the system would notice.
+# ---------------------------------------------------------------------------
+
+
+def _loaded_settings(tmp_path):
+    from station_web.config import load_settings
+    (tmp_path / "phase2").mkdir(exist_ok=True)
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(f'[station]\ncallsign = "AC0G"\ngrid_square = "EM38ww"\n'
+                   f'[data]\nroot = "{tmp_path}"\n')
+    return load_settings(cfg)
+
+
+def test_validate_fails_on_a_contract_version_mismatch(tmp_path):
+    import sys
+    sys.path.insert(0, SRC)
+    from station_web.contract import CONTRACT_VERSION, collect_issues
+
+    bad = tmp_path / "deploy.toml"
+    bad.write_text('[package]\nname = "station-web"\ncontract_version = "0.7"\n')
+    issues = collect_issues(_loaded_settings(tmp_path), deploy_toml=bad)
+    fails = [i for i in issues if i["severity"] == "fail"]
+    assert any("contract_version" in i["message"] and CONTRACT_VERSION in i["message"]
+               for i in fails), issues
+
+
+def test_validate_passes_the_real_manifest(tmp_path):
+    import sys
+    sys.path.insert(0, SRC)
+    from station_web.contract import collect_issues
+
+    issues = collect_issues(_loaded_settings(tmp_path), deploy_toml=ROOT / "deploy.toml")
+    assert not [i for i in issues if "contract_version" in i["message"]], issues
+
+
+def test_validate_checks_the_unit_reaches_the_console_script(tmp_path):
+    """§12.1: ExecStart must name the station-web console script, and
+    cli.py must keep its __main__ guard."""
+    import sys
+    sys.path.insert(0, SRC)
+    from station_web.contract import CONSOLE_SCRIPT, _entry_point_issues
+
+    unit = (ROOT / "systemd" / "station-web@.service").read_text()
+    assert any(ln.startswith("ExecStart=") and f"/{CONSOLE_SCRIPT} " in ln
+               for ln in unit.splitlines())
+    assert _entry_point_issues() == []

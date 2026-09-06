@@ -47,7 +47,7 @@ def parse_time_param(time_str: str) -> datetime:
 
 
 @router.get("/fusion/latest", response_model=FusionResponse)
-async def get_latest_fusion():
+def get_latest_fusion():
     """
     Get latest fusion timing estimate.
     
@@ -76,7 +76,7 @@ async def get_latest_fusion():
 
 
 @router.get("/fusion/history", response_model=FusionHistoryResponse)
-async def get_fusion_history(
+def get_fusion_history(
     start: str = Query("-6h", description="Start time (ISO8601 or relative, e.g., '-6h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
     min_quality: Optional[str] = Query(None, description="Minimum quality grade (A/B/C/D)")
