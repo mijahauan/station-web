@@ -10,7 +10,8 @@ KEPT_PREFIXES = ["/api/station", "/api/stations", "/api/health", "/api/metrology
                  "/api/physics", "/api/tec", "/api/tid", "/api/dashboard", "/api/phase",
                  "/api/grape", "/api/ionogram", "/api/chrony", "/api/docs",
                  "/api/living-docs"]
-CUT_PATHS = ["/api/logs/services", "/api/timing-validation/status", "/api/health/storage"]
+CUT_PATHS = ["/api/logs/services", "/api/timing-validation/status", "/api/health/storage",
+             "/api/health/grape"]
 
 
 def _routes(client):
@@ -188,12 +189,14 @@ ROUTES_WITH_DATA = [
     # ── Space weather: read from hamsci-physics's cache (Task 10) ──────
     ("/api/space-weather/current", lambda j: j.get("f107") == 142.0),
 
-    # ── Rebuilt in Task 11.  Each check names what the seeded row
-    #    should surface once the rebuild lands; today it does not.
-    pytest.param("/api/health/system",
-                 lambda j: j["channels"][0]["status"] == "active"
-                 and j["channels"][0]["carrier_snr_db"] == 21.5,
-                 marks=pytest.mark.xfail(strict=True, reason="Task 11")),
+    # ── Health as product freshness (Task 11) ──────────────────────────
+    ("/api/health/system",
+     lambda j: j["products"]["L3_fusion_timing"]["verdict"] == "VALID"
+     and j["products"]["DIAG_chrony_stats"]["verdict"] == "VALID"
+     and j["products"]["L3_gnss_vtec"]["verdict"] == "INDETERMINATE"
+     and j["status"] in {"healthy", "degraded"}),
+    ("/api/health/channels",
+     lambda j: "WWV_20000" in [c["name"] for c in j["channels"]]),
 ]
 
 
