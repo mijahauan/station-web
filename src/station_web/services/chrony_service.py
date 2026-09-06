@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 #: is not a live snapshot any more.
 STALE_AFTER_S = 120.0
 
+#: how far back ``_latest_rows`` looks for the latest row per source.
+LOOKBACK_S = 600.0
+
 #: chrony source-state ordering: selected first, then combined, etc.
 STATE_ORDER = {"*": 0, "+": 1, "-": 2, "x": 3, "~": 4, "?": 5}
 
@@ -37,7 +40,7 @@ class ChronyService:
         self.fusion_dir = self.data_root / 'phase2' / 'fusion'
         self.storage_config = storage_config
 
-    def _latest_rows(self, window_s: float = 600.0) -> List[dict]:
+    def _latest_rows(self, window_s: float = LOOKBACK_S) -> List[dict]:
         """The most recent row per ``source_name`` within ``window_s``."""
         now = datetime.now(timezone.utc)
         start = (now - timedelta(seconds=window_s)).isoformat().replace("+00:00", "Z")
@@ -74,7 +77,14 @@ class ChronyService:
             "error_us": r.get("error_us"), "n_samples": r.get("n_samples"), "std_dev_us": r.get("std_dev_us"),
         } for r in rows]
         sources.sort(key=lambda s: (STATE_ORDER.get(s["state"], 9), s["name"]))
-        sys_off = next((r.get("sys_offset_s") for r in rows if r.get("sys_offset_s") is not None), None)
+        # sys_offset_s describes the host's tracking offset at the moment a
+        # row was written — it must come from the newest row(s), not from
+        # whichever source happens first in iteration order, or a stale
+        # source's reading can silently override a fresh one's.
+        newest_rows = [r for r in rows if r["unix_time"] == newest]
+        sys_off = next((r.get("sys_offset_s") for r in newest_rows if r.get("sys_offset_s") is not None), None)
+        if sys_off is None:
+            sys_off = next((r.get("sys_offset_s") for r in rows if r.get("sys_offset_s") is not None), None)
         return {
             "timestamp_utc": datetime.fromtimestamp(newest, timezone.utc).isoformat().replace("+00:00", "Z"),
             "unix_time": newest, "age_s": round(age, 1), "stale": age > STALE_AFTER_S,

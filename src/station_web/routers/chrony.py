@@ -7,7 +7,7 @@ Provides live and historical chrony source statistics for metrology validation.
 from fastapi import APIRouter, HTTPException, Query
 from typing import Dict, Any
 
-from station_web.services.chrony_service import ChronyService
+from station_web.services.chrony_service import ChronyService, LOOKBACK_S
 from station_web.config import config
 
 router = APIRouter(prefix="/chrony", tags=["chrony"])
@@ -22,7 +22,7 @@ async def get_live_snapshot() -> Dict[str, Any]:
         if result is None:
             raise HTTPException(
                 status_code=404,
-                detail="no chrony rows in the last 10 minutes",
+                detail=f"no chrony rows in the last {int(LOOKBACK_S // 60)} minutes",
             )
         return result
     except HTTPException:
