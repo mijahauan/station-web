@@ -27,21 +27,15 @@ logger = logging.getLogger(__name__)
 # Initialize services
 # Note: In a real app these might be dependency injected, but we'll instantiate for now
 # consistent with other routers
-_prop_service = None
-_fusion_service = None
 _broadcast_registry = None
 
 def get_prop_service():
-    global _prop_service
-    if _prop_service is None:
-        _prop_service = PropagationService(config.data_root)
-    return _prop_service
+    """Built per request: ``config.data_root`` is read on every call."""
+    return PropagationService(config.data_root)
 
 def get_fusion_service():
-    global _fusion_service
-    if _fusion_service is None:
-        _fusion_service = FusionService(config.data_root / "phase2" / "fusion")
-    return _fusion_service
+    """Built per request: ``config.data_root`` is read on every call."""
+    return FusionService(config.data_root / "phase2" / "fusion")
 
 def get_broadcast_registry() -> BroadcastRegistry:
     """Get or create the broadcast registry singleton."""

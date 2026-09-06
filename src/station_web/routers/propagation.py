@@ -14,8 +14,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/propagation", tags=["propagation"])
 
-# Initialize service
-propagation_service = PropagationService(config.data_root)
+def _service() -> PropagationService:
+    """Built per request, never at import.
+
+    ``config`` is a proxy: the settings behind it change when the process is
+    reconfigured and when a test swaps them.  A data root read at import time
+    would freeze the first value the module ever saw.  Construction is cheap —
+    the service holds paths, and opens its reader on demand.
+    """
+    return PropagationService(config.data_root)
 
 
 @router.get("/conditions")
@@ -28,7 +35,7 @@ async def get_current_conditions():
     from the last hour of measurements.
     """
     try:
-        conditions = propagation_service.get_current_conditions()
+        conditions = _service().get_current_conditions()
         
         if conditions is None:
             raise HTTPException(
@@ -79,7 +86,7 @@ async def get_mode_timeline(
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
         logger.info(f"  Fetching timeline from {start_time} to {end_time}")
-        timeline = propagation_service.get_mode_timeline(start_time, end_time, station)
+        timeline = _service().get_mode_timeline(start_time, end_time, station)
         logger.info(f"  Timeline fetch complete. Count: {timeline.get('count') if timeline else 'None'}")
         
         if timeline is None:
@@ -130,7 +137,7 @@ async def get_tec_summary(
         else:
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
-        tec_data = propagation_service.get_tec_summary(start_time, end_time)
+        tec_data = _service().get_tec_summary(start_time, end_time)
         
         if tec_data is None:
             raise HTTPException(
@@ -181,7 +188,7 @@ async def get_test_signals(
         else:
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
-        test_signal_data = propagation_service.get_test_signal_summary(start_time, end_time)
+        test_signal_data = _service().get_test_signal_summary(start_time, end_time)
         
         if test_signal_data is None:
             raise HTTPException(

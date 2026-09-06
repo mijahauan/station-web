@@ -16,8 +16,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tec", tags=["ionosphere"])
 
-# Initialize service
-tec_service = TECService(config.data_root)
+def _service() -> TECService:
+    """Built per request, never at import.
+
+    ``config`` is a proxy: the settings behind it change when the process is
+    reconfigured and when a test swaps them.  A data root read at import time
+    would freeze the first value the module ever saw.  Construction is cheap —
+    the service holds paths, and opens its reader on demand.
+    """
+    return TECService(config.data_root)
 
 
 def _parse_relative_time(s: str, now: datetime) -> datetime:
@@ -171,7 +178,7 @@ async def get_current_tec():
     Returns current TEC values for all monitored propagation paths.
     """
     try:
-        data = tec_service.get_current_tec()
+        data = _service().get_current_tec()
         
         if data is None:
             return {
@@ -223,7 +230,7 @@ async def get_tec_history(
         else:
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
-        data = tec_service.get_tec_history(start_time, end_time, station=station)
+        data = _service().get_tec_history(start_time, end_time, station=station)
         
         return {
             "status": "ok",
@@ -255,7 +262,7 @@ async def get_tec_by_station(
                 detail=f"Invalid station: {station}. Must be WWV, WWVH, CHU, or BPM"
             )
         
-        data = tec_service.get_tec_by_station(station, hours)
+        data = _service().get_tec_by_station(station, hours)
         
         return {
             "status": "ok",

@@ -20,8 +20,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/phase", tags=["phase"])
 
-# Initialize service
-phase_service = PhaseService(config.data_root)
+def _service() -> PhaseService:
+    """Built per request, never at import.
+
+    ``config`` is a proxy: the settings behind it change when the process is
+    reconfigured and when a test swaps them.  A data root read at import time
+    would freeze the first value the module ever saw.  Construction is cheap —
+    the service holds paths, and opens its reader on demand.
+    """
+    return PhaseService(config.data_root)
 
 
 def _parse_time_range(start: str, end: str):
@@ -74,7 +81,7 @@ async def get_phase_timeseries(
         if phase_type not in ('phase_rad', 'carrier_phase_rad', 'dc_carrier_phase_rad'):
             raise ValueError(f"Invalid phase_type: {phase_type}")
 
-        result = phase_service.get_phase_timeseries(
+        result = _service().get_phase_timeseries(
             start_time, end_time,
             channel=channel, station=station,
             phase_type=phase_type, unwrap=unwrap
@@ -105,7 +112,7 @@ async def get_doppler(
     """
     try:
         start_time, end_time = _parse_time_range(start, end)
-        result = phase_service.get_doppler(
+        result = _service().get_doppler(
             start_time, end_time,
             channel=channel, station=station,
             smoothing_seconds=smoothing
@@ -135,7 +142,7 @@ async def get_scintillation(
     """
     try:
         start_time, end_time = _parse_time_range(start, end)
-        result = phase_service.get_scintillation(
+        result = _service().get_scintillation(
             start_time, end_time,
             channel=channel, station=station,
             window_seconds=window
@@ -157,7 +164,7 @@ async def get_available_channels():
     Used by the frontend to populate channel/station filter dropdowns.
     """
     try:
-        result = phase_service.get_available_channels()
+        result = _service().get_available_channels()
         return result
 
     except Exception as e:
@@ -173,7 +180,7 @@ async def get_phase_summary():
     Returns latest Doppler, scintillation, and SNR for each active channel/station pair.
     """
     try:
-        result = phase_service.get_phase_summary()
+        result = _service().get_phase_summary()
         return result
 
     except Exception as e:

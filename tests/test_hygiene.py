@@ -58,3 +58,13 @@ def test_app_serves_when_control_socket_cannot_start(settings, tmp_path):
     with TestClient(app) as c:
         assert c.get("/").status_code == 200
         assert str(STATUS["control_socket"]).startswith("failed:")
+
+
+def test_no_import_time_config_reads():
+    import re
+    bad = []
+    for p in list((SRC / "routers").glob("*.py")) + list((SRC / "services").glob("*.py")):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            if re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*=\s*.*\bconfig\.", line):
+                bad.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
+    assert not bad, "module-level config reads defeat per-request settings:\n" + "\n".join(bad)

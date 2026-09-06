@@ -14,8 +14,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/stability", tags=["stability"])
 
-# Initialize service
-stability_service = StabilityService(config.data_root)
+def _service() -> StabilityService:
+    """Built per request, never at import.
+
+    ``config`` is a proxy: the settings behind it change when the process is
+    reconfigured and when a test swaps them.  A data root read at import time
+    would freeze the first value the module ever saw.  Construction is cheap —
+    the service holds paths, and opens its reader on demand.
+    """
+    return StabilityService(config.data_root)
 
 
 @router.get("/adev")
@@ -57,7 +64,7 @@ async def get_allan_deviation(
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
         # Compute stability metrics
-        metrics = stability_service.compute_stability_metrics(start_time, end_time)
+        metrics = _service().compute_stability_metrics(start_time, end_time)
         
         if metrics is None:
             raise HTTPException(

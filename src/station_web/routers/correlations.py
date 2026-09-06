@@ -20,18 +20,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/correlations", tags=["correlations"])
 
-# Built on first use: CorrelationService pulls in SpaceWeatherService, which
-# starts a poller thread.  Shares the space-weather singleton (one thread).
-_correlation_service: CorrelationService | None = None
-
-
 def _service() -> CorrelationService:
-    """Return the shared CorrelationService, constructing it on first use."""
-    global _correlation_service
-    if _correlation_service is None:
-        _correlation_service = CorrelationService(config.data_root,
-                                                  space_weather=_space_weather())
-    return _correlation_service
+    """Built per request, never at import.
+
+    Reads ``config.data_root`` on every call so a reconfigured process (or a
+    test that swaps settings) is honoured.  The space-weather service it wraps
+    stays a singleton — that one owns a poller thread.
+    """
+    return CorrelationService(config.data_root, space_weather=_space_weather())
 
 # Thread pool for running sync correlation functions with timeout
 _executor = ThreadPoolExecutor(max_workers=2)

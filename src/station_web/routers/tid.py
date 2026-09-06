@@ -14,8 +14,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tid", tags=["ionosphere"])
 
-# Initialize service
-tid_service = TIDService(config.data_root)
+def _service() -> TIDService:
+    """Built per request, never at import.
+
+    ``config`` is a proxy: the settings behind it change when the process is
+    reconfigured and when a test swaps them.  A data root read at import time
+    would freeze the first value the module ever saw.  Construction is cheap —
+    the service holds paths, and opens its reader on demand.
+    """
+    return TIDService(config.data_root)
 
 
 @router.get("/events")
@@ -28,7 +35,7 @@ async def get_tid_events(
     Returns list of detected Traveling Ionospheric Disturbances.
     """
     try:
-        events = tid_service.get_recent_events(hours)
+        events = _service().get_recent_events(hours)
         
         return {
             "status": "ok",
@@ -50,7 +57,7 @@ async def get_tid_event_details(event_id: str):
     Returns full event data including correlation and residual time series.
     """
     try:
-        event = tid_service.get_event_details(event_id)
+        event = _service().get_event_details(event_id)
         
         if event is None:
             raise HTTPException(
@@ -81,7 +88,7 @@ async def get_tid_statistics(
     and propagation direction histogram.
     """
     try:
-        stats = tid_service.get_statistics(days)
+        stats = _service().get_statistics(days)
         
         return {
             "status": "ok",
@@ -123,7 +130,7 @@ async def get_tid_history(
         else:
             start_time = datetime.fromisoformat(start.replace('Z', ''))
         
-        events = tid_service.get_events_in_range(start_time, end_time)
+        events = _service().get_events_in_range(start_time, end_time)
         
         return {
             "status": "ok",
