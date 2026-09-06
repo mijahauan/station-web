@@ -21,6 +21,22 @@ fi
 
 install -d -m 0755 "$CONFIG_DIR" "$CONFIG_DIR/env"
 
+# CLIENT-CONTRACT §5.1: sigmond enumerates a client's instances from
+# /etc/<client>/env/<instance>.env.  The templated unit only ever runs as
+# station-web@default, so seed that instance file if it's missing — including
+# on a re-run against an existing config — or sigmond shows the default
+# instance as orphaned and invents an inactive station-web@station-web.
+DEFAULT_ENV=$CONFIG_DIR/env/default.env
+if [[ ! -f $DEFAULT_ENV ]]; then
+    cat > "$DEFAULT_ENV" <<'EOF'
+# station-web instance "default" — CLIENT-CONTRACT §5.1 instance enumerator.
+# Sourced by station-web@default.service; keys here become environment
+# variables for that instance.  Empty is fine.
+EOF
+    chmod 0644 "$DEFAULT_ENV"
+    echo "station-web: wrote $CONFIG_DIR/env/default.env"
+fi
+
 # The one directory station-web needs to WRITE in: SQLite's -wal and -shm
 # sidecars are created by whichever process opens the database, so a reader
 # running as stationweb (group timestd) needs group write on the directory

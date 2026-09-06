@@ -1,6 +1,9 @@
 """deploy.toml invariants (CLIENT-CONTRACT §5) and unit hygiene (§4)."""
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -58,3 +61,25 @@ def test_config_scripts_exist_and_are_executable(deploy):
     for key in ("init", "edit"):
         p = ROOT / deploy["contract"]["config"][key]
         assert p.exists() and p.stat().st_mode & 0o111, p
+
+
+def test_setup_creates_default_instance_env_file(tmp_path):
+    """CLIENT-CONTRACT §5.1: sigmond enumerates a client's instances from
+    /etc/<client>/env/<instance>.env.  setup-station.sh must seed the
+    "default" instance's file, and it must not clobber it on a re-run
+    against an existing config (this repo's unprivileged test run never
+    reaches the useradd or chmod-g+ws branches — those require EUID 0 and
+    an existing db_dir respectively)."""
+    config_dir = tmp_path / "etc" / "station-web"
+    env = dict(os.environ, CONFIG_DIR=str(config_dir), CONFIG=str(config_dir / "station-web.toml"))
+    script = ROOT / "scripts" / "setup-station.sh"
+    env_file = config_dir / "env" / "default.env"
+
+    proc = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=30, env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert env_file.exists()
+    first_content = env_file.read_text()
+
+    proc2 = subprocess.run(["bash", str(script)], capture_output=True, text=True, timeout=30, env=env)
+    assert proc2.returncode == 0, proc2.stderr
+    assert env_file.read_text() == first_content
