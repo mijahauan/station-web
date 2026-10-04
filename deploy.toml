@@ -79,3 +79,14 @@ why        = "hamsci-physics dependency (not on PyPI)"
 name    = "fastapi"
 version = ">=0.104.0"
 venv    = "/opt/git/sigmond/station-web/venv"
+
+# The config this client needs, declared the contract way (kind = "render").
+# [contract.config].init (setup-station.sh) still creates the file; this entry
+# says which template it comes from, so sigmond can judge `configured` and
+# ops' site-capture can record how a site's copy differs from the default.
+[[install.steps]]
+kind      = "render"
+src       = "config/station-web.toml.template"
+dst       = "/etc/station-web/config.toml"
+mode      = "0644"
+if_absent = true

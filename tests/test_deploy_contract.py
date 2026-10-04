@@ -23,12 +23,19 @@ def test_package_identity(deploy):
     assert deploy["package"]["contract_version"] == "0.8"
 
 
-def test_only_link_steps():
-    """sigmond executes only kind = "link" today (installer.py:532)."""
+def test_only_link_steps_execute():
+    """sigmond executes only kind = "link" (installer.py skips every other
+    kind).  The one other kind allowed is the contract's "render" DECLARATION
+    of this client's config: sigmond reads it to judge `configured`, and ops'
+    site-capture compares the live file with its template.  Nothing else."""
     with open(ROOT / "deploy.toml", "rb") as fh:
         d = tomllib.load(fh)
     for step in d["install"]["steps"]:
-        assert step.get("kind") == "link", step
+        kind = step.get("kind")
+        assert kind in ("link", "render"), step
+        if kind == "render":
+            assert step["dst"].startswith("/etc/station-web/"), step
+            assert (ROOT / step["src"]).is_file(), step
 
 
 def test_build_produces_the_console_script(deploy):
