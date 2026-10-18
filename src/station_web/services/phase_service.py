@@ -71,7 +71,12 @@ _PHASE_FIELDS = ('carrier_phase_rad', 'dc_carrier_phase_rad', 'phase_rad')
 # One heavy pass at a time: four parallel day-long reads once multiplied
 # memory past the unit's MemoryMax.
 _HEAVY = threading.Semaphore(1)
-_HEAVY_WAIT_S = 120.0
+# A queued request gives up quickly and answers 503, rather than parking one of
+# the server's worker threads behind someone else's read.
+_HEAVY_WAIT_S = 5.0
+# The scintillation window comes from a short list: a free value would size the
+# per-window accumulators (span / window) and mint cache keys at will.
+ALLOWED_WINDOWS_S = (10, 30, 60, 120, 300, 600)
 
 _CACHE_TTL_S = 60.0
 _CACHE_MAX = 8
@@ -413,8 +418,16 @@ class PhaseService:
             raise PhaseRequestError("end must follow start")
         if end_epoch - start_epoch > MAX_SPAN_DAYS * 86400:
             raise PhaseRequestError(f"window longer than {MAX_SPAN_DAYS} days")
-        if not window_s >= 1.0:
-            raise PhaseRequestError("scintillation window must be at least 1 s")
+        if window_s not in ALLOWED_WINDOWS_S:
+            raise PhaseRequestError(
+                "scintillation window must be one of "
+                + ", ".join(str(w) for w in ALLOWED_WINDOWS_S) + " s")
+        window_s = float(window_s)
+        # Snap the window outward to bucket boundaries, so requests a few
+        # seconds apart share one cache entry instead of one full read each.
+        b = bucket_seconds_for(end_epoch - start_epoch)
+        start_epoch = math.floor(start_epoch / b) * b
+        end_epoch = math.ceil(end_epoch / b) * b
         # Only names the database holds may reach the cache key, so a client
         # cannot mint keys, or reads, with arbitrary strings.
         if channel or station:
@@ -423,8 +436,8 @@ class PhaseService:
                 raise PhaseRequestError("unknown channel")
             if station and station not in known['stations']:
                 raise PhaseRequestError("unknown station")
-        key =(round(start_epoch, 3), round(end_epoch, 3), channel or None,
-               station or None, float(window_s), str(self._db_path()))
+        key = (start_epoch, end_epoch, channel or None,
+               station or None, window_s, str(self._db_path()))
         hit = _cache_get(key)
         if hit is not None:
             return hit

@@ -325,6 +325,8 @@ def test_dc_meaningful_comes_from_the_channel_not_a_chu_list(big_client):
     f"{WINDOW}&station=XYZ",
     f"{WINDOW}&phase_type=bogus",
     f"{WINDOW}&window=0",
+    f"{WINDOW}&window=1",
+    f"{WINDOW}&window=15",
     "start=2026-10-18T00:00:00Z&end=2026-10-17T00:00:00Z",
 ])
 def test_unbounded_requests_are_refused(big_client, query):
@@ -352,3 +354,40 @@ def test_cache_stays_bounded(big_settings):
         s = DAY0 + timedelta(minutes=10 * m)
         svc.get_combined(s, s + timedelta(minutes=5))
     assert len(phase_service._cache) <= phase_service._CACHE_MAX
+
+
+def test_window_choices_are_a_fixed_set():
+    # A free window_s would size the per-window accumulators (span / window) and
+    # mint cache keys at will; a short list does neither.
+    assert phase_service.ALLOWED_WINDOWS_S == (10, 30, 60, 120, 300, 600)
+
+
+def test_a_busy_lock_answers_quickly(big_client, monkeypatch):
+    # A queued request must not park a pool thread for minutes; it answers 503.
+    monkeypatch.setattr(phase_service, "_HEAVY_WAIT_S", 0.2)
+    client = big_client
+    assert phase_service._HEAVY.acquire(timeout=1)
+    try:
+        t0 = time.monotonic()
+        r = client.get(f"/api/phase/combined?{WINDOW}")
+        assert r.status_code == 503
+        assert time.monotonic() - t0 < 2.0
+    finally:
+        phase_service._HEAVY.release()
+
+
+def test_default_wait_is_short():
+    assert phase_service._HEAVY_WAIT_S <= 5.0
+
+
+def test_nearby_windows_share_one_read(big_client, monkeypatch):
+    # Start and end snap to bucket boundaries, so requests a few seconds apart
+    # land on one cache entry instead of one full read each.
+    statements = _count_tick_phase_reads(monkeypatch)
+    base = datetime(DAY0.year, DAY0.month, DAY0.day, 0, 0, 7, tzinfo=timezone.utc)
+    for dt in (0, 3, 11, 19):
+        s = (base + timedelta(seconds=dt)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        e = (base + timedelta(days=1, seconds=dt)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        assert big_client.get(f"/api/phase/combined?start={s}&end={e}").status_code == 200
+    reads = [s for s in statements if "carrier_phase_rad" in s]
+    assert len(reads) == 2, reads      # one per channel, once
