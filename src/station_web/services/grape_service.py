@@ -1,5 +1,10 @@
 """
-GRAPE service - serves spectrograms, decimation status, and upload history.
+GRAPE service - serves spectrograms, decimation status, and pipeline status.
+
+The producer is hamsci-physics ``grape daily``.  It decimates each channel to
+``products/<ch>/decimated/<date>.bin``, renders
+``products/<ch>/spectrograms/<date>_spectrogram.png``, packages the day under
+``upload/<date>/``, and records the run in ``upload/grape_status.json``.
 """
 
 import json
@@ -20,17 +25,19 @@ class GrapeService:
         self.upload_dir = self.data_root / "upload"
 
     def get_channels(self) -> List[str]:
-        """Get list of channels with decimated data."""
+        """Channels with a decimated day or a rendered spectrogram.
+
+        Either product counts: a station that prunes ``.bin`` files after
+        packaging still keeps its spectrograms, and those must stay viewable.
+        """
         channels = []
         if self.products_dir.exists():
             for d in sorted(self.products_dir.iterdir()):
                 if not d.is_dir():
                     continue
-                dec_dir = d / "decimated"
-                if not dec_dir.exists():
-                    continue
-                # Must have at least one .bin file
-                if not any(dec_dir.glob("????????.bin")):
+                has_bin = any((d / "decimated").glob("????????.bin"))
+                has_png = any((d / "spectrograms").glob("*_spectrogram.png"))
+                if not (has_bin or has_png):
                     continue
                 # Skip non-channel directories (date dirs, raw_buffer, etc.)
                 name = d.name
@@ -90,17 +97,23 @@ class GrapeService:
                 }
         return status
 
-    def get_upload_history(self) -> List[Dict]:
-        """Get upload queue/history."""
-        queue_file = self.upload_dir / "queue.json"
-        if not queue_file.exists():
-            return []
+    def get_pipeline_status(self) -> Optional[Dict]:
+        """The latest ``grape daily`` run, as hamsci-physics recorded it.
+
+        ``upload/grape_status.json`` holds one run: date, status
+        (running/completed/failed), channel counts per stage, upload_status
+        and error.  ``None`` when the file is absent or unreadable.
+        """
+        status_file = self.upload_dir / "grape_status.json"
+        if not status_file.exists():
+            return None
         try:
-            with open(queue_file, "r") as f:
-                return json.load(f)
+            with open(status_file, "r") as f:
+                data = json.load(f)
         except Exception as e:
-            logger.error(f"Error reading upload queue: {e}")
-            return []
+            logger.error(f"Error reading {status_file}: {e}")
+            return None
+        return data if isinstance(data, dict) else None
 
     def get_upload_dates(self) -> List[str]:
         """Get dates with packaged data ready for upload."""
@@ -114,29 +127,14 @@ class GrapeService:
     def get_summary(self) -> Dict:
         """Get overall GRAPE pipeline summary."""
         channels = self.get_channels()
-        dec_status = self.get_decimation_status()
-        upload_history = self.get_upload_history()
         upload_dates = self.get_upload_dates()
-
-        completed_uploads = sum(
-            1 for u in upload_history if u.get("status") == "completed"
-        )
-        pending_uploads = sum(
-            1 for u in upload_history if u.get("status") in ("pending", "uploading")
-        )
-        failed_uploads = sum(
-            1 for u in upload_history if u.get("status") == "failed"
-        )
-
         return {
             "channels": len(channels),
             "channel_list": channels,
-            "decimation": dec_status,
+            "decimation": self.get_decimation_status(),
+            "pipeline": self.get_pipeline_status(),
             "uploads": {
                 "packaged_dates": len(upload_dates),
-                "completed": completed_uploads,
-                "pending": pending_uploads,
-                "failed": failed_uploads,
-                "history": upload_history,
+                "latest_packaged": upload_dates[-1] if upload_dates else None,
             },
         }

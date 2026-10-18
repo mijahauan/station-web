@@ -1,5 +1,5 @@
 """
-GRAPE router - spectrograms, decimation status, upload history.
+GRAPE router - spectrograms, decimation status, pipeline status.
 """
 
 import logging
@@ -61,10 +61,9 @@ def get_spectrogram(channel: str, date_str: str):
 
 @router.get("/uploads")
 def upload_history():
-    """Upload queue and history."""
-    history = _service().get_upload_history()
-    dates = _service().get_upload_dates()
+    """Packaged dates and the latest daily pipeline run (grape_status.json)."""
+    svc = _service()
     return {
-        "packaged_dates": dates,
-        "history": history,
+        "packaged_dates": svc.get_upload_dates(),
+        "pipeline": svc.get_pipeline_status(),
     }
