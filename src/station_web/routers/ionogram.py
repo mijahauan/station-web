@@ -1,9 +1,14 @@
 """
-Ionogram API endpoints — all-arrivals Time-of-Flight vs SNR cluster analysis.
+Time-of-flight API endpoints (the page keeps its old /ionogram URL).
 
-Analogous to Gwyn Griffiths' WSPRDaemon grape_acf_doppler_spread.py plots:
   - ToF time series with S+N level overlay
   - ToF vs S+N scatter with KDE density contours (cluster analysis)
+  - Doppler (Hz) against delay, one point per minute
+
+The page holds no ionogram: an ionogram plots reflection height against
+frequency, and nothing here measures either.  The rank-0/rank-1 delay
+difference does not give an F2 height on an oblique path (it depends on
+ground range and on both hop geometries), so no endpoint derives one.
 
 Data source: the ``L1_all_arrivals`` SQLite product that hf-timestd's
 metrology service writes.  Channels and the stations heard on each are
@@ -39,6 +44,9 @@ from station_web import heavy
 from station_web.config import config
 from station_web.errors import internal_error
 from station_web.services.channels import _db_path
+from station_web.services.phase_service import (
+    DOPPLER_ESTIMATOR, PhaseBusy, PhaseRequestError, PhaseService,
+)
 from station_web.timeutil import parse_window
 from hamsci_dsp.stations import BUILTIN_CATALOG
 
@@ -494,7 +502,6 @@ def _arrivals_view(d, channel, station, t0, t1, min_snr_db, rank, include_kde, d
     }
 
     # KDE on the plausible set (thinned to KDE_MAX_POINTS) -- x=snr, y=tof
-    # (Griffiths convention)
     kde_result = None
     if include_kde and tof.size >= 10:
         kde_result = _kde_contours(snr, tof, n_grid=60)
@@ -552,36 +559,6 @@ def _timeseries_view(d, channel, station, t0, t1, min_snr_db):
     dom_ts, dom_tof, dom_snr = _bin_by_minute(rank_arr == 0)
     sec_ts, sec_tof, sec_snr = _bin_by_minute(rank_arr > 0)
 
-    # Implied F2 height from rank-0 vs rank-1 delay difference.
-    # Match dominant and secondary by minute, compute Δτ.
-    # Require Δτ ≥ 2ms to reject correlation sidelobes masquerading
-    # as multipath (real 1F2→2F2 separation is typically 3-10ms).
-    dom_dict = dict(zip(dom_ts, dom_tof))
-    dom_snr_dict = dict(zip(dom_ts, dom_snr))
-    sec_dict = dict(zip(sec_ts, sec_tof))
-    sec_snr_dict = dict(zip(sec_ts, sec_snr))
-    common = sorted(set(dom_dict) & set(sec_dict))
-
-    C_KM_S = 299792.458
-    MIN_DELTA_TAU_MS = 2.0   # reject sidelobes (< 2ms not physical)
-    MIN_PAIR_SNR_DB = 20.0   # both arrivals must be strong
-
-    h_ts, h_vals = [], []
-    for t in common:
-        delta_tau_ms = sec_dict[t] - dom_dict[t]
-        if delta_tau_ms < MIN_DELTA_TAU_MS:
-            continue
-        # Require both rank-0 and rank-1 to have decent SNR
-        if dom_snr_dict.get(t, 0) < MIN_PAIR_SNR_DB:
-            continue
-        if sec_snr_dict.get(t, 0) < MIN_PAIR_SNR_DB:
-            continue
-        # Simple vertical-path approximation: h ≈ c·Δτ/2
-        h_approx_km = C_KM_S * (delta_tau_ms / 1000.0) / 2.0
-        if 100 < h_approx_km < 600:
-            h_ts.append(int(t))
-            h_vals.append(float(h_approx_km))
-
     # Solar elevation at path midpoint — for day/night shading overlay
     solar = _compute_solar_overlay(label, t0, t1) if label else None
 
@@ -593,97 +570,128 @@ def _timeseries_view(d, channel, station, t0, t1, min_snr_db):
         "time_range": {"start": _iso(t0), "end": _iso(t1)},
         "dominant": {"timestamps": dom_ts, "tof_ms": dom_tof, "snr_db": dom_snr, "n": len(dom_ts)},
         "secondary": {"timestamps": sec_ts, "tof_ms": sec_tof, "snr_db": sec_snr, "n": len(sec_ts)},
-        "f2_height": {
-            "timestamps": h_ts,
-            "height_km": h_vals,
-            "n": len(h_ts),
-            "note": "Approximate F2 virtual height from rank-0 vs rank-1 delay difference",
-        },
         "solar": solar,
     }
 
 
-def _doppler_view(d, channel, station, t0, t1, min_snr_db, method, include_kde):
+NO_TICK_PHASE = "no L2_tick_phase rows for this channel, so no Doppler"
+PHASE_BUSY = "Doppler busy (another phase read is running); try again"
+
+
+def _minute_doppler(channel: str, t0: datetime, t1: datetime) -> dict:
+    """Per-minute Doppler for ``channel`` from phase_service: the estimator
+    the phase page and the Observatory draw.  Runs after the arrivals read
+    has released the ionogram semaphore, under phase_service's own.  A
+    channel without tick_phase rows, or a busy phase read, answers with a
+    reason in place of numbers."""
+    try:
+        md = PhaseService(config.data_root).get_minute_doppler(t0, t1, channel)
+    except PhaseRequestError:
+        return {"minutes": {}, "reason": NO_TICK_PHASE, "composite": None, "label": None}
+    except PhaseBusy:
+        return {"minutes": {}, "reason": PHASE_BUSY, "composite": None, "label": None}
+    minutes = {int(m): float(v) for m, v in zip(md["minute_boundary"], md["doppler_hz"])
+               if np.isfinite(v)}
+    return {"minutes": minutes, "reason": None if minutes else NO_TICK_PHASE_WINDOW,
+            "composite": md["composite"], "label": md["label"]}
+
+
+NO_TICK_PHASE_WINDOW = "no L2_tick_phase rows for this channel in this window, so no Doppler"
+NO_OVERLAP = "no minute in this window holds both a dominant arrival and a Doppler estimate"
+
+
+def _doppler_view(d, channel, station, t0, t1, min_snr_db, method, include_kde, doppler):
+    """Doppler (Hz) against delay (ms), one point per minute and station.
+
+    Delay: the minute's median time of flight of the dominant (rank-0)
+    plausible arrivals, per station.  Doppler: that minute's value from
+    ``doppler`` (``_minute_doppler``).  On a SHARED channel the Doppler
+    belongs to the composite carrier, so every station's delay in a minute
+    pairs with the same Doppler.  No carrier phase reaches this view: a
+    phase wrapped at ±π on a Cartesian axis drew false clusters at the seam.
+    """
+    minutes = doppler["minutes"]
+    base = {
+        "channel": channel,
+        "frequency_mhz": _freq_mhz(channel),
+        "time_range": {"start": _iso(t0), "end": _iso(t1)},
+        "delay_unit": "ms",
+        "doppler_unit": "Hz",
+        "doppler_estimator": DOPPLER_ESTIMATOR,
+        "doppler_composite": doppler["composite"],
+        "doppler_label": doppler["label"],
+        "doppler_reason": doppler["reason"],
+        "doppler_timeseries": {"minute_boundary": sorted(minutes),
+                               "doppler_hz": [minutes[m] for m in sorted(minutes)]},
+    }
+    empty_scatter = {"minute_boundary": [], "delay_ms": [], "doppler_hz": [],
+                     "station": [], "corr_snr_db": []}
     if d is not None:
-        keep = d["corr_snr_db"] >= min_snr_db
+        keep = (d["corr_snr_db"] >= min_snr_db) & (d["peak_rank"] == 0)
         if method:
             code = d["method_names"].index(method) if method in d["method_names"] else -1
             keep &= d["method"] == code
         d = _subset(d, keep) if not keep.all() else d
     if d is None or d["minute_boundary"].size == 0:
-        return _no_data(channel, station, t0, t1, _no_rows_reason(channel, station, min_snr_db),
-                        n_points=0, scatter={}, kde=None)
+        out = _no_data(channel, station, t0, t1, _no_rows_reason(channel, station, min_snr_db),
+                       n_points=0, scatter=empty_scatter, kde=None)
+        out.update({k: v for k, v in base.items() if k not in out})
+        if minutes:
+            out["status"] = "ok"
+        return out
 
     label = _station_label(channel, station, d)
-    te_arr, phase_arr = d["timing_error_ms"], d["carrier_phase_rad"]
-    # Require finite values; an implausibly large residual means a
-    # wrong-tick lock.
-    with np.errstate(invalid="ignore"):
-        valid = (np.isfinite(te_arr) & np.isfinite(phase_arr)
-                 & (np.abs(te_arr) < MAX_TIMING_ERROR_MS))
-    v = _subset(d, valid)
-    te, phase, snr = v["timing_error_ms"], v["carrier_phase_rad"], v["corr_snr_db"]
-    mb, sec, sim = v["minute_boundary"], v["utc_second"], v["sec_in_minute"]
+    v = _subset(d, _plausible(d))
+    tof, snr, mb, stc = v["tof_ms"], v["corr_snr_db"], v["minute_boundary"], v["station"]
+    names = v["station_names"]
 
-    # Unwrap phase within each minute to show the Doppler trend, and take
-    # each minute's Doppler from its phase slope.  Rows arrive minute-sorted.
-    phase_unwrapped = np.copy(phase)
-    minute_doppler = {}
+    # per (minute, station) median ToF; rows arrive minute-sorted
+    pm, pdelay, pdop, pst, psnr = [], [], [], [], []
+    n_delay = 0
     for m, sl in _minute_groups(mb):
-        n = sl.stop - sl.start
-        if n >= 3:
-            phase_unwrapped[sl] = np.unwrap(phase[sl])
-        if n >= 5:
-            t_sec = sim[sl]
-            if t_sec[-1] - t_sec[0] > 5.0:
-                try:
-                    coeffs = np.polyfit(t_sec, phase_unwrapped[sl], 1)
-                    minute_doppler[int(m)] = float(coeffs[0] / (2.0 * np.pi))
-                except (np.linalg.LinAlgError, ValueError):
-                    pass
+        codes = stc[sl]
+        for c in np.unique(codes):
+            sel = codes == c
+            n_delay += 1
+            hz = minutes.get(int(m))
+            if hz is None:
+                continue
+            pm.append(int(m))
+            pdelay.append(float(np.nanmedian(tof[sl][sel])))
+            pdop.append(hz)
+            pst.append(names[c])
+            psnr.append(float(np.nanmedian(snr[sl][sel])))
 
-    idx = _stride_index(te.size)
-    meth_names = _names(v["method"][idx], v["method_names"])
-    scatter = {
-        "minute_boundary": mb[idx].astype(np.int64).tolist(),
-        "utc_second": sec[idx].astype(np.int64).tolist(),
-        "sec_in_minute": sim[idx].astype(np.int64).tolist(),
-        "timing_error_ms": te[idx].tolist(),
-        "carrier_phase_rad": phase[idx].tolist(),
-        "phase_unwrapped_rad": phase_unwrapped[idx].tolist(),
-        "corr_snr_db": snr[idx].tolist(),
-        "detection_method": meth_names,
-    }
+    idx = _stride_index(len(pm))
+    pick = lambda xs: [xs[i] for i in idx]
+    scatter = {"minute_boundary": pick(pm), "delay_ms": pick(pdelay),
+               "doppler_hz": pick(pdop), "station": pick(pst), "corr_snr_db": pick(psnr)}
 
-    # 2D KDE: timing_error (x) vs carrier_phase (y)
     kde_result = None
-    if include_kde and te.size >= 20:
-        kde_result = _kde_contours(te, phase, n_grid=50, bandwidth=None)
+    if include_kde and len(pdelay) >= 20:
+        kde_result = _kde_contours(np.array(pdelay), np.array(pdop), n_grid=50)
 
-    names = v["method_names"]
-    n_of = lambda m: int(np.sum(v["method"] == names.index(m))) if m in names else 0
-
+    if not pm and not base["doppler_reason"]:
+        base["doppler_reason"] = NO_OVERLAP
+    dop_arr = np.array(pdop)
     return {
-        "status": "ok",
-        "channel": channel,
+        "status": "ok" if (pm or minutes) else "no_data",
         "station": label,
         "color": STATION_COLORS.get(label, COMPOSITE),
-        "time_range": {"start": _iso(t0), "end": _iso(t1)},
-        "n_points": int(te.size),
-        "n_scatter": int(idx.size),
+        **base,
+        "n_minutes_delay": n_delay,
+        "n_points": len(pm),
+        "n_scatter": len(idx),
         "max_scatter_points": MAX_SCATTER_POINTS,
-        "n_edge_ticks": n_of("edge_tick"),
-        "n_tone_correlator": n_of("tone_correlator"),
         "scatter": scatter,
         "kde": kde_result,
-        "minute_doppler": minute_doppler,
         "summary": {
-            "timing_error_mean_ms": float(np.nanmean(te)) if te.size else 0.0,
-            "timing_error_std_ms": float(np.nanstd(te)) if te.size else 0.0,
-            "phase_std_rad": float(np.nanstd(phase)) if phase.size else 0.0,
-            "mean_snr_db": float(np.nanmean(snr)) if snr.size else 0.0,
-            "n_minutes_with_doppler": len(minute_doppler),
+            "delay_std_ms": float(np.std(pdelay)) if pdelay else None,
+            "doppler_median_hz": float(np.median(dop_arr)) if dop_arr.size else None,
+            "doppler_std_hz": float(np.std(dop_arr)) if dop_arr.size else None,
+            "mean_snr_db": float(np.mean(psnr)) if psnr else None,
         },
+        **({"reason": base["doppler_reason"]} if not pm else {}),
     }
 
 
@@ -704,8 +712,7 @@ def get_all_arrivals(
     All-arrivals Time-of-Flight data for one channel (and station).
 
     Returns scatter data (ToF vs corr_snr_db) and optionally a KDE density
-    grid for contour overlay — analogous to Gwyn Griffiths' cluster analysis
-    of ToF and S+N level.  The scatter holds at most MAX_SCATTER_POINTS.
+    grid for contour overlay.  The scatter holds at most MAX_SCATTER_POINTS.
 
     Rank 0 = dominant (shortest) arrival; rank ≥ 1 = secondary (multi-hop).
     """
@@ -731,15 +738,10 @@ def get_arrivals_timeseries(
     min_snr_db: float = Query(6.0, description="Minimum correlation SNR"),
 ):
     """
-    All-arrivals ToF time series (top panel of Griffiths-style plot).
+    All-arrivals ToF time series.
 
     Returns per-minute ToF for rank-0 (dominant) and rank-1+ (secondary)
-    arrivals separately, plus the corr_snr_db time series (bottom panel).
-
-    The implied F2 virtual height can be derived from the rank-0 vs rank-1
-    delay difference:
-        Δτ = τ(2F2) − τ(1F2)
-        h_F2 = sqrt( (c·Δτ/2)² − (d/4)² )   [flat-Earth approx]
+    arrivals separately, plus the corr_snr_db time series.
     """
     t0, t1 = _window(start, end)
     try:
@@ -759,37 +761,33 @@ def get_arrivals_timeseries(
 @router.get("/doppler-delay")
 def get_doppler_delay(
     channel: Optional[str] = Query(None, description="Channel name (default: newest)"),
-    station: Optional[str] = Query(None, description="Station on the channel (default: all)"),
+    station: Optional[str] = Query(None, description="Station on the channel, for the delay (default: all)"),
     start: str = Query("-6h", description="Start time; at most 24 h before end"),
     end: str = Query("now", description="End time"),
-    min_snr_db: float = Query(3.0, description="Minimum tick SNR (lower for edge ticks)"),
-    method: Optional[str] = Query(None, description="Filter by detection_method: 'edge_tick', 'tone_correlator', or None for all"),
+    min_snr_db: float = Query(3.0, description="Minimum correlation SNR of the arrivals"),
+    method: Optional[str] = Query(None, description="Delay from one detection_method only: 'edge_tick', 'tone_correlator', 'clean' (default: all)"),
     include_kde: bool = Query(True, description="Include 2D KDE density grid"),
 ):
     """
-    Doppler-Delay scatter: per-tick timing_error vs carrier_phase.
+    Doppler (Hz) against delay (ms), one point per minute and station.
 
-    Each point is one per-second tick detection from the TickEdgeDetector.
-    The carrier_phase_rad progression across seconds within a minute encodes
-    Doppler shift; the timing_error_ms is the propagation delay residual.
-
-    Multipath modes (1F2, 2F2, ...) arriving via different ionospheric layers
-    have different Doppler shifts (because the layers move at different
-    velocities).  Even when delays are too close to resolve temporally,
-    different Doppler signatures separate them in the phase domain.
-
-    The 2D KDE highlights clusters — each cluster is a candidate propagation
-    mode.  This is the HF time-signal analogue of a Doppler-Delay spread
-    function from channel sounding.  The scatter holds at most
-    MAX_SCATTER_POINTS, evenly thinned.
+    Delay: the median time of flight of the minute's dominant arrivals.
+    Doppler: phase_service's estimator (``doppler_estimator`` in the reply),
+    the same one the phase page and the Observatory draw.  On a SHARED
+    channel the Doppler belongs to the composite carrier (WWV + WWVH + BPM).
+    Modes that move differently could separate along the Doppler axis even
+    when their delays overlap.  The scatter holds at most MAX_SCATTER_POINTS.
     """
     t0, t1 = _window(start, end)
     try:
         channel = _resolve_channel(channel)
         if channel is None:
-            return _no_data(None, station, t0, t1, NO_CHANNELS, n_points=0, scatter={}, kde=None)
+            return _no_data(None, station, t0, t1, NO_CHANNELS, n_points=0, scatter={}, kde=None,
+                            delay_unit="ms", doppler_unit="Hz")
         d = _load(channel, t0, t1, min_snr_db, station, method=method)
-        return _doppler_view(d, channel, station, t0, t1, min_snr_db, method, include_kde)
+        doppler = _minute_doppler(channel, t0, t1)
+        return _doppler_view(d, channel, station, t0, t1, min_snr_db, method, include_kde,
+                             doppler)
     except HTTPException:
         raise
     except Exception as e:
@@ -805,7 +803,7 @@ def get_combined(
     min_snr_db: float = Query(6.0, description="Minimum correlation SNR (time series, cluster)"),
     downsample: int = Query(1, description="Keep every Nth cluster point (up to the scatter cap)"),
     doppler_min_snr_db: float = Query(3.0, description="Minimum tick SNR for the Doppler-delay view"),
-    doppler_method: Optional[str] = Query("edge_tick", description="detection_method for the Doppler-delay view"),
+    doppler_method: Optional[str] = Query(None, description="detection_method for the Doppler-delay view's delay (default: all)"),
     include_kde: bool = Query(True, description="Include the KDE grids"),
 ):
     """What ionogram.html shows, from one read: the time series, the cluster
@@ -820,13 +818,17 @@ def get_combined(
             return {"status": "no_data", "channel": None, "reason": NO_CHANNELS,
                     "timeseries": _no_data(None, station, t0, t1, NO_CHANNELS,
                                            dominant=dict(empty), secondary=dict(empty)),
-                    "arrivals": none, "doppler_delay": dict(none)}
+                    "arrivals": none,
+                    "doppler_delay": {**none, "delay_unit": "ms", "doppler_unit": "Hz"}}
         d = _load(channel, t0, t1, min(min_snr_db, doppler_min_snr_db), station)
         ts = _timeseries_view(d, channel, station, t0, t1, min_snr_db)
         ar = _arrivals_view(d, channel, station, t0, t1, min_snr_db, None, include_kde, downsample)
-        dd = _doppler_view(d, channel, station, t0, t1, doppler_min_snr_db, doppler_method,
-                           include_kde)
+        dd_rows = d
         del d
+        doppler = _minute_doppler(channel, t0, t1)
+        dd = _doppler_view(dd_rows, channel, station, t0, t1, doppler_min_snr_db,
+                           doppler_method, include_kde, doppler)
+        del dd_rows
         ok = "ok" if "ok" in (ts["status"], ar["status"], dd["status"]) else "no_data"
         return {"status": ok, "channel": channel, "timeseries": ts, "arrivals": ar,
                 "doppler_delay": dd}

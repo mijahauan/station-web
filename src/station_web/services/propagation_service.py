@@ -576,7 +576,10 @@ class PropagationService:
             station = m.get('station', 'UNKNOWN')
             tec = m.get('tec_tecu')
             timestamp = m.get('timestamp_utc')
-            uncertainty = m.get('residuals_ms')  # RMS residual is the true timing uncertainty
+            # residuals_ms: the fit's RMS residual, in milliseconds.  It used to
+            # ship as "uncertainty_tecu", a unit it never had.  L3_tec carries
+            # no TEC uncertainty in TECU.
+            residual_ms = m.get('residuals_ms')
             confidence = m.get('confidence')
             quality = m.get('quality_flag', 'UNKNOWN')
             n_freqs = m.get('n_frequencies', 0)
@@ -588,7 +591,7 @@ class PropagationService:
                 paths[station] = {
                     'timestamps': [],
                     'tec_tecu': [],
-                    'uncertainty_tecu': [],
+                    'residual_rms_ms': [],
                     'confidence': [],
                     'quality': [],
                     'n_frequencies': []
@@ -596,7 +599,7 @@ class PropagationService:
 
             paths[station]['timestamps'].append(timestamp)
             paths[station]['tec_tecu'].append(self._sanitize_value(tec))
-            paths[station]['uncertainty_tecu'].append(self._sanitize_value(uncertainty))
+            paths[station]['residual_rms_ms'].append(self._sanitize_value(residual_ms))
             paths[station]['confidence'].append(self._sanitize_value(confidence))
             paths[station]['quality'].append(quality)
             paths[station]['n_frequencies'].append(int(n_freqs) if n_freqs else 0)
@@ -612,9 +615,9 @@ class PropagationService:
                 data['max_tec'] = max(data['tec_tecu'])
                 data['count'] = len(data['tec_tecu'])
 
-                # Calculate mean uncertainty
-                if data['uncertainty_tecu']:
-                    data['mean_uncertainty'] = sum(data['uncertainty_tecu']) / len(data['uncertainty_tecu'])
+                rms = [r for r in data['residual_rms_ms'] if r is not None]
+                if rms:
+                    data['mean_residual_rms_ms'] = sum(rms) / len(rms)
 
                 # Count quality measurements
                 good_count = sum(1 for q in data['quality'] if q == 'GOOD')
@@ -624,6 +627,7 @@ class PropagationService:
             'paths': paths,
             'stations': list(paths.keys()),
             'source': source,
+            'tec_uncertainty': 'not published',
             'total_measurements': sum(len(p['tec_tecu']) for p in paths.values())
         })
 

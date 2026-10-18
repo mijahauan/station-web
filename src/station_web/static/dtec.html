@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title>dTEC — Multi-Station Carrier-Phase TEC — station-web</title>
+    <title>dTEC — phase-rate dTEC — station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -148,20 +148,21 @@
 <body>
 <div class="container">
     <div class="header">
-        <h1>dTEC — Multi-Station Carrier-Phase TEC</h1>
-        <div class="header-subtitle">Carrier-phase differential TEC rate and integrated TEC across all 17 propagation paths. Correlated signatures indicate Traveling Ionospheric Disturbances (TIDs).</div>
+        <h1>dTEC — phase-rate dTEC (assumes no layer-height motion)</h1>
+        <div class="header-subtitle">Carrier-phase rate of each path this station hears, converted to a TEC rate. One series per frequency: a frequency several stations share arrives as one composite carrier. Signatures that line up across distinct frequencies may mark travelling ionospheric disturbances (TIDs).</div>
         <nav class="nav" data-site-nav aria-label="Site"></nav>
     </div>
 
         <div class="science-note">
-            <strong>Detection capability:</strong>
-            Carrier-phase dTEC achieves ~6 mTECU/min noise floor (55 ticks/min, ~1 mrad phase noise at 20 dB SNR).
-            TIDs produce 100–2000 mTECU perturbations → <strong>17–330× above noise floor</strong>.
-            Correlated signatures across the <span id="pathBearings">WWV, WWVH and BPM</span> paths
-            constrain the TID wavevector direction and speed.
+            <strong>What the rate measures:</strong>
+            A single-frequency carrier phase changes when the TEC along the path changes and when the
+            reflecting layer moves up or down. This page converts the whole phase rate to a TEC rate,
+            which assumes the layer height holds still. Read it as phase-rate dTEC, not as a TEC
+            measurement.
             <br><br>
-            <strong>Note:</strong> Group-delay TEC (from timing residuals) is below the noise floor (~6.5 ms model error
-            vs ~0.85 ms dispersion signal). Carrier-phase dTEC is the primary ionospheric product.
+            <strong>Noise floor:</strong> computed from this window's data (see the tile below), in the
+            chart's unit, TECU/s. Signatures across the <span id="pathBearings">WWV, WWVH and BPM</span>
+            paths can constrain a disturbance's direction and speed when they appear on distinct frequencies.
         </div>
 
         <!-- Time Period Selector -->
@@ -226,31 +227,33 @@
                 <div class="stat-sub">dTEC anchored to group-delay TEC</div>
             </div>
             <div class="stat-card">
-                <div class="stat-label">Noise floor</div>
-                <div class="stat-value">~6</div>
-                <div class="stat-sub">mTECU/min (1σ)</div>
+                <div class="stat-label">Noise floor (1σ)</div>
+                <div class="stat-value" id="statNoise">—</div>
+                <div class="stat-sub" id="statNoiseSub">TECU/s</div>
             </div>
         </div>
 
         <!-- Main dTEC rate plot -->
         <div class="plot-container">
-            <div class="plot-title">dTEC Rate — All Paths Overlay</div>
+            <div class="plot-title">phase-rate dTEC (assumes no layer-height motion)</div>
             <div class="plot-subtitle">
-                Carrier-phase dTEC/dt in TECU/s. Correlated wiggles across multiple paths = TID.
-                Click legend entries to show/hide individual paths.
+                Top: dTEC/dt in TECU/s, one trace per path (a SHARED frequency: the composite carrier, in neutral grey).
+                Middle: GOES X-ray flux (log). Bottom: solar elevation at each path's midpoint. All three share the time axis.
+                Click legend entries to show or hide a path.
             </div>
-            <div id="dtecRatePlot" style="height:400px">
+            <div id="dtecRatePlot" style="height:560px">
                 <div class="loading-msg">Select parameters and click Load</div>
             </div>
         </div>
 
 
-        <!-- Per-station comparison (10 MHz reference frequency) -->
+        <!-- Distinct-frequency comparison -->
         <div class="plot-container">
-            <div class="plot-title">10 MHz Reference Comparison — WWV / WWVH / BPM</div>
-            <div class="plot-subtitle">
-                dTEC rate at 10 MHz from all stations that broadcast at 10 MHz.
-                Correlated features confirm ionospheric origin; uncorrelated features are path-specific.
+            <div class="plot-title">Distinct-frequency comparison</div>
+            <div class="plot-subtitle" id="refSub">
+                The composite carrier near 10 MHz against the single-station paths (WWV 20 and 25 MHz).
+                WWV, WWVH and BPM at 10 MHz share one carrier, so comparing them proves nothing; independent
+                carriers on distinct frequencies that move together point to the ionosphere.
             </div>
             <div id="refPlot" style="height:300px">
                 <div class="loading-msg">—</div>
@@ -262,14 +265,18 @@
 </div>
 
 <script>
-// Station hue from the shared palette (common.js); frequency by dash pattern,
-// so each (station, frequency) series stays distinct without a second hue table.
+// Station hue from the shared palette (common.js): a composite carrier takes
+// the neutral; frequency by dash pattern, so each path stays distinct.
 const FREQ_ORDER = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0];
 const FREQ_DASH = ['solid', 'dot', 'dash', 'longdash', 'dashdot', 'longdashdot'];
 
 let _allSeries = null;
+let _refComparison = null;
 let _activeFreqFilter = 'all';
 let _timeRange = null;
+let _solarData = null;
+let _xrayData = null;
+let _tidData = null;
 
 // TimePeriodSelector instance
 let tps = null;
@@ -291,10 +298,6 @@ function toggleFreq(el) {
     if (_allSeries) renderPlots(_allSeries);
 }
 
-function getSeriesColor(station) {
-    return stationColor(station);
-}
-
 function getSeriesDash(freqMhz) {
     const idx = FREQ_ORDER.findIndex(f => Math.abs(f - freqMhz) < 0.1);
     return FREQ_DASH[Math.max(0, idx) % FREQ_DASH.length];
@@ -305,7 +308,12 @@ function freqMatches(freqMhz) {
     return Math.abs(freqMhz - parseFloat(_activeFreqFilter)) < 0.1;
 }
 
-let _solarData = null;
+async function getJSON(url) {
+    try {
+        const r = await fetch(url);
+        return r.ok ? await r.json() : null;
+    } catch (e) { return null; }
+}
 
 async function loadData() {
     const station = document.getElementById('stationFilter').value;
@@ -322,22 +330,20 @@ async function loadData() {
     setLoading('refPlot');
 
     try {
-        let url = `/api/tec/dtec?start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}&min_snr_db=${minSnr}&downsample=${ds}`;
-        if (station) url += `&station=${station}`;
-
-        // Compute hours for xray API from TPS period
+        const params = { start: startParam, end: endParam, min_snr_db: minSnr, downsample: ds };
+        if (station) params.station = station;
         const hours = Math.max(1, Math.ceil((new Date(endParam) - new Date(startParam)) / 3600000));
-        
-        const [resp, solarResp, xrayResp, tidResp] = await Promise.all([
-            api.get(url.replace(/^\/api/, '')),
-            fetch(`/api/space-weather/solar/elevation?start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}&interval_minutes=5`),
-            fetch(`/api/space-weather/xray?hours=${hours}`),
-            fetch(`/api/tid/history?start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}`)
+        const q = `start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}`;
+
+        const [data, solar, xray, tid] = await Promise.all([
+            api.get('/tec/dtec', params),
+            getJSON(`/api/space-weather/solar/elevation?${q}&interval_minutes=5`),
+            getJSON(`/api/space-weather/xray?hours=${hours}`),
+            getJSON(`/api/tid/history?${q}`),
         ]);
-        const data = resp;
-        _solarData = solarResp.ok ? await solarResp.json() : null;
-        _xrayData = xrayResp.ok ? await xrayResp.json() : null;
-        _tidData = tidResp.ok ? await tidResp.json() : null;
+        _solarData = solar;
+        _xrayData = xray;
+        _tidData = tid;
 
         if (data.status === 'no_data' || data.n_series === 0) {
             const why = noDataReason(data, 'No L3_dtec rows in this window');
@@ -347,6 +353,7 @@ async function loadData() {
         }
 
         _allSeries = data.series;
+        _refComparison = data.reference_comparison;
         _timeRange = data.time_range;  // {start, end} ISO strings from API
         updateStats(data);
         renderPlots(data.series);
@@ -372,7 +379,6 @@ function updateStats(data) {
     document.getElementById('statPaths').textContent = data.n_series;
     document.getElementById('statRecords').textContent = String(data.n_points_total || 0);
 
-    // Compute anchored fraction across all series
     let nAnchored = 0, nTotal = 0;
     for (const s of Object.values(data.series)) {
         nAnchored += (s.is_anchored || []).filter(Boolean).length;
@@ -380,227 +386,145 @@ function updateStats(data) {
     }
     document.getElementById('statAnchored').textContent =
         nTotal > 0 ? Math.round(100 * nAnchored / nTotal) + '%' : '—';
+
+    // the noise floor the server computed from this window, in the chart's unit
+    const nf = data.noise_floor || {};
+    const unit = nf.unit || 'TECU/s';
+    document.getElementById('statNoise').textContent =
+        (nf.value === null || nf.value === undefined) ? '—' : Number(nf.value).toExponential(1);
+    document.getElementById('statNoiseSub').textContent = (nf.value === null || nf.value === undefined)
+        ? `${unit}; ${nf.reason || 'not computed'}`
+        : `${unit}, from ${nf.n_series} path${nf.n_series === 1 ? '' : 's'} (minute-to-minute differences)`;
 }
 
-// Solar elevation: each station's palette colour, faded, dotted.
-function solarColor(station) {
-    return withAlpha(stationColor(station), 0.55);
+function seriesStations(s) {
+    return (s.stations_heard && s.stations_heard.length) ? s.stations_heard : [s.station];
 }
 
-function buildSolarTraces(stationsNeeded) {
-    // Plot raw solar elevation degrees on yaxis2.
-    if (!_solarData || !_solarData.elevations) return [];
-    const toDate = ts => new Date(ts * 1000).toISOString();
-    const xs = _solarData.timestamps.map(toDate);
+function rateTrace(s, width, opacity) {
+    return {
+        x: s.timestamps.map(plotTime),
+        y: s.dtec_rate_tecu_per_s,
+        mode: 'lines',
+        type: 'scattergl',
+        name: s.label || `${s.station} ${s.frequency_mhz.toFixed(1)} MHz`,
+        line: { color: stationColor(s.composite ? 'composite' : s.station), width,
+                dash: getSeriesDash(s.frequency_mhz) },
+        opacity,
+        hovertemplate: '%{y:.2e} TECU/s<extra>%{fullData.name}</extra>',
+    };
+}
+
+function solarTraces(stationsNeeded, yaxis) {
+    if (!_solarData || !_solarData.elevations || !_solarData.timestamps) return [];
+    const xs = _solarData.timestamps.map(plotTime);
     const traces = [];
-    const seen = new Set();
-    for (const st of stationsNeeded) {
-        if (seen.has(st) || !_solarData.elevations[st]) continue;
-        seen.add(st);
+    for (const st of [...new Set(stationsNeeded)]) {
+        if (!_solarData.elevations[st]) continue;
         traces.push({
-            x: xs,
-            y: _solarData.elevations[st],
-            mode: 'lines',
-            type: 'scatter',
+            x: xs, y: _solarData.elevations[st],
+            mode: 'lines', type: 'scatter',
             name: `Solar elev. ${st} path`,
-            yaxis: 'y2',
-            line: { color: solarColor(st), width: 1.5, dash: 'dot' },
-            opacity: 0.8,
+            xaxis: 'x', yaxis,
+            line: { color: withAlpha(stationColor(st), 0.8), width: 1.5 },
             hovertemplate: `%{y:.1f}°<extra>Solar ${st}</extra>`,
         });
     }
     return traces;
 }
 
-function primarySymmetricRange(traces) {
-    // Compute a symmetric primary y-axis range [mid-half, mid+half] from the
-    // data so that the visual midpoint of the left axis aligns with 0° on the
-    // right solar-elevation axis.
-    let yMin = Infinity, yMax = -Infinity;
-    for (const t of traces) {
-        if (!t.y) continue;
-        for (const v of t.y) {
-            if (v != null && isFinite(v)) {
-                if (v < yMin) yMin = v;
-                if (v > yMax) yMax = v;
-            }
+function xrayTrace(yaxis) {
+    if (!_xrayData || !_xrayData.flux || _xrayData.flux.length === 0) return null;
+    const xs = [], ys = [];
+    const seen = new Set();
+    for (let i = 0; i < _xrayData.flux.length; i++) {
+        const f = _xrayData.flux[i];
+        const t = _xrayData.timestamps[i];
+        if (f && f > 0 && !seen.has(t)) {
+            seen.add(t);
+            xs.push(plotTime(t));
+            ys.push(f);
         }
     }
-    if (!isFinite(yMin) || !isFinite(yMax)) { yMin = -1; yMax = 1; }
-    const pad = (yMax - yMin) * 0.10;
-    const lo = yMin - pad;
-    const hi = yMax + pad;
-    const mid = (lo + hi) / 2;
-    const half = Math.max(hi - mid, mid - lo);  // symmetric around mid
-    return [mid - half, mid + half];
+    if (ys.length === 0) return null;
+    return {
+        x: xs, y: ys, mode: 'lines', type: 'scatter',
+        name: 'GOES X-ray (0.1-0.8 nm)', xaxis: 'x', yaxis,
+        line: { color: 'rgba(239, 68, 68, 0.8)', width: 1.5 },
+        hovertemplate: '%{y:.2e} W/m²<extra>GOES X-ray</extra>',
+    };
 }
 
-const SOLAR_YAXIS2 = {
-    title: 'Solar elev. (°)',
-    overlaying: 'y',
-    side: 'right',
-    range: [-90, 90],
-    tickvals: [-90, -45, 0, 45, 90],
-    ticktext: ['-90°', '-45°', '0°', '45°', '90°'],
-    tickfont: { color: 'rgba(255,220,80,0.7)', size: 12 },
-    titlefont: { color: 'rgba(255,220,80,0.7)', size: 12 },
-    showgrid: false,
-    zeroline: true,
-    zerolinecolor: 'rgba(255,220,80,0.25)',
-    zerolinewidth: 1,
-};
+function tidTrace() {
+    if (!_tidData || !_tidData.events || _tidData.events.length === 0) return null;
+    const evs = _tidData.events;
+    return {
+        x: evs.map(e => plotTime(e.timestamp)),
+        y: evs.map(() => 0),
+        mode: 'markers', type: 'scatter',
+        name: 'TID detection',
+        marker: { symbol: 'triangle-down', size: 10, color: 'rgba(168, 85, 247, 0.9)' },
+        text: evs.map(e => `TID ${Number(e.velocity_m_s).toFixed(0)} m/s @ ${Number(e.direction_deg).toFixed(0)}°`),
+        hoverinfo: 'text',
+    };
+}
+
+const AXIS = { gridcolor: '#334155', tickfont: { size: 12 }, titlefont: { size: 13 } };
 
 function renderPlots(series) {
-    const toDate = ts => new Date(ts * 1000).toISOString();
-
-    // Build traces for main overlay
-    const rateTraces = [];
-    const refTraces = [];
-
-    // Track which stations appear in each plot for solar overlay
-    const rateStations = new Set();
-    const refStations = new Set();
-
-    for (const [key, s] of Object.entries(series)) {
-        if (!freqMatches(s.frequency_mhz)) continue;
-
-        const color = getSeriesColor(s.station);
-        const dash = getSeriesDash(s.frequency_mhz);
-        const label = `${s.station} ${s.frequency_mhz.toFixed(1)} MHz`;
-        const xs = s.timestamps.map(toDate);
-
-        // dTEC rate trace
-        rateTraces.push({
-            x: xs,
-            y: s.dtec_rate_tecu_per_s,
-            mode: 'lines',
-            type: 'scattergl',
-            name: label,
-            line: { color, width: 1.2, dash },
-            opacity: 0.55,
-        });
-        rateStations.add(s.station);
-
-
-        // 10 MHz reference comparison
-        if (Math.abs(s.frequency_mhz - 10.0) < 0.1 && ['WWV', 'WWVH', 'BPM'].includes(s.station)) {
-            refTraces.push({
-                x: xs,
-                y: s.dtec_rate_tecu_per_s,
-                mode: 'lines',
-                type: 'scatter',
-                name: label,
-                line: { color, width: 2 },
-            });
-            refStations.add(s.station);
-        }
-    }
-
+    const xRange = _timeRange ? [plotTime(_timeRange.start), plotTime(_timeRange.end)] : undefined;
     const baseLayout = {
         paper_bgcolor: 'transparent',
         plot_bgcolor: 'transparent',
-        font: { color: '#e2e8f0', size: 14 },
-        legend: { bgcolor: 'transparent', font: { size: 13 }, orientation: 'v' },
+        font: { color: '#e2e8f0', size: 13 },
+        legend: { bgcolor: 'transparent', font: { size: 12 }, orientation: 'v' },
         hovermode: 'x unified',
     };
 
-    // Add TID markers
-    if (typeof _tidData !== 'undefined' && _tidData && _tidData.events) {
-        _tidData.events.forEach((evt, idx) => {
-            const ts = plotTime(evt.timestamp);   // ISO string: plotly draws UTC
-            rateTraces.push({
-                x: [ts, ts],
-                y: [-0.003, 0.003], // span a reasonable rate range for UI limits
-                mode: 'lines',
-                name: `TID: ${evt.velocity_m_s.toFixed(0)}m/s @ ${evt.direction_deg.toFixed(0)}°`,
-                line: { color: 'rgba(168, 85, 247, 0.7)', width: 2, dash: 'dash' },
-                hoverinfo: 'name',
-                showlegend: idx === 0 // only show one legend entry for all TIDs
-            });
-            if (idx === 0) {
-                rateTraces[rateTraces.length-1].name = 'TID Detection';
-            }
-        });
-    }
-
-    // Add X-ray flux if available — filter zeros/nulls and deduplicate timestamps
-    if (typeof _xrayData !== 'undefined' && _xrayData && _xrayData.flux && _xrayData.flux.length > 0) {
-        const xrTs = [], xrFlux = [];
-        const seen = new Set();
-        for (let i = 0; i < _xrayData.flux.length; i++) {
-            const f = _xrayData.flux[i];
-            const t = _xrayData.timestamps[i];
-            if (f && f > 0 && !seen.has(t)) {
-                seen.add(t);
-                xrTs.push(plotTime(t));
-                xrFlux.push(f);
-            }
-        }
-        if (xrFlux.length > 0) {
-            rateTraces.push({
-                x: xrTs,
-                y: xrFlux,
-                mode: 'lines',
-                name: 'GOES X-Ray (0.1-0.8nm)',
-                yaxis: 'y3',
-                line: { color: 'rgba(239, 68, 68, 0.7)', width: 1.5 },
-                hovertemplate: '%{y:.2e} W/m²<extra>GOES X-Ray</extra>',
-            });
-        }
-    }
-
+    // Stacked panels sharing one time axis: dTEC rate, X-ray, solar elevation.
+    const shown = Object.values(series).filter(s => freqMatches(s.frequency_mhz));
+    const rateTraces = shown.map(s => rateTrace(s, 1.2, 0.7));
     if (rateTraces.length === 0) {
         showPlotMessage('dtecRatePlot', 'No series match the current frequency filter');
     } else {
-        const solar = buildSolarTraces([...rateStations]);
-        const rRange = primarySymmetricRange(rateTraces);
-        Plotly.newPlot('dtecRatePlot', [...rateTraces, ...solar], {
+        const extra = [];
+        const tid = tidTrace();
+        if (tid) extra.push(tid);
+        const xr = xrayTrace('y2');
+        if (xr) extra.push(xr);
+        extra.push(...solarTraces(shown.flatMap(seriesStations), 'y3'));
+        document.getElementById('dtecRatePlot').innerHTML = '';
+        Plotly.newPlot('dtecRatePlot', [...rateTraces, ...extra], {
             ...baseLayout,
-            yaxis2: SOLAR_YAXIS2,
-            yaxis3: {
-                title: 'GOES X-ray Flux (W/m²)',
-                titlefont: {color: 'rgba(239,68,68,0.7)', size: 12},
-                tickfont: {color: 'rgba(239,68,68,0.7)', size: 11},
-                overlaying: 'y',
-                side: 'right',
-                anchor: 'free',
-                position: 0.92,
-                type: 'log',
-                range: [-9, -2],
-                showgrid: false,
-            },
-            margin: { t: 10, b: 50, l: 80, r: 110 },
-            xaxis: { gridcolor: '#334155', title: 'UTC', titlefont: {size: 14}, tickfont: {size: 12}, range: _timeRange ? [_timeRange.start, _timeRange.end] : undefined, domain: [0, 0.88] },
-            yaxis: { gridcolor: '#334155', title: 'dTEC/dt (TECU/s)', titlefont: {size: 14}, tickfont: {size: 12}, zeroline: true, zerolinecolor: '#475569', range: rRange },
+            annotations: xr ? [] : [{ xref: 'paper', yref: 'paper', x: 0.5, y: 0.32,
+                                      text: 'GOES X-ray: no data for this window',
+                                      showarrow: false, font: { color: '#94a3b8', size: 12 } }],
+            margin: { t: 10, b: 50, l: 90, r: 20 },
+            xaxis: { ...AXIS, title: 'UTC', range: xRange, anchor: 'y3' },
+            yaxis: { ...AXIS, domain: [0.44, 1], title: 'dTEC/dt (TECU/s)', zeroline: true,
+                     zerolinecolor: '#475569' },
+            yaxis2: { ...AXIS, domain: [0.24, 0.40], type: 'log', range: [-9, -2],
+                      title: 'X-ray (W/m²)' },
+            yaxis3: { ...AXIS, domain: [0, 0.20], range: [-90, 90], title: 'Solar elev. (°)',
+                      tickvals: [-90, -45, 0, 45, 90], zeroline: true,
+                      zerolinecolor: 'rgba(255,220,80,0.35)' },
         }, { responsive: true, displayModeBar: false });
     }
 
-
-    if (refTraces.length === 0) {
-        showPlotMessage('refPlot', 'No 10 MHz paths available (WWV, WWVH, BPM)');
-    } else {
-        const solar = buildSolarTraces([...refStations]);
-        const fRange = primarySymmetricRange(refTraces);
-        Plotly.newPlot('refPlot', [...refTraces, ...solar], {
-            ...baseLayout,
-            yaxis2: SOLAR_YAXIS2,
-            yaxis3: {
-                title: 'GOES X-ray Flux (W/m²)',
-                titlefont: {color: 'rgba(239,68,68,0.7)', size: 12},
-                tickfont: {color: 'rgba(239,68,68,0.7)', size: 11},
-                overlaying: 'y',
-                side: 'right',
-                anchor: 'free',
-                position: 0.92,
-                type: 'log',
-                range: [-9, -2],
-                showgrid: false,
-            },
-            margin: { t: 10, b: 50, l: 80, r: 110 },
-            xaxis: { gridcolor: '#334155', title: 'UTC', titlefont: {size: 14}, tickfont: {size: 12}, range: _timeRange ? [_timeRange.start, _timeRange.end] : undefined, domain: [0, 0.88] },
-            yaxis: { gridcolor: '#334155', title: 'dTEC/dt @ 10 MHz (TECU/s)', titlefont: {size: 14}, tickfont: {size: 12}, zeroline: true, zerolinecolor: '#475569', range: fRange },
-        }, { responsive: true, displayModeBar: false });
+    // Distinct-frequency comparison: only the paths the server picked
+    const ref = _refComparison || { available: false, keys: [] };
+    if (!ref.available) {
+        showPlotMessage('refPlot', ref.reason || 'No distinct-frequency paths to compare on this station');
+        return;
     }
+    const refTraces = ref.keys.filter(k => series[k]).map(k => rateTrace(series[k], 2, 1));
+    document.getElementById('refPlot').innerHTML = '';
+    Plotly.newPlot('refPlot', refTraces, {
+        ...baseLayout,
+        margin: { t: 10, b: 50, l: 90, r: 20 },
+        xaxis: { ...AXIS, title: 'UTC', range: xRange },
+        yaxis: { ...AXIS, title: 'dTEC/dt (TECU/s)', zeroline: true, zerolinecolor: '#475569' },
+    }, { responsive: true, displayModeBar: false });
 }
 
 window.addEventListener('load', () => {

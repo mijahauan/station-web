@@ -4,7 +4,9 @@ Phase and Doppler analysis service.
 Reads L2_tick_phase from the shared SQLite database and computes:
 - Phase time series (unwrapped)
 - Doppler shift from phase rate
-- Phase scintillation index (sigma_phi) and an S4 proxy
+- Phase variability (sigma_phi, std about a 60 s linear fit) and S4,
+  uncorrected for noise
+- One composite trace per SHARED channel (WWV + WWVH + BPM on one carrier)
 - Summary across all channels
 
 A station writes about a million tick_phase rows a day, 1 Hz per station per
@@ -40,12 +42,33 @@ TABLE = 'L2_tick_phase'
 # Station colours: the site palette (station_web/palette.py, common.js PALETTE)
 from station_web.palette import COMPOSITE, STATION_COLORS  # noqa: E402
 
+#: The one Doppler estimator on the site.  The phase page, its summary cards,
+#: the Observatory and the ionogram's Doppler-delay view all draw it.  It
+#: pools the 1 Hz carrier-phase steps inside each bucket: one least-squares
+#: rate through every pair, so a bucket's value never rests on two or three
+#: samples, and the 10 s gap limit keeps an outage from posing as a slope.
+#: The ionogram's own per-minute polyfit and the L2 timing_measurements
+#: doppler_hz each answered with different numbers, and with opposite signs.
+DOPPLER_ESTIMATOR = (
+    "f_D = -(1/2pi) * sum(dphi) / sum(dt) over consecutive 1 Hz carrier-phase "
+    "samples (gap <= 10 s) in each bucket, from L2_tick_phase (phase_service)")
+
+#: A SHARED_<kHz> channel hears one composite carrier: WWV, WWVH and BPM on
+#: one frequency.  Its phase, Doppler and variability belong to that sum,
+#: so the views return one trace per SHARED channel under this label.
+COMPOSITE_STATION = 'composite'
+COMPOSITE_LABEL = 'composite: WWV + WWVH + BPM'
+
 #: Upper bound on points per (channel, station) trace, for every view.
 MAX_POINTS_PER_TRACE = 1500
 #: Longest window a request may ask for.  The sigma_phi sums grow with
 #: window length / scintillation window, and a longer window reads more
 #: rows, so the span needs a ceiling.
 MAX_SPAN_DAYS = 7
+#: The summary cards cover this many seconds, as one Doppler bucket, with
+#: the chart's phase-variability window inside it.
+SUMMARY_SECONDS = 300
+SUMMARY_SIGMA_WINDOW_S = 60.0
 #: Bucket sizes the aggregation may pick, smallest first.
 _NICE_BUCKETS = (1, 2, 3, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600)
 
@@ -219,35 +242,32 @@ class _TraceAcc:
                         (self.w_i, inten), (self.w_ii, inten * inten)):
             acc += np.bincount(w, weights=wt, minlength=nw)
 
-    def finish(self) -> Dict[str, Any]:
-        has = self.n > 0
-        n = self.n[has]
-        out: Dict[str, Any] = {
-            'epochs': self.st[has] / n,
-            'snr_db': self.snr[has] / n,
-            'phase': {f: self.phase[k][has] / n for k, f in enumerate(_PHASE_FIELDS)},
-            'n_samples': self.n_samples,
-        }
-        dop = self.dop_dt > 0
-        out['doppler_epochs'] = self.st[dop] / self.n[dop]
-        out['doppler_raw_hz'] = -(1.0 / (2 * np.pi)) * self.dop_dphi[dop] / self.dop_dt[dop]
+    def window_stats(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """(valid, epochs, sigma_phi, s4) for every window on the grid.
 
-        wv = self.w_n >= _MIN_WINDOW_SAMPLES
-        wn = self.w_n[wv]
-        sx, sy = self.w_x[wv], self.w_y[wv]
-        sxx = self.w_xx[wv] - sx * sx / wn
-        sxy = self.w_xy[wv] - sx * sy / wn
-        syy = self.w_yy[wv] - sy * sy / wn
+        Full-length arrays, NaN where a window holds fewer than
+        _MIN_WINDOW_SAMPLES, so traces on one grid line up window by window.
+        """
+        valid = self.w_n >= _MIN_WINDOW_SAMPLES
+        wn = np.where(valid, self.w_n, 1.0)
+        sx, sy = self.w_x, self.w_y
+        sxx = self.w_xx - sx * sx / wn
+        sxy = self.w_xy - sx * sy / wn
+        syy = self.w_yy - sy * sy / wn
         slope = np.divide(sxy, sxx, out=np.zeros_like(sxy), where=sxx > 0)
         resid = np.maximum(syy - slope * sxy, 0.0) / wn
-        sigma = np.sqrt(resid)
-        mean_i = self.w_i[wv] / wn
-        var_i = np.maximum(self.w_ii[wv] / wn - mean_i * mean_i, 0.0)
+        sigma = np.where(valid, np.sqrt(resid), np.nan)
+        mean_i = self.w_i / wn
+        var_i = np.maximum(self.w_ii / wn - mean_i * mean_i, 0.0)
         s4 = np.divide(np.sqrt(var_i), mean_i, out=np.full_like(mean_i, np.nan),
-                       where=mean_i > 1e-10)
-        w_epochs = self.w_t[wv] / wn
+                       where=valid & (mean_i > 1e-10))
+        epochs = np.where(valid, self.w_t / wn, np.nan)
+        return valid, epochs, sigma, s4
 
-        # Fold windows into output buckets when the bucket outgrows the window.
+    def _fold_windows(self, valid, epochs, sigma, s4) -> Dict[str, Any]:
+        """Keep the valid windows; fold them into output buckets when the
+        bucket outgrows the window."""
+        w_epochs, sigma, s4 = epochs[valid], sigma[valid], s4[valid]
         sbucket = max(self.bucket, self.window_s)
         if sbucket > self.window_s and w_epochs.size:
             g = ((w_epochs - self.start) // sbucket).astype(np.int64)
@@ -259,11 +279,73 @@ class _TraceAcc:
             s4_cnt = np.bincount(inv, weights=s4_ok.astype(float), minlength=uniq.size)
             s4_sum = np.bincount(inv, weights=np.where(s4_ok, s4, 0.0), minlength=uniq.size)
             s4 = np.divide(s4_sum, s4_cnt, out=np.full(uniq.size, np.nan), where=s4_cnt > 0)
-        out['sigma_epochs'] = w_epochs
-        out['sigma_phi_rad'] = sigma
-        out['s4'] = s4
-        out['sigma_bucket_seconds'] = sbucket
+        return {'sigma_epochs': w_epochs, 'sigma_phi_rad': sigma, 's4': s4,
+                'sigma_bucket_seconds': sbucket}
+
+    @staticmethod
+    def _doppler(n, st, dphi, dt) -> Dict[str, Any]:
+        dop = dt > 0
+        return {'doppler_epochs': st[dop] / n[dop],
+                'doppler_raw_hz': -(1.0 / (2 * np.pi)) * dphi[dop] / dt[dop]}
+
+    def finish(self) -> Dict[str, Any]:
+        has = self.n > 0
+        n = self.n[has]
+        out: Dict[str, Any] = {
+            'epochs': self.st[has] / n,
+            'snr_db': self.snr[has] / n,
+            'phase': {f: self.phase[k][has] / n for k, f in enumerate(_PHASE_FIELDS)},
+            'n_samples': self.n_samples,
+            'last_epoch': self.prev_t,
+        }
+        out.update(self._doppler(self.n, self.st, self.dop_dphi, self.dop_dt))
+        out.update(self._fold_windows(*self.window_stats()))
         return out
+
+
+def _composite_finish(accs: Dict[str, '_TraceAcc']) -> Dict[str, Any]:
+    """One trace for the composite carrier of a SHARED channel.
+
+    Every station's rows on a SHARED channel sample the same summed carrier,
+    so the estimates pool:
+    - Doppler: the phase steps and their spans sum across stations, one
+      pooled rate per bucket, the same estimator as a single-station trace;
+    - phase variability and S4: the mean over stations, window by window;
+    - phase and SNR: the trace with the most samples (the unwrapped phase
+      of several stations' rows carries a different offset in each, so
+      averaging them would invent jumps).  ``phase_reference_station``
+      names it.
+    """
+    names = sorted(accs)
+    lead_name = max(names, key=lambda k: accs[k].n_samples)
+    lead = accs[lead_name]
+    out = lead.finish()
+    n = sum(a.n for a in accs.values())
+    st = sum(a.st for a in accs.values())
+    out.update(_TraceAcc._doppler(n, st, sum(a.dop_dphi for a in accs.values()),
+                                  sum(a.dop_dt for a in accs.values())))
+    stats = [a.window_stats() for a in accs.values()]
+    valid = np.any([s[0] for s in stats], axis=0)
+    cnt = np.sum([s[0] for s in stats], axis=0)
+    safe = np.where(cnt > 0, cnt, 1)
+
+    def mean_of(i):
+        return np.where(valid, np.nansum([np.where(s[0], s[i], 0.0) for s in stats], axis=0)
+                        / safe, np.nan)
+    s4_ok = np.sum([s[0] & ~np.isnan(s[3]) for s in stats], axis=0)
+    s4_sum = np.nansum([np.where(s[0] & ~np.isnan(s[3]), s[3], 0.0) for s in stats], axis=0)
+    s4 = np.divide(s4_sum, s4_ok, out=np.full(s4_sum.shape, np.nan), where=s4_ok > 0)
+    out.update(lead._fold_windows(valid, mean_of(1), mean_of(2), s4))
+    out['n_samples'] = int(sum(a.n_samples for a in accs.values()))
+    out['last_epoch'] = max(a.prev_t for a in accs.values() if a.prev_t is not None)
+    out['phase_reference_station'] = lead_name
+    out['stations_heard'] = [s for s in names if s]
+    return out
+
+
+def is_shared(channel: Optional[str]) -> bool:
+    """A ``SHARED_<kHz>`` channel carries several broadcasters on one frequency."""
+    return bool(channel) and channel.startswith('SHARED_')
 
 
 class PhaseService:
@@ -368,28 +450,51 @@ class PhaseService:
 
     # ── the shared pass ─────────────────────────────────────────────────
 
+    def _aggregate(self, conn, channels: List[str], start_epoch: float, end_epoch: float,
+                   station: Optional[str], bucket: float, window_s: float
+                   ) -> Dict[Tuple[str, str], Dict[str, Any]]:
+        """One pass per channel; one trace per (channel, station), and one
+        ``composite`` trace per SHARED channel.
+
+        A SHARED channel reads every station's rows, whatever the station
+        filter: the carrier it measures belongs to no single station.  With
+        a station filter, the composite appears when that station was heard.
+        """
+        traces: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for ch in channels:
+            shared = is_shared(ch)
+            accs: Dict[str, _TraceAcc] = {}
+            try:
+                for stn, t, phases, snr in self._iter_chunks(
+                        conn, ch, start_epoch, end_epoch, None if shared else station):
+                    acc = accs.get(stn)
+                    if acc is None:
+                        acc = accs[stn] = _TraceAcc(start_epoch, end_epoch, bucket, window_s)
+                    acc.add(t, phases, snr)
+            except sqlite3.Error as e:
+                logger.warning(f"{TABLE} read failed for {ch}: {e}")
+            if not accs:
+                continue
+            if shared:
+                if station and station not in accs:
+                    continue
+                traces[(ch, COMPOSITE_STATION)] = _composite_finish(accs)
+            else:
+                for stn, acc in accs.items():
+                    traces[(ch, stn or '')] = acc.finish()
+        return traces
+
     def _read_and_aggregate(self, start_epoch: float, end_epoch: float,
                             channel: Optional[str], station: Optional[str],
-                            window_s: float) -> Dict[str, Any]:
-        bucket = bucket_seconds_for(end_epoch - start_epoch)
+                            window_s: float, bucket: Optional[float] = None) -> Dict[str, Any]:
+        bucket = bucket or bucket_seconds_for(end_epoch - start_epoch)
         traces: Dict[Tuple[str, str], Dict[str, Any]] = {}
         conn = self._connect()
         if conn is not None:
             try:
                 channels = [channel] if channel else self._distinct_channels(conn)
-                for ch in channels:
-                    accs: Dict[str, _TraceAcc] = {}
-                    try:
-                        for stn, t, phases, snr in self._iter_chunks(
-                                conn, ch, start_epoch, end_epoch, station):
-                            acc = accs.get(stn)
-                            if acc is None:
-                                acc = accs[stn] = _TraceAcc(start_epoch, end_epoch, bucket, window_s)
-                            acc.add(t, phases, snr)
-                    except sqlite3.Error as e:
-                        logger.warning(f"{TABLE} read failed for {ch}: {e}")
-                    for stn, acc in accs.items():
-                        traces[(ch, stn or '')] = acc.finish()
+                traces = self._aggregate(conn, channels, start_epoch, end_epoch,
+                                         station, bucket, window_s)
             except sqlite3.Error as e:
                 logger.warning(f"{TABLE} channel listing failed: {e}")
             finally:
@@ -408,7 +513,8 @@ class PhaseService:
                 'window_seconds': window_s}
 
     def _core(self, start: datetime, end: datetime, channel: Optional[str],
-              station: Optional[str], window_s: float = 60.0) -> Dict[str, Any]:
+              station: Optional[str], window_s: float = 60.0,
+              min_bucket: int = 0) -> Dict[str, Any]:
         start_epoch, end_epoch = start.timestamp(), end.timestamp()
         if end_epoch <= start_epoch:
             raise PhaseRequestError("end must follow start")
@@ -421,7 +527,10 @@ class PhaseService:
         window_s = float(window_s)
         # Snap the window outward to bucket boundaries, so requests a few
         # seconds apart share one cache entry instead of one full read each.
-        b = bucket_seconds_for(end_epoch - start_epoch)
+        # ``min_bucket`` (internal callers only) floors the bucket: the
+        # ionogram asks for whole minutes.  Under a day the span's own bucket
+        # never exceeds 60 s, so a day-long phase page shares the entry.
+        b = max(bucket_seconds_for(end_epoch - start_epoch), int(min_bucket))
         start_epoch = math.floor(start_epoch / b) * b
         end_epoch = math.ceil(end_epoch / b) * b
         # Only names the database holds may reach the cache key, so a client
@@ -433,7 +542,7 @@ class PhaseService:
             if station and station not in known['stations']:
                 raise PhaseRequestError("unknown station")
         key = (start_epoch, end_epoch, channel or None,
-               station or None, window_s, str(self._db_path()))
+               station or None, window_s, b, str(self._db_path()))
         hit = _cache_get(key)
         if hit is not None:
             return hit
@@ -443,7 +552,8 @@ class PhaseService:
             hit = _cache_get(key)       # a twin request may have filled it meanwhile
             if hit is not None:
                 return hit
-            core = self._read_and_aggregate(start_epoch, end_epoch, channel, station, window_s)
+            core = self._read_and_aggregate(start_epoch, end_epoch, channel, station,
+                                            window_s, bucket=b)
             _cache_put(key, core)
             return core
         finally:
@@ -461,6 +571,22 @@ class PhaseService:
 
     # ── views ───────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _identity(ch: str, stn: str, tr: Dict[str, Any]) -> Dict[str, Any]:
+        """The fields that say whose carrier a trace measures."""
+        composite = stn == COMPOSITE_STATION
+        out = {
+            'channel': ch,
+            'station': stn,
+            'composite': composite,
+            'label': COMPOSITE_LABEL if composite else stn,
+            'stations_heard': list(tr.get('stations_heard', [stn] if stn else [])),
+            'color': COMPOSITE if composite else STATION_COLORS.get(stn, COMPOSITE),
+        }
+        if composite:
+            out['phase_reference_station'] = tr.get('phase_reference_station')
+        return out
+
     def _phase_series(self, core, phase_type: str, unwrap: bool,
                       only_dc: bool = False) -> List[Dict[str, Any]]:
         fine = core['bucket_seconds'] < 5
@@ -475,9 +601,7 @@ class PhaseService:
             if not unwrap:
                 ph = (ph + np.pi) % (2 * np.pi) - np.pi
             series.append({
-                'channel': ch,
-                'station': stn,
-                'color': STATION_COLORS.get(stn, COMPOSITE),
+                **self._identity(ch, stn, tr),
                 'timestamps': [_iso(t, fine) for t in ep],
                 'epochs': _round(ep, 3),
                 'phase_rad': _round(ph, 4),
@@ -507,9 +631,7 @@ class PhaseService:
                 smooth = (np.convolve(raw, kernel, mode='same')
                           / np.convolve(np.ones(raw.size), kernel, mode='same'))
             series.append({
-                'channel': ch,
-                'station': stn,
-                'color': STATION_COLORS.get(stn, COMPOSITE),
+                **self._identity(ch, stn, tr),
                 'timestamps': [_iso(t, fine) for t in ep],
                 'epochs': _round(ep, 3),
                 'doppler_hz': _round(smooth, 5),
@@ -526,9 +648,7 @@ class PhaseService:
                 continue
             s4 = [None if math.isnan(v) else round(float(v), 4) for v in tr['s4']]
             series.append({
-                'channel': ch,
-                'station': stn,
-                'color': STATION_COLORS.get(stn, COMPOSITE),
+                **self._identity(ch, stn, tr),
                 'timestamps': [_iso(t, False) for t in ep],
                 'epochs': _round(ep, 3),
                 'sigma_phi_rad': _round(tr['sigma_phi_rad'], 4),
@@ -585,6 +705,7 @@ class PhaseService:
         meta = self._meta(core, start, end)
         meta.update({'smoothing_seconds': smoothing_seconds,
                      'effective_smoothing_seconds': eff,
+                     'doppler_estimator': DOPPLER_ESTIMATOR,
                      'n_traces': len(series)})
         return {'series': series, 'metadata': meta}
 
@@ -597,7 +718,7 @@ class PhaseService:
         window_seconds: float = 60.0,
     ) -> Dict[str, Any]:
         """
-        Phase scintillation index (sigma_phi) over consecutive windows.
+        Phase variability (sigma_phi) over consecutive windows.
 
         sigma_phi = std(linearly detrended carrier phase) in each
         ``window_seconds`` window.  When the bucket outgrows the window, a
@@ -635,7 +756,8 @@ class PhaseService:
                                       'unwrapped': True}},
             'doppler': {'series': doppler,
                         'metadata': {**meta, 'smoothing_seconds': smoothing_seconds,
-                                     'effective_smoothing_seconds': eff}},
+                                     'effective_smoothing_seconds': eff,
+                                     'doppler_estimator': DOPPLER_ESTIMATOR}},
             'scintillation': {'series': self._scintillation_series(core),
                               'metadata': {**meta, 'window_seconds': window_seconds,
                                            'sigma_bucket_seconds':
@@ -704,65 +826,75 @@ class PhaseService:
 
     def get_phase_summary(self) -> Dict[str, Any]:
         """
-        Get current phase/Doppler state across all channels.
-        Returns the latest ~5 minutes of data summarized per channel/station.
+        Current phase/Doppler state: one card per trace over the last 5 minutes.
+
+        The cards use the charts' estimators, not their own: Doppler pools the
+        1 Hz phase steps over the whole 5 minutes (DOPPLER_ESTIMATOR), and
+        phase variability is the mean of 60 s detrended windows, the chart's
+        window.  A SHARED channel gives one composite card.
         """
         end = datetime.now(timezone.utc)
-        start = end - timedelta(minutes=5)
+        start = end - timedelta(seconds=SUMMARY_SECONDS)
         s_ep, e_ep = start.timestamp(), end.timestamp()
 
-        raw: Dict[Tuple[str, str], List] = {}
+        traces: Dict[Tuple[str, str], Dict[str, Any]] = {}
         conn = self._connect()
         if conn is not None:
             try:
-                for ch in self._distinct_channels(conn):
-                    for stn, t, phases, snr in self._iter_chunks(conn, ch, s_ep, e_ep, None):
-                        raw.setdefault((ch, stn or ''), []).append((t, phases[0], snr))
+                traces = self._aggregate(conn, self._distinct_channels(conn), s_ep, e_ep,
+                                         None, SUMMARY_SECONDS, SUMMARY_SIGMA_WINDOW_S)
             except sqlite3.Error as e:
                 logger.warning(f"{TABLE} summary read failed: {e}")
             finally:
                 conn.close()
 
         channels = []
-        for (ch, stn), parts in sorted(raw.items()):
-            epochs = np.concatenate([p[0] for p in parts])
-            phases = np.unwrap(np.concatenate([p[1] for p in parts]))
-            snrs = np.concatenate([p[2] for p in parts])
-
-            if len(epochs) < 2:
+        for (ch, stn), tr in sorted(traces.items()):
+            if tr['n_samples'] < 2 or tr['last_epoch'] is None:
                 continue
-
-            # Compute instantaneous Doppler from last few points
-            doppler_hz = 0.0
-            if len(epochs) >= 3:
-                dt = epochs[-1] - epochs[-3]
-                if dt > 0:
-                    doppler_hz = -(1.0 / (2 * np.pi)) * (phases[-1] - phases[-3]) / dt
-
-            # Phase scintillation over the window
-            if len(phases) >= 5:
-                coeffs = np.polyfit(epochs - epochs[0], phases, 1)
-                trend = np.polyval(coeffs, epochs - epochs[0])
-                sigma_phi = float(np.std(phases - trend))
-            else:
-                sigma_phi = 0.0
-
+            dop = tr['doppler_raw_hz']
+            sig = tr['sigma_phi_rad']
+            snr = tr['snr_db']
             channels.append({
-                'channel': ch,
-                'station': stn,
-                'color': STATION_COLORS.get(stn, COMPOSITE),
+                **self._identity(ch, stn, tr),
                 'dc_meaningful': dc_meaningful(ch),
-                'latest_phase_rad': float(phases[-1]),
-                'doppler_hz': float(doppler_hz),
-                'sigma_phi_rad': sigma_phi,
-                'mean_snr_db': float(np.mean(snrs)),
-                'n_points': len(epochs),
+                'doppler_hz': float(dop[-1]) if dop.size else None,
+                'sigma_phi_rad': float(np.mean(sig)) if sig.size else None,
+                'mean_snr_db': float(np.mean(snr)) if snr.size else None,
+                'n_points': int(tr['n_samples']),
                 'last_update': datetime.fromtimestamp(
-                    float(epochs[-1]), tz=timezone.utc).isoformat(),
+                    float(tr['last_epoch']), tz=timezone.utc).isoformat(),
             })
 
         return {
             'channels': channels,
             'timestamp': end.isoformat(),
-            'window_minutes': 5,
+            'window_minutes': SUMMARY_SECONDS // 60,
+            'sigma_window_seconds': SUMMARY_SIGMA_WINDOW_S,
+            'doppler_estimator': DOPPLER_ESTIMATOR,
         }
+
+    def get_minute_doppler(self, start: datetime, end: datetime,
+                           channel: str) -> Dict[str, Any]:
+        """Per-minute Doppler (Hz) for one channel, for the ionogram.
+
+        The phase page's own pass with the bucket floored at 60 s, so the
+        numbers equal the phase page's at a day's window.  A SHARED channel
+        answers with its composite carrier.  Raises PhaseRequestError for a
+        channel with no tick_phase rows, PhaseBusy when another pass holds
+        the read.
+        """
+        core = self._core(start, end, channel, None, min_bucket=60)
+        for (ch, stn), tr in sorted(core['traces'].items()):
+            ep = tr['doppler_epochs']
+            return {
+                'minute_boundary': (np.floor(ep / 60.0) * 60.0).astype(np.int64),
+                'doppler_hz': tr['doppler_raw_hz'],
+                'composite': stn == COMPOSITE_STATION,
+                'label': COMPOSITE_LABEL if stn == COMPOSITE_STATION else stn,
+                'bucket_seconds': core['bucket_seconds'],
+            }
+        return {'minute_boundary': np.zeros(0, dtype=np.int64), 'doppler_hz': np.zeros(0),
+                'composite': is_shared(channel),
+                'label': COMPOSITE_LABEL if is_shared(channel) else None,
+                'bucket_seconds': core['bucket_seconds']}

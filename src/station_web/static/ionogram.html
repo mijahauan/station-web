@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title>Ionogram — Time-of-Flight Cluster Analysis — station-web</title>
+    <title>Time of flight — station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
+    <script src="/static/js/physics-views.js"></script>
     <style>
         .controls-row {
             display: flex;
@@ -101,7 +102,7 @@
             color: #f87171;
             font-size: 13px;
         }
-        .griffin-note {
+        .note-box {
             background: #1e293b;
             border: 1px solid #334155;
             border-radius: var(--radius-md);
@@ -111,24 +112,25 @@
             margin-bottom: 16px;
             line-height: 1.6;
         }
-        .griffin-note strong { color: #cbd5e1; }
+        .note-box strong { color: #cbd5e1; }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <h1>Ionogram — Time-of-Flight Cluster Analysis</h1>
-        <div class="header-subtitle">GPS-referenced propagation delay: detection time minus scheduled broadcast time. Clusters correspond to ionospheric propagation modes (1F2, 2F2, 1E, etc.).</div>
+        <h1>Time of flight</h1>
+        <div class="header-subtitle">Propagation delay of each tick: detection time minus scheduled broadcast time, on the station's registered sample clock. Clusters suggest distinct propagation modes (1F2, 2F2, 1E and so on).</div>
         <nav class="nav" data-site-nav aria-label="Site"></nav>
     </div>
 
-        <div class="griffin-note">
-            <strong>Interpretation guide (after Griffiths 2026):</strong>
-            Rank-0 arrivals (dominant path) cluster near the model-predicted ToF.
-            Rank-1+ arrivals (secondary paths) appear at longer delays — each cluster
-            corresponds to a distinct propagation mode (1F, 2F, sporadic-E, sidescatter).
-            The delay difference between rank-0 and rank-1 directly encodes the F2 virtual height.
-            SNR separates modes: higher-hop paths are weaker due to additional D-layer transits.
+        <div class="note-box">
+            <strong>Reading the charts:</strong>
+            Rank-0 arrivals (dominant path) cluster near the model-predicted time of flight.
+            Rank-1+ arrivals (secondary paths) appear at longer delays; a separate cluster
+            suggests a distinct propagation mode (1F, 2F, sporadic-E, sidescatter).
+            The delay between two modes depends on ground range and on both hop geometries,
+            so this page derives no layer height from it.
+            SNR helps separate modes: each extra hop crosses the D layer twice more and arrives weaker.
         </div>
 
         <!-- Time Period Selector -->
@@ -184,11 +186,6 @@
                 <div class="stat-value" id="statRankN">—</div>
                 <div class="stat-sub">multi-hop paths</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-label">F2 virtual height</div>
-                <div class="stat-value" id="statF2h">—</div>
-                <div class="stat-sub">km (from Δτ)</div>
-            </div>
         </div>
 
         <!-- Tabs -->
@@ -204,7 +201,6 @@
                 <div class="plot-title">Time of Flight — All Arrivals</div>
                 <div class="plot-subtitle">
                     Dominant path (rank-0, filled circles) and secondary paths (rank≥1, open circles).
-                    Analogous to Griffiths' "Time of Flight and WSPRDaemon Grape Signal+Noise Level".
                 </div>
                 <div id="tofPlot" style="height:320px"><div class="loading-msg">Loading…</div></div>
             </div>
@@ -216,25 +212,16 @@
                 </div>
                 <div id="snrPlot" style="height:220px"><div class="loading-msg">—</div></div>
             </div>
-            <div class="plot-container">
-                <div class="plot-title">Implied F2 Virtual Height (km)</div>
-                <div class="plot-subtitle">
-                    Derived from rank-0 vs rank-1 delay difference: h_F2 ≈ c·Δτ/2.
-                    Tracks ionospheric layer height variations over the day.
-                </div>
-                <div id="heightPlot" style="height:220px"><div class="loading-msg">—</div></div>
-            </div>
         </div>
 
-        <!-- Cluster panel (Griffiths cluster analysis) -->
+        <!-- Cluster panel -->
         <div class="tab-panel" id="tab-cluster">
             <div class="plot-container">
                 <div class="plot-title">ToF vs S+N Level — Cluster Analysis</div>
                 <div class="plot-subtitle">
-                    Each point is one arrival. KDE density contours identify propagation mode clusters.
-                    Analogous to Griffiths' "Cluster analysis of ToF and S+N level" (KDE contours + scatter).
-                    Cluster interpretation: high-ToF/high-SNR = 2F sidescatter; low-ToF/high-SNR = 1F direct;
-                    low-ToF/low-SNR = forward scatter or artefact.
+                    Each point is one arrival. KDE density contours outline candidate propagation-mode clusters.
+                    A rough reading: high-ToF/high-SNR suggests 2F or sidescatter; low-ToF/high-SNR, 1F direct;
+                    low-ToF/low-SNR, forward scatter or an artefact.
                 </div>
                 <div id="clusterPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
             </div>
@@ -242,18 +229,22 @@
 
         <!-- Doppler-Delay panel -->
         <div class="tab-panel" id="tab-doppler">
-            <div class="griffin-note">
-                <strong>Doppler-Delay spread function:</strong>
-                Each point is one per-second tick detection. X-axis = propagation delay residual (timing_error_ms);
-                Y-axis = carrier phase at tick onset (radians). Different propagation modes (1F2, 2F2, Es) have
-                different Doppler shifts because the reflecting layers move at different velocities.
-                Clusters in this 2D space identify distinct modes even when their delays overlap.
+            <div class="note-box">
+                <strong>Doppler against delay:</strong>
+                One point per minute and station. X: the minute's median time of flight of the
+                dominant arrivals (ms). Y: that minute's carrier Doppler (Hz), from the phase page's
+                estimator, f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt over the
+                1 Hz carrier phase. Modes that move differently could separate along the Doppler
+                axis even where their delays overlap. On a SHARED channel the Doppler belongs to the
+                composite carrier (WWV + WWVH + BPM), so every station's delay in a minute pairs
+                with the same Doppler.
             </div>
+            <div id="dopplerRuler"></div>
             <div class="stats-grid" id="dopplerStatsGrid" style="display:none">
                 <div class="stat-card">
-                    <div class="stat-label">Edge tick detections</div>
-                    <div class="stat-value" id="statEdgeTicks">--</div>
-                    <div class="stat-sub">per-second ticks with phase</div>
+                    <div class="stat-label">Minutes paired</div>
+                    <div class="stat-value" id="statDopplerMins">--</div>
+                    <div class="stat-sub" id="statDopplerMinsSub">delay and Doppler</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Delay spread</div>
@@ -261,29 +252,27 @@
                     <div class="stat-sub">ms (std dev)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Phase spread</div>
-                    <div class="stat-value" id="statPhaseSpread">--</div>
-                    <div class="stat-sub">rad (std dev)</div>
+                    <div class="stat-label">Doppler spread</div>
+                    <div class="stat-value" id="statDopplerSpread">--</div>
+                    <div class="stat-sub">Hz (std dev)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">Minutes w/ Doppler</div>
-                    <div class="stat-value" id="statDopplerMins">--</div>
-                    <div class="stat-sub">phase slope fit</div>
+                    <div class="stat-label">Median Doppler</div>
+                    <div class="stat-value" id="statDopplerMedian">--</div>
+                    <div class="stat-sub">Hz</div>
                 </div>
             </div>
             <div class="plot-container">
-                <div class="plot-title">Doppler-Delay Scatter</div>
-                <div class="plot-subtitle">
-                    Per-tick timing error vs carrier phase. KDE contours highlight propagation mode clusters.
-                    Color = correlation SNR.
+                <div class="plot-title">Doppler vs delay</div>
+                <div class="plot-subtitle" id="dopplerDelaySub">
+                    Per-minute Doppler (Hz) against per-minute delay (ms). KDE contours outline clusters.
                 </div>
                 <div id="dopplerDelayPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
             </div>
             <div class="plot-container">
-                <div class="plot-title">Per-Minute Doppler Shift (Hz)</div>
+                <div class="plot-title">Per-minute Doppler (Hz)</div>
                 <div class="plot-subtitle">
-                    Doppler from carrier phase slope across ticks within each minute.
-                    Diurnal variation tracks bulk ionospheric motion.
+                    The same estimator as the Phase page. Diurnal variation tracks bulk ionospheric motion.
                 </div>
                 <div id="dopplerTsPlot" style="height:240px"><div class="loading-msg">--</div></div>
             </div>
@@ -342,7 +331,7 @@ function onChannelChange() {
     loadData();
 }
 
-const PLOT_IDS = ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot', 'dopplerDelayPlot', 'dopplerTsPlot'];
+const PLOT_IDS = ['tofPlot', 'snrPlot', 'clusterPlot', 'dopplerDelayPlot', 'dopplerTsPlot'];
 
 async function loadData() {
     const channel = document.getElementById('channelSelect').value;
@@ -360,14 +349,15 @@ async function loadData() {
     const range = tps.getAPIParams();
     const common = { channel, start: range.start, end: range.end };
     if (station) common.station = station;
-    ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot'].forEach(setLoading);
+    ['tofPlot', 'snrPlot', 'clusterPlot'].forEach(setLoading);
+    loadRulerFloor('dopplerRuler', [channelFreqMHz(channel)]);
 
     try {
         // One read serves all three views: three parallel day-long reads
         // once pushed station-web past its memory limit.
         const all = await api.get('/ionogram/combined', {
             ...common, min_snr_db: minSnr, downsample: ds,
-            doppler_min_snr_db: 3, doppler_method: 'edge_tick', include_kde: true,
+            doppler_min_snr_db: 3, include_kde: true,
         });
         const ts = all.timeseries;
         const scatter = all.arrivals;
@@ -377,7 +367,7 @@ async function loadData() {
 
         if (ts.status === 'no_data' && scatter.status === 'no_data') {
             const why = noDataReason(ts, 'No data for this channel and window');
-            ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot'].forEach(id => showPlotMessage(id, why));
+            ['tofPlot', 'snrPlot', 'clusterPlot'].forEach(id => showPlotMessage(id, why));
             renderDopplerDelay(_dopplerData);
             return;
         }
@@ -416,27 +406,17 @@ function updateStats(ts, scatter) {
     document.getElementById('statRank0').textContent = r0 ? String(r0.n) : '—';
     document.getElementById('statRank0Tof').textContent = r0 ? `ToF ${r0.tof_mean_ms.toFixed(1)} ± ${r0.tof_std_ms.toFixed(1)} ms` : '—';
     document.getElementById('statRankN').textContent = String(r1n);
-
-    const h = ts.f2_height;
-    if (h && h.n > 0) {
-        const vals = h.height_km;
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-        document.getElementById('statF2h').textContent = mean.toFixed(0);
-    } else {
-        document.getElementById('statF2h').textContent = '—';
-    }
 }
 
 function renderTimeSeries(data) {
     const dom = data.dominant;
     const sec = data.secondary;
-    const h = data.f2_height;
     const solar = data.solar;
     const color = data.color || '#7B68EE';
 
     if (!dom || !dom.n) {
         const why = data.status === 'no_data' ? noDataReason(data) : 'No plausible dominant arrivals in this window';
-        ['tofPlot', 'snrPlot', 'heightPlot'].forEach(id => showPlotMessage(id, why));
+        ['tofPlot', 'snrPlot'].forEach(id => showPlotMessage(id, why));
         return;
     }
 
@@ -445,7 +425,6 @@ function renderTimeSeries(data) {
     // Compute shared x-axis range from all timestamps so panels align
     let allTs = [...dom.timestamps];
     if (sec && sec.n > 0) allTs = allTs.concat(sec.timestamps);
-    if (h && h.n > 0) allTs = allTs.concat(h.timestamps);
     if (solar && solar.timestamps) allTs = allTs.concat(solar.timestamps);
     const xMin = toDate(Math.min(...allTs));
     const xMax = toDate(Math.max(...allTs));
@@ -549,32 +528,6 @@ function renderTimeSeries(data) {
         legend: sharedLegend,
         showlegend: true,
     }, { responsive: true, displayModeBar: false });
-
-    // F2 height plot
-    if (h && h.n > 5) {
-        const heightTraces = [{
-            x: h.timestamps.map(toDate),
-            y: h.height_km,
-            mode: 'markers',
-            type: 'scatter',
-            name: 'F2 height',
-            marker: { color: '#34d399', size: 3 },
-        }];
-        const solarH = makeSolarTrace(solar, 'y2');
-        if (solarH) { solarH.showlegend = false; heightTraces.push(solarH); }
-
-        clearMsg('heightPlot'); Plotly.newPlot('heightPlot', heightTraces, {
-            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { color: '#e2e8f0', size: 11 },
-            margin: sharedMargin,
-            xaxis: sharedXaxis,
-            yaxis: { gridcolor: '#334155', title: 'h\'F2 (km)', range: [100, 600] },
-            yaxis2: solarY2,
-            showlegend: false,
-        }, { responsive: true, displayModeBar: false });
-    } else {
-        showPlotMessage('heightPlot', 'Insufficient rank-0/rank-1 pairs for a height estimate');
-    }
 }
 
 function renderCluster(data) {
@@ -667,43 +620,58 @@ function renderCluster(data) {
 }
 
 function renderDopplerDelay(data) {
-    if (!data || data.status === 'no_data' || !data.scatter) {
-        showPlotMessage('dopplerDelayPlot', noDataReason(data, 'No per-tick edge detections in this window'));
-        showPlotMessage('dopplerTsPlot', '—');
-        document.getElementById('dopplerStatsGrid').style.display = 'none';
+    const grid = document.getElementById('dopplerStatsGrid');
+    const ts = (data && data.doppler_timeseries) || { minute_boundary: [], doppler_hz: [] };
+    const s = (data && data.scatter) || {};
+    const delay = s.delay_ms || [];
+    const dop = s.doppler_hz || [];
+    const why = (data && (data.doppler_reason || data.reason)) || 'No minute holds both a delay and a Doppler estimate';
+    const toDate = t => new Date(t * 1000).toISOString();
+
+    // the Doppler time series stands on its own: it needs no arrivals
+    if (ts.minute_boundary.length >= 3) {
+        clearMsg('dopplerTsPlot'); Plotly.newPlot('dopplerTsPlot', [{
+            x: ts.minute_boundary.map(toDate),
+            y: ts.doppler_hz,
+            mode: 'markers+lines',
+            type: 'scatter',
+            name: data.doppler_label || 'Doppler',
+            marker: { color: data.doppler_composite ? stationColor('composite') : (data.color || stationColor('composite')), size: 3 },
+            line: { width: 1 },
+            hovertemplate: '%{y:.4f} Hz<extra></extra>',
+        }], {
+            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+            font: { color: '#e2e8f0', size: 11 },
+            margin: { t: 10, b: 40, l: 60, r: 10 },
+            xaxis: { gridcolor: '#334155', title: 'UTC' },
+            yaxis: { gridcolor: '#334155', title: 'Doppler (Hz)', zeroline: true, zerolinecolor: '#475569' },
+            showlegend: false,
+        }, { responsive: true, displayModeBar: false });
+    } else {
+        showPlotMessage('dopplerTsPlot', (data && data.doppler_reason) || 'Too few minutes with a Doppler estimate');
+    }
+
+    if (!data || delay.length === 0) {
+        showPlotMessage('dopplerDelayPlot', why);
+        grid.style.display = 'none';
         return;
     }
 
-    const s = data.scatter;
-    const kde = data.kde;
-    const color = data.color || '#7B68EE';
-    const te = s.timing_error_ms || [];
-    const phase = s.carrier_phase_rad || [];
-    const snr = s.corr_snr_db || [];
     const summary = data.summary || {};
-
-    // Update stats
-    document.getElementById('dopplerStatsGrid').style.display = 'grid';
-    document.getElementById('statEdgeTicks').textContent = data.n_edge_ticks || 0;
-    document.getElementById('statDelaySpread').textContent = (summary.timing_error_std_ms || 0).toFixed(2);
-    document.getElementById('statPhaseSpread').textContent = (summary.phase_std_rad || 0).toFixed(2);
-    document.getElementById('statDopplerMins').textContent = summary.n_minutes_with_doppler || 0;
-
-    if (te.length === 0) {
-        showPlotMessage('dopplerDelayPlot', 'No edge tick detections with carrier phase in this window');
-        showPlotMessage('dopplerTsPlot', '—');
-        return;
-    }
+    const fmt = (v, d) => (v === null || v === undefined) ? '--' : Number(v).toFixed(d);
+    grid.style.display = 'grid';
+    document.getElementById('statDopplerMins').textContent = String(data.n_points || 0);
+    document.getElementById('statDopplerMinsSub').textContent =
+        `of ${data.n_minutes_delay || 0} minute-station delays`;
+    document.getElementById('statDelaySpread').textContent = fmt(summary.delay_std_ms, 2);
+    document.getElementById('statDopplerSpread').textContent = fmt(summary.doppler_std_hz, 4);
+    document.getElementById('statDopplerMedian').textContent = fmt(summary.doppler_median_hz, 4);
 
     const traces = [];
-
-    // KDE contours (background)
+    const kde = data.kde;
     if (kde && kde.x && kde.y && kde.z) {
         traces.push({
-            type: 'contour',
-            x: kde.x,
-            y: kde.y,
-            z: kde.z,
+            type: 'contour', x: kde.x, y: kde.y, z: kde.z,
             colorscale: [
                 [0, 'rgba(30,58,138,0)'],
                 [0.2, 'rgba(30,58,138,0.3)'],
@@ -714,67 +682,36 @@ function renderDopplerDelay(data) {
             showscale: false,
             contours: { coloring: 'fill', showlines: true },
             line: { color: 'rgba(148,163,184,0.4)', width: 0.5 },
-            name: 'KDE density',
-            hoverinfo: 'skip',
+            name: 'KDE density', hoverinfo: 'skip',
         });
     }
-
-    // Scatter colored by SNR
-    traces.push({
-        x: te,
-        y: phase,
-        mode: 'markers',
-        type: 'scatter',
-        name: 'Per-tick detection',
-        marker: {
-            color: snr,
-            colorscale: 'Viridis',
-            size: 4,
-            opacity: 0.7,
-            colorbar: { title: 'SNR (dB)', len: 0.5, y: 0.8 },
-            cmin: 3,
-            cmax: Math.min(30, Math.max(...snr)),
-        },
-        text: te.map((t, i) => `delay=${t.toFixed(2)}ms, phase=${phase[i].toFixed(2)}rad, SNR=${snr[i].toFixed(1)}dB`),
-        hoverinfo: 'text',
-    });
+    // one trace per station: its own delay, the channel's Doppler
+    const stations = [...new Set(s.station || [])];
+    for (const st of stations) {
+        const idx = s.station.map((v, i) => v === st ? i : -1).filter(i => i >= 0);
+        traces.push({
+            x: idx.map(i => delay[i]),
+            y: idx.map(i => dop[i]),
+            mode: 'markers', type: 'scatter',
+            name: `${st} delay`,
+            marker: { color: stationColor(st), size: 5, opacity: 0.8 },
+            customdata: idx.map(i => [toDate(s.minute_boundary[i]), s.corr_snr_db[i]]),
+            hovertemplate: '%{customdata[0]}<br>delay %{x:.2f} ms<br>Doppler %{y:.4f} Hz<br>SNR %{customdata[1]:.1f} dB<extra>' + escapeHtml(st) + '</extra>',
+        });
+    }
+    document.getElementById('dopplerDelaySub').textContent = data.doppler_composite
+        ? 'Per-minute Doppler of the composite carrier (WWV + WWVH + BPM) against each station\'s per-minute delay.'
+        : 'Per-minute Doppler (Hz) against per-minute delay (ms). KDE contours outline clusters.';
 
     clearMsg('dopplerDelayPlot'); Plotly.newPlot('dopplerDelayPlot', traces, {
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         font: { color: '#e2e8f0', size: 11 },
         margin: { t: 10, b: 50, l: 70, r: 10 },
-        xaxis: { gridcolor: '#334155', title: 'Timing Error (ms)', zeroline: true, zerolinecolor: '#475569' },
-        yaxis: { gridcolor: '#334155', title: 'Carrier Phase (rad)' },
+        xaxis: { gridcolor: '#334155', title: 'Delay (ms)' },
+        yaxis: { gridcolor: '#334155', title: 'Doppler (Hz)', zeroline: true, zerolinecolor: '#475569' },
         legend: { bgcolor: 'transparent', font: { size: 11 } },
         showlegend: true,
     }, { responsive: true, displayModeBar: false });
-
-    // Per-minute Doppler time series
-    const md = data.minute_doppler || {};
-    const dTs = Object.keys(md).map(Number).sort((a, b) => a - b);
-    const dHz = dTs.map(t => md[t]);
-
-    if (dTs.length >= 3) {
-        const toDate = ts => new Date(ts * 1000).toISOString();
-        clearMsg('dopplerTsPlot'); Plotly.newPlot('dopplerTsPlot', [{
-            x: dTs.map(toDate),
-            y: dHz,
-            mode: 'markers+lines',
-            type: 'scatter',
-            name: 'Doppler',
-            marker: { color: '#34d399', size: 3 },
-            line: { color: '#34d399', width: 1 },
-        }], {
-            paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-            font: { color: '#e2e8f0', size: 11 },
-            margin: { t: 10, b: 40, l: 60, r: 10 },
-            xaxis: { gridcolor: '#334155', title: 'UTC' },
-            yaxis: { gridcolor: '#334155', title: 'Doppler (Hz)', zeroline: true, zerolinecolor: '#475569' },
-            showlegend: false,
-        }, { responsive: true, displayModeBar: false });
-    } else {
-        showPlotMessage('dopplerTsPlot', 'Insufficient minutes with a Doppler estimate');
-    }
 }
 
 // Initialize TimePeriodSelector, discover channels, then load

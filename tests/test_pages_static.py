@@ -87,10 +87,10 @@ def test_index_counts_channel_names():
 
 
 def test_phase_summary_cards_escape_database_values():
-    """N2: channel, station and colour come from the database; escape them
-    like every other page does."""
+    """N2: channel, label (the station, or the composite carrier) and colour
+    come from the database; escape them like every other page does."""
     text = _text("phase.html")
-    for field in ("ch.channel", "ch.station", "ch.color"):
+    for field in ("ch.channel", "ch.label", "ch.color"):
         assert f"${{{field}}}" not in text, field
         assert f"escapeHtml({field})" in text, field
 

@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
+    <script src="/static/js/physics-views.js"></script>
     <style>
         .display-tabs {
             display: flex;
@@ -219,14 +220,15 @@
             </div>
 
             <div class="plot-container">
-                <div class="plot-title">D_clock vs Time (Ionospheric Group Delay Residual)</div>
-                <div class="plot-subtitle">Residual after subtracting modeled propagation delay. Positive = signal arrived later than predicted (excess ionospheric delay). Negative = arrived earlier (model overestimates delay, or multipath/false detection). Values railed at &plusmn;20 ms are filtered out.</div>
+                <div class="plot-title">arrival residual vs model (ms)</div>
+                <div class="plot-subtitle">Each broadcast's tick arrival minus the modelled propagation delay. A diagnostic, not ionospheric science: these per-broadcast residuals feed the T3 estimate of t&#8320;. Residuals within 0.5 ms of &plusmn;5, 10 or 15 ms sit on the tick lattice and suggest a lock on the wrong tick or mode; the chart draws them as grey crosses, marked suspect. Values railed at &plusmn;20 ms are left out.</div>
                 <div id="plot-dclock" style="height: 300px;"></div>
             </div>
 
             <div class="plot-container">
                 <div class="plot-title">Doppler Shift vs Time</div>
-                <div class="plot-subtitle">Carrier phase slope across the minute (IQ-domain) &mdash; ionospheric motion signature</div>
+                <div class="plot-subtitle">Per-minute carrier Doppler from the Phase page's estimator, f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt over the 1 Hz carrier phase: one Doppler site-wide. A SHARED channel shows one trace, the composite carrier (WWV + WWVH + BPM).</div>
+                <div id="doppler-ruler"></div>
                 <div id="plot-doppler" style="height: 300px;"></div>
             </div>
         </div>
@@ -271,16 +273,11 @@
                 </div>
                 <div class="plot-container">
                     <div class="plot-title">TEC Time Series (24h)</div>
-                    <div class="plot-subtitle">Slant TEC at path midpoint from multi-frequency 1/f&sup2; fit &mdash; expect 5&ndash;20 TECU night, 20&ndash;80 TECU day</div>
+                    <div class="plot-subtitle">Slant TEC from the multi-frequency 1/f&sup2; fit (L3_tec). Autoscaled, so negative (unphysical) fits stay visible. L3_tec publishes no TEC uncertainty in TECU; the hover shows the fit's RMS residual in ms.</div>
                     <div id="plot-tec-ts" style="height: 400px;"></div>
                 </div>
             </div>
 
-            <div class="plot-container">
-                <div class="plot-title">D_clock by Station &mdash; Multi-Frequency View</div>
-                <div class="plot-subtitle">Each station's frequencies shown together &mdash; dispersion visible as frequency separation</div>
-                <div id="plot-dclock-station" style="height: 400px;"></div>
-            </div>
         </div>
 
         <!-- ================================================================ -->
@@ -367,6 +364,7 @@
     // DATA FETCHING
     // ====================================================================
     let timelineData = null;
+    let dopplerData = null;
     let tecData = null;
     let solarData = null;
     let currentStation = 'WWV';
@@ -479,7 +477,6 @@
         const freqs = data.frequencies;
         const snrs = data.snr_db;
         const dclocks = data.d_clock_ms;
-        const dopplers = data.doppler_hz;
 
         // X-axis range: selected date 00:00 – 23:59 UTC
         const xRange = [selectedDate + 'T00:00:00Z', selectedDate + 'T23:59:59Z'];
@@ -506,14 +503,13 @@
             if (currentFreq !== 'ALL' && fk !== parseFloat(currentFreq)) continue;
             if (currentSnrThreshold > 0 && (snrs[i] === null || snrs[i] < currentSnrThreshold)) continue;
             const key = `${st} ${fk} MHz`;
-            if (!groups[key]) groups[key] = { ts: [], dc: [], snr: [], dop: [], station: st, freq: fk };
+            if (!groups[key]) groups[key] = { ts: [], dc: [], snr: [], station: st, freq: fk };
             // Filter railed D_clock values (±20ms search window ceiling)
             const dc_raw = dclocks ? dclocks[i] : null;
             const dc_valid = (dc_raw !== null && Math.abs(dc_raw) < 19.5) ? dc_raw : null;
             groups[key].ts.push(ts[i]);
             groups[key].dc.push(dc_valid);
             groups[key].snr.push(snrs[i]);
-            groups[key].dop.push(dopplers ? dopplers[i] : null);
         }
 
         // ---- SNR plot (primary) + SZA ----
@@ -550,16 +546,31 @@
             legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
         }, PLOTLY_CONFIG);
 
-        // ---- D_clock plot + SZA ----
+        // ---- arrival residual plot + SZA; lattice-aligned points apart ----
         const dcTraces = [];
+        const susX = [], susY = [], susName = [];
         for (const [key, g] of Object.entries(groups)) {
             if (!g.dc || g.dc.every(v => v === null)) continue;
+            const ys = g.dc.map(v => latticeSuspect(v) ? null : v);
+            g.dc.forEach((v, i) => {
+                if (latticeSuspect(v)) { susX.push(g.ts[i]); susY.push(v); susName.push(key); }
+            });
             dcTraces.push({
-                x: g.ts, y: g.dc,
+                x: g.ts, y: ys,
                 mode: 'markers',
                 marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
                 name: key,
-                hovertemplate: '%{x}<br>D_clock: %{y:.2f} ms<extra>' + key + '</extra>',
+                hovertemplate: '%{x}<br>residual: %{y:.2f} ms<extra>' + escapeHtml(key) + '</extra>',
+            });
+        }
+        if (susX.length > 0) {
+            dcTraces.push({
+                x: susX, y: susY,
+                mode: 'markers',
+                marker: { size: 5, symbol: 'x-thin-open', color: '#94a3b8', line: { width: 1 } },
+                name: 'lattice-aligned (suspect)',
+                text: susName,
+                hovertemplate: '%{x}<br>residual: %{y:.2f} ms (on the tick lattice: suspect)<extra>%{text}</extra>',
             });
         }
         if (dcTraces.length > 0) {
@@ -570,43 +581,61 @@
             Plotly.newPlot('plot-dclock', dcTraces, {
                 ...PLOTLY_LAYOUT_BASE,
                 xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
-                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'D_clock (ms)' },
+                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'arrival residual (ms)' },
                 yaxis2: szaY2,
                 showlegend: true,
                 legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
             }, PLOTLY_CONFIG);
         } else {
-            document.getElementById('plot-dclock').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No valid D_clock data for this station (insufficient tick detections)</p>';
+            document.getElementById('plot-dclock').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No arrival residuals for this station (too few tick detections)</p>';
         }
 
-        // ---- Doppler plot + SZA ----
-        const dopTraces = [];
-        for (const [key, g] of Object.entries(groups)) {
-            if (!g.dop || g.dop.every(v => v === null)) continue;
-            dopTraces.push({
-                x: g.ts, y: g.dop,
+        renderDoppler(xRange, szaY2);
+    }
+
+    // ---- Doppler: the phase page's estimator (/api/phase/doppler) ----
+    function renderDoppler(xRange, szaY2) {
+        const el = document.getElementById('plot-doppler');
+        if (!dopplerData || dopplerData.error) {
+            loadRulerFloor('doppler-ruler', []);
+            el.innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">' +
+                escapeHtml((dopplerData && dopplerData.error) || 'Doppler unavailable') + '</p>';
+            return;
+        }
+        const series = (dopplerData.series || []).filter(s => {
+            const heard = (s.stations_heard && s.stations_heard.length) ? s.stations_heard : [s.station];
+            if (currentStation !== 'ALL' && !heard.includes(currentStation)) return false;
+            const f = channelFreqMHz(s.channel);
+            return currentFreq === 'ALL' || (f !== null && freqKey(f) === parseFloat(currentFreq));
+        });
+        loadRulerFloor('doppler-ruler', series.map(s => channelFreqMHz(s.channel)));
+        if (series.length === 0) {
+            el.innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No Doppler for this selection (no L2_tick_phase rows)</p>';
+            return;
+        }
+        const dopTraces = series.map(s => {
+            const f = channelFreqMHz(s.channel);
+            const name = `${f} MHz ${s.label || s.station}`;
+            return {
+                x: s.timestamps, y: s.doppler_raw_hz,
                 mode: 'markers',
-                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
-                name: key,
-                hovertemplate: '%{x}<br>Doppler: %{y:.3f} Hz<extra>' + key + '</extra>',
-            });
+                marker: { size: 3, color: freqColor(f), opacity: 0.8 },
+                name,
+                hovertemplate: '%{x}<br>Doppler: %{y:.4f} Hz<extra>' + escapeHtml(name) + '</extra>',
+            };
+        });
+        if (currentStation !== 'ALL') {
+            const szaDop = getSolarTrace(currentStation);
+            if (szaDop) dopTraces.push(szaDop);
         }
-        if (dopTraces.length > 0) {
-            if (currentStation !== 'ALL') {
-                const szaDop = getSolarTrace(currentStation);
-                if (szaDop) dopTraces.push(szaDop);
-            }
-            Plotly.newPlot('plot-doppler', dopTraces, {
-                ...PLOTLY_LAYOUT_BASE,
-                xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
-                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Doppler (Hz)' },
-                yaxis2: szaY2,
-                showlegend: true,
-                legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
-            }, PLOTLY_CONFIG);
-        } else {
-            document.getElementById('plot-doppler').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No Doppler data for this selection</p>';
-        }
+        Plotly.newPlot('plot-doppler', dopTraces, {
+            ...PLOTLY_LAYOUT_BASE,
+            xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
+            yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Doppler (Hz)', zeroline: true },
+            yaxis2: szaY2,
+            showlegend: true,
+            legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
+        }, PLOTLY_CONFIG);
     }
 
     // ====================================================================
@@ -875,53 +904,24 @@
                 tecTraces.push({
                     x: pdata.timestamps,
                     y: pdata.tec_tecu,
+                    customdata: (pdata.residual_rms_ms || []).map(v => (v === null || v === undefined) ? 'n/a' : Number(v).toFixed(2) + ' ms'),
                     mode: 'markers',
                     marker: { size: 3, color: stationColor(station), opacity: 0.7 },
                     name: station,
-                    hovertemplate: '%{x}<br>TEC: %{y:.1f} TECU<extra>' + station + '</extra>',
+                    hovertemplate: '%{x}<br>TEC: %{y:.1f} TECU<br>fit RMS residual: %{customdata}<extra>' + escapeHtml(station) + '</extra>',
                 });
             }
             if (tecTraces.length > 0) {
                 Plotly.newPlot('plot-tec-ts', tecTraces, {
                     ...PLOTLY_LAYOUT_BASE,
                     xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time' },
-                    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'TEC (TECU)', range: [0, 100] },
+                    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'TEC (TECU)', autorange: true, zeroline: true },
                 }, PLOTLY_CONFIG);
             } else {
                 document.getElementById('plot-tec-ts').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No TEC time series data</p>';
             }
         } else {
             document.getElementById('plot-tec-ts').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">TEC data unavailable</p>';
-        }
-
-        // D_clock by station (multi-frequency view)
-        if (timelineData && timelineData.d_clock_ms) {
-            const stGroups = {};
-            for (let i = 0; i < timelineData.timestamps.length; i++) {
-                const dc = timelineData.d_clock_ms[i];
-                if (dc === null || Math.abs(dc) >= 19.5) continue;  // filter railed values
-                const station = timelineData.stations[i];
-                const freq = freqKey(timelineData.frequencies[i]);
-                const key = `${station} ${freq} MHz`;
-                if (!stGroups[key]) stGroups[key] = { ts: [], dc: [], station, freq };
-                stGroups[key].ts.push(timelineData.timestamps[i]);
-                stGroups[key].dc.push(dc);
-            }
-            const stTraces = [];
-            for (const [key, g] of Object.entries(stGroups)) {
-                stTraces.push({
-                    x: g.ts, y: g.dc,
-                    mode: 'markers',
-                    marker: { size: 2.5, color: freqColor(g.freq), opacity: 0.6 },
-                    name: key,
-                });
-            }
-            Plotly.newPlot('plot-dclock-station', stTraces, {
-                ...PLOTLY_LAYOUT_BASE,
-                xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time' },
-                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'D_clock (ms)' },
-                legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.02, y: 1 },
-            }, PLOTLY_CONFIG);
         }
     }
 
@@ -1086,12 +1086,16 @@
             const yyyymmdd = selectedDate.replace(/-/g, '');
 
             // Fetch timeline, TEC, and solar zenith for selected date in parallel
-            const [tl, tec, solar] = await Promise.all([
+            const [tl, tec, solar, dop] = await Promise.all([
                 fetchJSON(`/api/propagation/timeline?start=${dayStart}&end=${dayEnd}`),
                 fetchJSON(`/api/propagation/tec?start=${dayStart}&end=${dayEnd}`).catch(() => null),
                 fetchJSON(`/api/dashboard/solar-zenith/24h?date=${yyyymmdd}&interval_minutes=10`).catch(() => null),
+                // one Doppler estimator site-wide: the phase page's, per minute
+                api.get('/phase/doppler', { start: dayStart, end: dayEnd, smoothing: 0 })
+                    .catch(e => ({ error: 'Doppler unavailable: ' + e.message })),
             ]);
 
+            dopplerData = dop;
             timelineData = tl;
             tecData = tec;
             solarData = solar;

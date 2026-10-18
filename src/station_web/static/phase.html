@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
+    <script src="/static/js/physics-views.js"></script>
 </head>
 
 <body>
@@ -78,18 +79,33 @@
         <div style="background: var(--bg-surface); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-lg);">
             <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">Doppler Shift vs Time</h3>
             <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--spacing-sm);">
-                f<sub>D</sub> = -(1/2&pi;) d&phi;/dt. Positive = ionosphere descending. Sunrise/sunset produce characteristic signatures.
+                f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt, pooled over the 1 Hz carrier-phase steps in each point:
+                the one Doppler estimator on this site (the Observatory and Time-of-flight pages draw the same numbers).
+                Relative to the station's GPSDO-disciplined sample clock. A SHARED channel shows one trace, the composite carrier.
             </div>
+            <div id="doppler-ruler"></div>
             <div id="doppler-plot" style="width: 100%; height: 350px;"></div>
         </div>
 
-        <!-- Scintillation Index Plot -->
+        <!-- Phase variability -->
         <div style="background: var(--bg-surface); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-lg);">
-            <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">Phase Scintillation Index (&sigma;<sub>&phi;</sub>)</h3>
+            <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">Phase variability (60 s detrend)</h3>
             <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--spacing-sm);">
-                Standard deviation of detrended phase over 60s windows. High &sigma;<sub>&phi;</sub> (&gt; 0.3 rad) = ionospheric irregularities.
+                Standard deviation of the 1 Hz carrier phase about a straight line fitted over each 60 s window.
+                At HF, multipath and mode mixing raise it as much as irregularities do, and no calibrated HF threshold exists,
+                so the chart draws none. (The GNSS scintillation index uses a 0.1 Hz high-pass on 50 Hz phase; this is a different quantity.)
             </div>
             <div id="scintillation-plot" style="width: 100%; height: 300px;"></div>
+        </div>
+
+        <!-- S4 -->
+        <div style="background: var(--bg-surface); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-lg);">
+            <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">S4 (uncorrected for noise)</h3>
+            <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--spacing-sm);">
+                Normalised standard deviation of the tick SNR, as intensity, over each 60 s window. No noise correction:
+                at low SNR the receiver noise alone lifts S4.
+            </div>
+            <div id="s4-plot" style="width: 100%; height: 260px;"></div>
         </div>
 
         <!-- DC Carrier Phase (Unambiguous Channels) -->
@@ -161,9 +177,17 @@
             return null;
         }
 
-        // Collect unique stations from plot series and build combined shapes
+        // A trace's legend name: its channel and whose carrier it measures
+        // (a SHARED channel: "composite: WWV + WWVH + BPM")
+        function traceName(s) {
+            return `${s.channel} / ${s.label || s.station}`;
+        }
+
+        // Collect unique stations from plot series and build combined shapes.
+        // A composite trace contributes every station heard on its channel.
         function getSolarOverlay(series) {
-            const stations = [...new Set((series || []).map(s => s.station))];
+            const stations = [...new Set((series || []).flatMap(
+                s => (s.stations_heard && s.stations_heard.length) ? s.stations_heard : [s.station]))];
             // Use first station for night shading (they mostly overlap)
             const shapes = stations.length > 0 ? makeNightShapes(stations[0]) : [];
             // Add solar trace for each unique station
@@ -279,25 +303,26 @@
                 const container = document.getElementById('summary-cards');
 
                 if (!data.channels || data.channels.length === 0) {
-                    container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px; grid-column: 1/-1;">No phase data available yet. Waiting for tick_phase HDF5 data...</div>';
+                    container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px; grid-column: 1/-1;">No L2_tick_phase rows in the last 5 minutes.</div>';
                     return;
                 }
 
+                const num = (v, d) => (v === null || v === undefined) ? '—' : Number(v).toFixed(d);
                 container.innerHTML = data.channels.map(ch => `
                     <div style="background: var(--bg-primary); border-radius: var(--radius-md); padding: var(--spacing-md); border-left: 3px solid ${escapeHtml(ch.color)};">
                         <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
-                            ${escapeHtml(ch.channel)} / ${escapeHtml(ch.station)}
+                            ${escapeHtml(ch.channel)} / ${escapeHtml(ch.label)}
                             ${ch.dc_meaningful ? '<span style="color: #10b981; font-size: 11px;" title="DC carrier phase available"> &#x2713; DC</span>' : ''}
                         </div>
-                        <div style="font-size: 20px; font-weight: 600; color: ${escapeHtml(ch.color)}; margin-bottom: 8px;">
-                            ${ch.doppler_hz.toFixed(3)} Hz
+                        <div style="font-size: 20px; font-weight: 600; color: ${escapeHtml(ch.color)}; margin-bottom: 8px;" title="Doppler over the last ${escapeHtml(data.window_minutes)} min, the chart's estimator">
+                            ${escapeHtml(num(ch.doppler_hz, 4))} Hz
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary);">
-                            <span>&sigma;<sub>&phi;</sub> = ${ch.sigma_phi_rad.toFixed(3)} rad</span>
-                            <span>SNR ${ch.mean_snr_db.toFixed(1)} dB</span>
+                            <span title="phase variability (60 s detrend), mean over the last ${escapeHtml(data.window_minutes)} min">phase var. ${escapeHtml(num(ch.sigma_phi_rad, 3))} rad</span>
+                            <span>SNR ${escapeHtml(num(ch.mean_snr_db, 1))} dB</span>
                         </div>
                         <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
-                            ${ch.n_points} pts &middot; ${ch.last_update ? timeAgo(ch.last_update) : 'N/A'}
+                            ${escapeHtml(ch.n_points)} pts &middot; ${ch.last_update ? escapeHtml(timeAgo(ch.last_update)) : 'N/A'}
                         </div>
                     </div>
                 `).join('');
@@ -335,7 +360,7 @@
                     const g = breakGaps(s.timestamps, s.phase_rad);
                     return {
                         x: g.x, y: g.y,
-                        name: `${s.channel} / ${s.station}`,
+                        name: traceName(s),
                         type: 'scattergl',
                         mode: 'lines',
                         line: { color: s.color, width: 1.5 },
@@ -374,7 +399,7 @@
                     const g = breakGaps(s.timestamps, s.doppler_hz);
                     return {
                         x: g.x, y: g.y,
-                        name: `${s.channel} / ${s.station}`,
+                        name: traceName(s),
                         type: 'scattergl',
                         mode: 'lines',
                         line: { color: s.color, width: 1.5 },
@@ -383,6 +408,7 @@
                     };
                 });
 
+                loadRulerFloor('doppler-ruler', (data.series || []).map(s => channelFreqMHz(s.channel)));
                 if (traces.length === 0) {
                     document.getElementById('doppler-plot').innerHTML =
                         '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No Doppler data in selected range</div>';
@@ -406,85 +432,62 @@
             }
         }
 
-        // Draw the scintillation plot
+        // Draw phase variability, and S4 in its own panel
         function renderScintillationPlot(data) {
             try {
                 const xRange = tps.getXRange();
-                const traces = [];
-                (data.series || []).forEach((s, i) => {
-                    // Sigma Phi (Phase Scintillation)
-                    traces.push({
-                        x: s.timestamps,
-                        y: s.sigma_phi_rad,
-                        name: `σ<sub>φ</sub> ${s.channel} / ${s.station}`,
-                        type: 'scattergl',
-                        mode: 'lines',
-                        line: { color: s.color, width: 1.5 },
-                        hovertemplate: 'σ<sub>φ</sub> = %{y:.3f} rad<extra>%{fullData.name}</extra>',
-                        visible: i === 0 ? true : 'legendonly',
-                    });
-                    
-                    // S4 (Amplitude Scintillation)
-                    if (s.s4 && s.s4.some(v => v !== null)) {
-                        traces.push({
-                            x: s.timestamps,
-                            y: s.s4,
-                            name: `S4 ${s.channel} / ${s.station}`,
-                            type: 'scattergl',
-                            mode: 'lines',
-                            line: { color: s.color, width: 1.5, dash: 'dot' },
-                            hovertemplate: 'S4 = %{y:.3f}<extra>%{fullData.name}</extra>',
-                            visible: i === 0 ? true : 'legendonly',
-                            yaxis: 'y2'
-                        });
-                    }
-                });
-
-                // Add threshold line spanning full x range
-                traces.push({
-                    x: xRange,
-                    y: [0.3, 0.3],
-                    name: 'Irregularity threshold',
-                    type: 'scatter',
+                const series = data.series || [];
+                const varTraces = series.map((s, i) => ({
+                    x: s.timestamps,
+                    y: s.sigma_phi_rad,
+                    name: traceName(s),
+                    type: 'scattergl',
                     mode: 'lines',
-                    line: { color: '#ef4444', width: 1, dash: 'dash' },
-                    showlegend: true,
-                });
+                    line: { color: s.color, width: 1.5 },
+                    hovertemplate: '%{y:.3f} rad<extra>%{fullData.name}</extra>',
+                    visible: i === 0 ? true : 'legendonly',
+                }));
+                const s4Traces = series.filter(s => s.s4 && s.s4.some(v => v !== null)).map((s, i) => ({
+                    x: s.timestamps,
+                    y: s.s4,
+                    name: traceName(s),
+                    type: 'scattergl',
+                    mode: 'lines',
+                    line: { color: s.color, width: 1.5 },
+                    hovertemplate: 'S4 %{y:.3f}<extra>%{fullData.name}</extra>',
+                    visible: i === 0 ? true : 'legendonly',
+                }));
+                const solar = getSolarOverlay(series);
 
-                const layout = {
-                    ...darkLayout,
-                    xaxis: { ...darkLayout.xaxis, range: xRange, title: '' },
-                    yaxis: { ...darkLayout.yaxis, title: 'σ<sub>φ</sub> (rad)', rangemode: 'tozero' },
-                    yaxis2: { 
-                        title: '',
-                        overlaying: 'y', 
-                        side: 'right', 
-                        anchor: 'free',
-                        position: 1,
-                        automargin: false,
-                        rangemode: 'tozero',
-                        gridcolor: 'transparent',
-                        zeroline: false,
-                        tickfont: { color: '#94a3b8', size: 10 },
-                    },
-                    showlegend: true,
-                };
-
-                if (traces.length <= 1) {
+                if (varTraces.length === 0) {
                     document.getElementById('scintillation-plot').innerHTML =
-                        '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No scintillation data in selected range</div>';
-                    return;
+                        '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No phase variability data in selected range</div>';
+                } else {
+                    Plotly.react('scintillation-plot', [...varTraces, ...solar.traces], {
+                        ...darkLayout,
+                        xaxis: { ...darkLayout.xaxis, range: xRange, title: '' },
+                        yaxis: { ...darkLayout.yaxis, title: 'phase variability (rad)', rangemode: 'tozero' },
+                        yaxis3: solarY3Axis,
+                        shapes: solar.shapes,
+                        showlegend: true,
+                    }, PLOTLY_CONFIG);
                 }
 
-                // Add solar overlay (use yaxis3 since yaxis2 is S4)
-                const solar = getSolarOverlay(data.series);
-                traces.push(...solar.traces);
-                layout.yaxis3 = solarY3Axis;
-                layout.shapes = solar.shapes;
-
-                Plotly.react('scintillation-plot', traces, layout, PLOTLY_CONFIG);
+                if (s4Traces.length === 0) {
+                    document.getElementById('s4-plot').innerHTML =
+                        '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No S4 data in selected range</div>';
+                } else {
+                    Plotly.react('s4-plot', s4Traces, {
+                        ...darkLayout,
+                        margin: { ...PLOT_MARGINS },
+                        xaxis: { ...darkLayout.xaxis, range: xRange, title: '' },
+                        yaxis: { ...darkLayout.yaxis, title: 'S4 (uncorrected for noise)', rangemode: 'tozero' },
+                        shapes: solar.shapes,
+                        showlegend: true,
+                    }, PLOTLY_CONFIG);
+                }
             } catch (e) {
-                console.error('Scintillation plot error:', e);
+                console.error('Phase variability plot error:', e);
             }
         }
 
@@ -498,7 +501,7 @@
                     const g = breakGaps(s.timestamps, s.phase_rad);
                     return {
                         x: g.x, y: g.y,
-                        name: `${s.channel} / ${s.station}`,
+                        name: traceName(s),
                         type: 'scattergl',
                         mode: 'lines',
                         line: { color: s.color, width: 1.5 },

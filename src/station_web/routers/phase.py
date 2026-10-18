@@ -4,8 +4,12 @@ Phase and Doppler analysis API endpoints.
 Provides:
 - Phase time series (unwrapped carrier phase)
 - Doppler shift (from phase rate)
-- Phase scintillation index (sigma_phi)
+- Phase variability (sigma_phi: std of the phase about a 60 s linear fit) and S4
 - Summary of current phase/Doppler state
+
+A SHARED_<kHz> channel carries one composite carrier (WWV + WWVH + BPM), so
+every view answers with one ``composite`` trace for it, never three
+station-labelled copies of one carrier.
 """
 
 from fastapi import APIRouter, Query, HTTPException
@@ -95,9 +99,10 @@ def get_doppler(
     smoothing: float = Query(30.0, description="Smoothing window in seconds"),
 ):
     """
-    Get Doppler shift derived from carrier phase rate.
+    Get Doppler shift derived from carrier phase rate: the one Doppler
+    estimator on the site (``metadata.doppler_estimator``).
 
-    f_Doppler = -(1/2pi) * dphi/dt
+    f_Doppler = -(1/2pi) * sum(dphi) / sum(dt), pooled per bucket
 
     For 10 MHz carrier: 1 Hz Doppler = ~30 m/s ionospheric motion.
     """
@@ -117,10 +122,13 @@ def get_scintillation(
     window: float = Query(60.0, description="Scintillation window in seconds"),
 ):
     """
-    Get phase scintillation index (sigma_phi) time series.
+    Phase variability (sigma_phi) and S4 time series.
 
-    sigma_phi = std(detrended phase) over sliding windows.
-    High sigma_phi (> 0.3 rad) indicates ionospheric irregularities.
+    sigma_phi = std of the carrier phase about a linear fit over each window
+    (60 s by default).  At HF, multipath and mode mixing raise it as much as
+    irregularities do; the GNSS 0.3 rad threshold does not carry over, so no
+    threshold is offered.  S4 comes from the tick SNR without noise
+    correction.
     """
     start_time, end_time = _parse_time_range(start, end)
     return _call("phase scintillation", _service().get_scintillation,

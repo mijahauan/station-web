@@ -12,7 +12,9 @@ from datetime import timedelta
 from station_web import heavy, projected
 from station_web.broadcast import DEFAULT_STATIONS
 from station_web.errors import internal_error
-from station_web.services.tec_service import TECService
+from station_web.services.tec_service import (
+    TECService, dtec_noise_floor, merge_shared_dtec, reference_comparison,
+)
 from station_web.config import config
 from station_web.timeutil import iso_z, parse_window, utcnow
 
@@ -37,6 +39,11 @@ def _service() -> TECService:
 DTEC_MAX_SPAN = timedelta(days=2)
 TEC_HISTORY_MAX_SPAN = timedelta(days=31)
 
+#: What the rate measures, in the page's words: a single-frequency carrier
+#: phase rate mixes layer-height motion with TEC change, and calling it dTEC
+#: assumes the first away.
+DTEC_LABEL = "phase-rate dTEC (assumes no layer-height motion)"
+
 #: The L3_dtec columns /dtec uses.
 _DTEC_COLUMNS = ('minute_boundary', 'mean_snr_db', 'station', 'frequency_mhz',
                  'dtec_rate_tecu_per_s', 'dtec_mean_tecu', 'is_anchored')
@@ -56,13 +63,17 @@ def get_dtec_timeseries(
     downsample: int = Query(1, description="Keep every Nth point (1=all, 5=every 5th)"),
 ):
     """
-    Multi-station carrier-phase dTEC time series.
+    Carrier-phase dTEC time series, one per path.
 
-    Returns per-station, per-frequency dtec_rate_tecu_per_s and integrated
-    dtec_mean_tecu for the requested window.  Suitable for a multi-path
-    overlay chart showing correlated TID signatures across all paths.
+    Returns dtec_rate_tecu_per_s and integrated dtec_mean_tecu per path for
+    the requested window.  A frequency several stations share (2.5-15 MHz)
+    reaches the receiver as one composite carrier, so its rows merge into
+    one series keyed 'SHARED_<freq>MHz' (station 'composite'); a
+    single-station path keeps '<STATION>_<freq>MHz', e.g. 'WWV_20.0MHz'.
 
-    Each series is keyed as '<STATION>_<freq>MHz', e.g. 'WWV_10.0MHz'.
+    ``noise_floor`` estimates the rate's noise from the data (TECU/s).
+    ``reference_comparison`` names the distinct-frequency paths the page
+    compares, or says why it has none.
     """
     try:
         t0, t1 = parse_window(start, end, max_span=DTEC_MAX_SPAN)
@@ -120,6 +131,11 @@ def get_dtec_timeseries(
             entry["is_anchored"].append(bool(row.get('is_anchored')))
             n_total += 1
 
+        # A shared frequency carries one composite carrier: one series for it.
+        # The noise floor reads the full minute cadence, before any downsample.
+        series = merge_shared_dtec(series)
+        noise = dtec_noise_floor(series)
+
         # Sort each series by timestamp; apply downsample on the final list
         for key, entry in series.items():
             order = sorted(range(len(entry["timestamps"])),
@@ -134,8 +150,12 @@ def get_dtec_timeseries(
             "status": "ok",
             "time_range": {"start": iso_z(t0), "end": iso_z(t1)},
             "n_series": len(series),
-            "n_points_total": n_total,
+            "n_rows": n_total,
+            "n_points_total": sum(len(e["timestamps"]) for e in series.values()),
             "series": series,
+            "noise_floor": noise,
+            "reference_comparison": reference_comparison(series),
+            "label": DTEC_LABEL,
         }
 
     except HTTPException:

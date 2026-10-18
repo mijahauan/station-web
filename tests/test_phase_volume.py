@@ -35,12 +35,18 @@ WINDOW = f"start={DAY0:%Y-%m-%dT%H:%M:%SZ}&end={DAY1:%Y-%m-%dT%H:%M:%SZ}"
 # Known Doppler per (channel, station): f_D = -(1/2pi) dphi/dt.  Small
 # enough that the ~6 s gap between one minute's last window and the next
 # minute's first never aliases the unwrap (6 s * 0.05 Hz * 2pi < pi).
+# SHARED_10000 carries ONE composite carrier, so every station's rows on it
+# share one Doppler; each station's tick windows see it at its own phase
+# offset.  The views answer with one composite trace for that channel.
 TRACES = {
-    ("SHARED_10000", "WWV"): 0.05,
-    ("SHARED_10000", "WWVH"): -0.03,
-    ("SHARED_10000", "BPM"): 0.02,
+    ("SHARED_10000", "WWV"): 0.03,
+    ("SHARED_10000", "WWVH"): 0.03,
+    ("SHARED_10000", "BPM"): 0.03,
     ("WWV_20000", "WWV"): 0.04,
 }
+PHASE_OFFSET = {"WWV": 0.0, "WWVH": 1.1, "BPM": -2.0}
+#: What the views return: one trace per SHARED channel, one per station elsewhere.
+VIEW_TRACES = {("SHARED_10000", "composite"): 0.03, ("WWV_20000", "WWV"): 0.04}
 WINDOWS_PER_MINUTE = 55
 PAD_MINUTES = 10           # rows either side of the day, which the window must cut
 # One trace loses an hour, as a receiver outage would.  A phase difference
@@ -74,7 +80,7 @@ def _build_db(db_path):
                     continue
                 t = m + start_s + 2.5
                 k = (t - t0)
-                phi = -2 * math.pi * fd * k + 0.05 * np.sin(0.7 * k)
+                phi = -2 * math.pi * fd * k + 0.05 * np.sin(0.7 * k) + PHASE_OFFSET[stn]
                 wrapped = (phi + math.pi) % (2 * math.pi) - math.pi
                 snr = 15.0 + 2.0 * np.sin(k / 300.0)
                 for j in range(WINDOWS_PER_MINUTE):
@@ -137,7 +143,7 @@ def test_every_trace_spans_the_whole_day(big_client, path):
     r = big_client.get(f"/api/phase/{path}?{WINDOW}")
     assert r.status_code == 200
     j = r.json()
-    assert _keys(j["series"]) == set(TRACES)
+    assert _keys(j["series"]) == set(VIEW_TRACES)
     lo, hi = DAY0.timestamp(), DAY1.timestamp()
     for s in j["series"]:
         assert 0 < s["n_points"] <= phase_service.MAX_POINTS_PER_TRACE
@@ -157,7 +163,12 @@ def test_timeseries_reports_its_aggregation(big_client):
     gap_trace = 23 * 60 * WINDOWS_PER_MINUTE
     for s in j["series"]:
         # every sample inside the day landed in some bucket
-        want = gap_trace if (s["channel"], s["station"]) == GAP_TRACE else per_trace
+        if (s["channel"], s["station"]) == GAP_TRACE:
+            want = gap_trace
+        elif s["composite"]:
+            want = 3 * per_trace            # the composite pools all three stations' rows
+        else:
+            want = per_trace
         assert s["n_samples"] == want
 
 
@@ -166,7 +177,7 @@ def test_timeseries_reports_its_aggregation(big_client):
 def test_doppler_recovers_the_injected_shift(big_client):
     j = big_client.get(f"/api/phase/doppler?{WINDOW}").json()
     for s in j["series"]:
-        fd = TRACES[(s["channel"], s["station"])]
+        fd = VIEW_TRACES[(s["channel"], s["station"])]
         med = float(np.median(s["doppler_hz"]))
         assert med == pytest.approx(fd, abs=2e-3), (s["channel"], s["station"], med)
 
@@ -175,7 +186,7 @@ def test_every_doppler_bucket_holds_the_shift(big_client):
     # per bucket, not just the median: the bucket after the outage included
     j = big_client.get(f"/api/phase/doppler?{WINDOW}").json()
     for s in j["series"]:
-        fd = TRACES[(s["channel"], s["station"])]
+        fd = VIEW_TRACES[(s["channel"], s["station"])]
         worst = max(abs(v - fd) for v in s["doppler_raw_hz"])
         assert worst < 2e-3, (s["channel"], s["station"], worst)
 
@@ -183,7 +194,7 @@ def test_every_doppler_bucket_holds_the_shift(big_client):
 def test_unwrapped_phase_follows_the_ramp(big_client):
     j = big_client.get(f"/api/phase/timeseries?{WINDOW}").json()
     for s in j["series"]:
-        fd = TRACES[(s["channel"], s["station"])]
+        fd = VIEW_TRACES[(s["channel"], s["station"])]
         ep, ph = np.array(s["epochs"]), np.array(s["phase_rad"])
         # No unwrap can count the cycles that pass during an outage, so fit
         # each side of the gap on its own.
@@ -336,7 +347,8 @@ def test_unbounded_requests_are_refused(big_client, query):
 def test_known_channel_and_station_are_accepted(big_client):
     r = big_client.get(f"/api/phase/combined?{WINDOW}&channel=SHARED_10000&station=WWVH")
     assert r.status_code == 200
-    assert _keys(r.json()["phase"]["series"]) == {("SHARED_10000", "WWVH")}
+    # the carrier belongs to no single station: the filter keeps the composite whole
+    assert _keys(r.json()["phase"]["series"]) == {("SHARED_10000", "composite")}
 
 
 def test_errors_never_echo_client_input(big_client):

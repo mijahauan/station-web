@@ -150,8 +150,11 @@ def test_scatter_points_are_capped(big_client):
     assert arr["n_points"] > ionogram.MAX_SCATTER_POINTS          # the day was read whole
     assert len(arr["scatter"]["tof_ms"]) <= ionogram.MAX_SCATTER_POINTS
     assert arr["n_scatter"] == len(arr["scatter"]["tof_ms"])
-    assert dd["n_points"] > ionogram.MAX_SCATTER_POINTS
-    assert len(dd["scatter"]["timing_error_ms"]) <= ionogram.MAX_SCATTER_POINTS
+    # Doppler-delay pairs one point per minute and station, so a day stays
+    # far under the cap; this database holds no tick_phase, so no Doppler.
+    assert dd["doppler_unit"] == "Hz"
+    assert len(dd["scatter"]["delay_ms"]) <= ionogram.MAX_SCATTER_POINTS
+    assert dd["doppler_reason"]
     for series in (j["timeseries"]["dominant"], j["timeseries"]["secondary"]):
         assert 0 < series["n"] <= 1441          # both ends inclusive
 
@@ -162,7 +165,7 @@ def test_combined_matches_the_three_routes(big_client):
     ts = big_client.get("/api/ionogram/arrivals/timeseries", params={**common, "min_snr_db": 6}).json()
     ar = big_client.get("/api/ionogram/arrivals", params={**common, "min_snr_db": 6}).json()
     dd = big_client.get("/api/ionogram/doppler-delay",
-                        params={**common, "min_snr_db": 3, "method": "edge_tick"}).json()
+                        params={**common, "min_snr_db": 3}).json()
     assert j["timeseries"] == ts
     assert j["arrivals"] == ar
     assert j["doppler_delay"] == dd

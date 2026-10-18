@@ -195,3 +195,127 @@ class TECService:
         end = utcnow()
         start = end - timedelta(hours=hours)
         return self.get_tec_history(start, end, station=station)
+
+
+# ── dTEC: SHARED carriers, the noise floor, the reference comparison ─────
+
+#: A frequency more than one catalogue station broadcasts on reaches the
+#: receiver as ONE composite carrier (WWV + WWVH + BPM on 2.5-15 MHz).  Its
+#: per-station dTEC rows measure that one carrier, so they merge into one
+#: series under this label.
+COMPOSITE_STATION = 'composite'
+COMPOSITE_LABEL = 'composite: WWV + WWVH + BPM'
+#: Fewer points than this per series give no noise estimate.
+NOISE_MIN_POINTS = 10
+NOISE_UNIT = 'TECU/s'
+NOISE_METHOD = ("1.4826 x MAD of minute-to-minute differences of dtec_rate_tecu_per_s, "
+                "divided by sqrt(2); median over series")
+#: The reference comparison holds the composite at this frequency against the
+#: single-station paths, when both exist.
+REFERENCE_MHZ = 10.0
+
+
+def shared_frequencies() -> set:
+    """Frequencies (MHz) that more than one catalogue station broadcasts on."""
+    from station_web.broadcast import DEFAULT_STATIONS
+    owners: Dict[float, int] = {}
+    for st in DEFAULT_STATIONS:
+        for f in st.frequencies_mhz:
+            k = round(float(f), 3)
+            owners[k] = owners.get(k, 0) + 1
+    return {f for f, n in owners.items() if n > 1}
+
+
+def _median(vals):
+    vals = sorted(v for v in vals if v is not None)
+    if not vals:
+        return None
+    n = len(vals)
+    return vals[n // 2] if n % 2 else 0.5 * (vals[n // 2 - 1] + vals[n // 2])
+
+
+def merge_shared_dtec(series: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """One series per SHARED frequency; single-station series pass through.
+
+    Each series holds per-minute lists (timestamps, dtec_rate_tecu_per_s,
+    dtec_mean_tecu, mean_snr_db, is_anchored).  On a shared frequency the
+    stations' rows for one minute merge into one point: the median of the
+    rates and of the means, the best SNR, anchored if any row was.
+    """
+    shared = shared_frequencies()
+    out: Dict[str, Dict[str, Any]] = {}
+    pools: Dict[float, Dict[int, list]] = {}
+    heard: Dict[float, set] = {}
+    for key, s in series.items():
+        f = round(float(s['frequency_mhz']), 3)
+        if f not in shared:
+            out[key] = {**s, 'composite': False, 'label': f"{s['station']} {f:.1f} MHz",
+                        'stations_heard': [s['station']]}
+            continue
+        heard.setdefault(f, set()).add(s['station'])
+        by_min = pools.setdefault(f, {})
+        for i, t in enumerate(s['timestamps']):
+            by_min.setdefault(t, []).append(
+                (s['dtec_rate_tecu_per_s'][i], s['dtec_mean_tecu'][i],
+                 s['mean_snr_db'][i], s['is_anchored'][i]))
+    for f, by_min in pools.items():
+        ts = sorted(by_min)
+        out[f"SHARED_{f:.1f}MHz"] = {
+            'station': COMPOSITE_STATION,
+            'frequency_mhz': float(f),
+            'composite': True,
+            'label': f"{COMPOSITE_LABEL} {f:.1f} MHz",
+            'stations_heard': sorted(heard[f]),
+            'timestamps': ts,
+            'dtec_rate_tecu_per_s': [_median([p[0] for p in by_min[t]]) for t in ts],
+            'dtec_mean_tecu': [_median([p[1] for p in by_min[t]]) for t in ts],
+            'mean_snr_db': [max(p[2] for p in by_min[t]) for t in ts],
+            'is_anchored': [any(p[3] for p in by_min[t]) for t in ts],
+        }
+    return out
+
+
+def dtec_noise_floor(series: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """The white-noise floor of the dTEC rate, in the chart's unit (TECU/s).
+
+    Per series, minute-sorted: the difference of consecutive minutes cancels
+    a slow disturbance (a TID moves the rate over tens of minutes) and keeps
+    the noise, sqrt(2) times larger.  The MAD keeps the odd cycle slip from
+    inflating it.  The floor reported is the median over series.
+    """
+    floors = []
+    for s in series.values():
+        pts = sorted((t, r) for t, r in zip(s['timestamps'], s['dtec_rate_tecu_per_s'])
+                     if r is not None)
+        diffs = [b[1] - a[1] for a, b in zip(pts, pts[1:]) if 0 < b[0] - a[0] <= 90]
+        if len(diffs) < NOISE_MIN_POINTS - 1:
+            continue
+        med = _median(diffs)
+        mad = _median([abs(d - med) for d in diffs])
+        floors.append(1.4826 * mad / 2 ** 0.5)
+    base = {'unit': NOISE_UNIT, 'method': NOISE_METHOD, 'n_series': len(floors)}
+    if not floors:
+        return {**base, 'value': None,
+                'reason': f"no series holds {NOISE_MIN_POINTS} consecutive minutes"}
+    return {**base, 'value': _median(floors), 'reason': None}
+
+
+def reference_comparison(series: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    """The keys the reference comparison draws: distinct-frequency paths only.
+
+    WWV, WWVH and BPM at 10 MHz share one carrier, so comparing them proves
+    nothing.  The comparison holds the 10 MHz composite (or, failing that,
+    the nearest composite) against the single-station paths (WWV 20 and
+    25 MHz).  It needs one of each; otherwise the panel drops, with a reason.
+    """
+    singles = sorted((k for k, s in series.items() if not s.get('composite')),
+                     key=lambda k: series[k]['frequency_mhz'])
+    comps = sorted((k for k, s in series.items() if s.get('composite')),
+                   key=lambda k: abs(series[k]['frequency_mhz'] - REFERENCE_MHZ))
+    if not singles or not comps:
+        missing = "no single-station path" if not singles else "no composite carrier"
+        return {'available': False, 'keys': [], 'reference_mhz': None,
+                'reason': ("the comparison needs a composite carrier and a single-station "
+                           f"path on distinct frequencies; this window holds {missing}")}
+    return {'available': True, 'keys': [comps[0]] + singles, 'reason': None,
+            'reference_mhz': series[comps[0]]['frequency_mhz']}

@@ -97,8 +97,11 @@ def test_cluster_endpoint_filters_station(shared_client):
 def test_doppler_delay_filters_station(shared_client):
     j = shared_client.get(f"/api/ionogram/doppler-delay?channel={SHARED}&station=BPM"
                           "&start=-1h&end=now&include_kde=false").json()
-    assert j["status"] == "ok" and j["station"] == "BPM"
-    assert j["n_points"] == 3
+    assert j["station"] == "BPM"
+    # one minute of BPM's dominant arrivals; no tick_phase on this channel,
+    # so no Doppler to pair them with, and the reply says why
+    assert j["n_minutes_delay"] == 1
+    assert j["n_points"] == 0 and j["doppler_reason"]
 
 
 def test_default_channel_exists(shared_client):
