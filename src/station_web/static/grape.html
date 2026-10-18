@@ -129,7 +129,7 @@
                 document.getElementById('stat-channels').textContent = data.channels || 0;
                 document.getElementById('stat-packaged').textContent = data.uploads?.packaged_dates || 0;
                 const statRun = document.getElementById('stat-run');
-                statRun.textContent = run ? `${run.status}` : 'none';
+                statRun.textContent = run ? String(run.status) : 'none';
                 statRun.style.color = runColor;
                 document.getElementById('stat-upload').textContent = run ? (run.upload_status || '-') : '-';
 
@@ -143,11 +143,11 @@
                         const pct = info.completeness_pct || 0;
                         const pctColor = pct >= 95 ? 'var(--quality-a)' : pct >= 80 ? 'var(--quality-b)' : pct >= 50 ? 'var(--quality-c)' : 'var(--quality-d)';
                         return `<tr style="border-bottom: 1px solid var(--border-color);">
-                            <td style="padding: 8px; font-family: monospace;">${ch}</td>
-                            <td style="padding: 8px; text-align: right;">${info.dates_available || 0}</td>
-                            <td style="padding: 8px;">${info.latest_date || '-'}</td>
-                            <td style="padding: 8px; text-align: right; color: ${pctColor}; font-weight: 600;">${pct.toFixed(1)}%</td>
-                            <td style="padding: 8px; text-align: right;">${info.valid_minutes || 0}</td>
+                            <td style="padding: 8px; font-family: monospace;">${escapeHtml(ch)}</td>
+                            <td style="padding: 8px; text-align: right;">${escapeHtml(info.dates_available || 0)}</td>
+                            <td style="padding: 8px;">${escapeHtml(info.latest_date || '-')}</td>
+                            <td style="padding: 8px; text-align: right; color: ${pctColor}; font-weight: 600;">${Number(pct).toFixed(1)}%</td>
+                            <td style="padding: 8px; text-align: right;">${escapeHtml(info.valid_minutes || 0)}</td>
                         </tr>`;
                     }).join('');
                 }
@@ -171,15 +171,15 @@
                 } else {
                     const d = run.date || '';
                     const rows = [
-                        ['Date', d.length === 8 ? `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}` : (d || '-')],
-                        ['Status', `<span style="color:${runColor};font-weight:600;">${run.status}</span>`],
-                        ['Decimated', `${run.channels_decimated ?? '-'} / ${run.channels_expected ?? '-'} channels`],
-                        ['Spectrograms', `${run.channels_spectrogram ?? '-'} channels`],
-                        ['Upload', `${run.upload_status || '-'} (completed ${run.upload_completed ?? 0}, failed ${run.upload_failed ?? 0})`],
-                        ['Started', run.started_at ? formatTimestamp(run.started_at) : '-'],
-                        ['Completed', run.completed_at ? formatTimestamp(run.completed_at) : '-'],
+                        ['Date', escapeHtml(d.length === 8 ? `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}` : (d || '-'))],
+                        ['Status', `<span style="color:${runColor};font-weight:600;">${escapeHtml(run.status)}</span>`],
+                        ['Decimated', `${escapeHtml(run.channels_decimated ?? '-')} / ${escapeHtml(run.channels_expected ?? '-')} channels`],
+                        ['Spectrograms', `${escapeHtml(run.channels_spectrogram ?? '-')} channels`],
+                        ['Upload', `${escapeHtml(run.upload_status || '-')} (completed ${escapeHtml(run.upload_completed ?? 0)}, failed ${escapeHtml(run.upload_failed ?? 0)})`],
+                        ['Started', escapeHtml(run.started_at ? formatTimestamp(run.started_at) : '-')],
+                        ['Completed', escapeHtml(run.completed_at ? formatTimestamp(run.completed_at) : '-')],
                     ];
-                    if (run.error) rows.push(['Error', `<span style="color:var(--quality-d);">${run.error}</span>`]);
+                    if (run.error) rows.push(['Error', `<span style="color:var(--quality-d);">${escapeHtml(run.error)}</span>`]);
                     pipe.innerHTML = '<table style="border-collapse: collapse;">' + rows.map(([k, v]) =>
                         `<tr><td style="padding:4px 16px 4px 0;color:var(--text-tertiary);">${k}</td><td style="padding:4px 0;color:var(--text-primary);">${v}</td></tr>`
                     ).join('') + '</table>';
@@ -195,8 +195,8 @@
             } catch (err) {
                 console.error('Failed to load GRAPE summary:', err);
                 document.getElementById('decimation-body').innerHTML =
-                    `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--quality-d);">Error: ${err.message}</td></tr>`;
-                document.getElementById('pipeline-status').textContent = `Error: ${err.message}`;
+                    `<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--quality-d);">Error: ${escapeHtml(err.message)}</td></tr>`;
+                document.getElementById('pipeline-status').textContent = 'Error: ' + err.message;
             }
         }
 
@@ -210,7 +210,7 @@
             if (!channel) return;
 
             try {
-                const resp = await fetch(`/api/grape/spectrograms/${channel}`);
+                const resp = await fetch(`/api/grape/spectrograms/${encodeURIComponent(channel)}`);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 const data = await resp.json();
                 allDates = (data.dates || []).reverse(); // newest first
@@ -242,7 +242,7 @@
             }
 
             currentDateIdx = allDates.indexOf(date);
-            container.innerHTML = `<div style="width: 100%;"><img src="/api/grape/spectrograms/${channel}/${date}" style="max-width: 100%; border-radius: var(--radius-md); border: 1px solid var(--border-color);" onerror="this.parentElement.innerHTML='<div style=\\'color: var(--text-secondary); padding: 32px;\\'>No spectrogram available for this date</div>'" /></div>`;
+            container.innerHTML = `<div style="width: 100%;"><img src="/api/grape/spectrograms/${encodeURIComponent(channel)}/${encodeURIComponent(date)}" style="max-width: 100%; border-radius: var(--radius-md); border: 1px solid var(--border-color);" onerror="this.parentElement.innerHTML='<div style=\\'color: var(--text-secondary); padding: 32px;\\'>No spectrogram available for this date</div>'" /></div>`;
         }
 
         function navigateDate(delta) {

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station Overview - hf-timestd</title>
+    <title>Station Overview - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/js/common.js"></script>
 </head>
@@ -12,7 +12,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📡 hf-timestd</h1>
+            <h1>📡 station-web</h1>
             <div class="header-subtitle" id="station-subtitle">Loading station information...</div>
             <nav class="nav">
                 <a href="/" class="nav-link active">Overview</a>
@@ -52,35 +52,8 @@
             <div class="card-header">
                 <div class="card-title">Monitored Stations</div>
             </div>
-            <div class="grid grid-4" style="padding: 1rem; gap: 1rem;">
-                <a href="/static/station.html?id=WWV" style="text-decoration: none; color: inherit;">
-                    <div
-                        style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
-                        <div style="font-weight: 700; font-size: 1.25rem; color: #3b82f6;">WWV</div>
-                        <div style="font-size: 0.875rem; color: #94a3b8;">Fort Collins, CO</div>
-                    </div>
-                </a>
-                <a href="/static/station.html?id=WWVH" style="text-decoration: none; color: inherit;">
-                    <div
-                        style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
-                        <div style="font-weight: 700; font-size: 1.25rem; color: #ec4899;">WWVH</div>
-                        <div style="font-size: 0.875rem; color: #94a3b8;">Kauai, HI</div>
-                    </div>
-                </a>
-                <a href="/static/station.html?id=CHU" style="text-decoration: none; color: inherit;">
-                    <div
-                        style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
-                        <div style="font-weight: 700; font-size: 1.25rem; color: #f59e0b;">CHU</div>
-                        <div style="font-size: 0.875rem; color: #94a3b8;">Ottawa, Canada</div>
-                    </div>
-                </a>
-                <a href="/static/station.html?id=BPM" style="text-decoration: none; color: inherit;">
-                    <div
-                        style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
-                        <div style="font-weight: 700; font-size: 1.25rem; color: #ef4444;">BPM</div>
-                        <div style="font-size: 0.875rem; color: #94a3b8;">Pucheng, China</div>
-                    </div>
-                </a>
+            <div class="grid grid-4" id="station-tiles" style="padding: 1rem; gap: 1rem;">
+                <div class="loading"></div>
             </div>
         </div>
 
@@ -94,19 +67,21 @@
                     <div class="metric-value" id="system-status">
                         <div class="loading"></div>
                     </div>
-                    <div class="metric-label">Overall Health</div>
+                    <div class="metric-label">Product freshness</div>
+                    <div class="metric-sublabel" id="system-status-reason"></div>
                 </div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Active Channels</div>
+                    <div class="card-title">Channels</div>
                 </div>
                 <div class="metric">
                     <div class="metric-value" id="active-channels">
                         <div class="loading"></div>
                     </div>
-                    <div class="metric-label">of <span id="total-channels">-</span> configured</div>
+                    <div class="metric-label">with L2 timing data</div>
+                    <div class="metric-sublabel" id="channel-names">-</div>
                 </div>
             </div>
 
@@ -143,15 +118,15 @@
                 <div class="card-title">Quick Links</div>
             </div>
             <div class="grid grid-4">
-                <a href="/static/health.html" style="text-decoration: none;">
+                <a href="/static/health.html" style="text-decoration: none; color: var(--text-primary);">
                     <div
                         style="padding: 16px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; text-align: center;">
                         <div style="font-size: 24px; margin-bottom: 8px;">🏥</div>
                         <div style="font-weight: 600;">System Health</div>
-                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Processes & channels</div>
+                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Product freshness</div>
                     </div>
                 </a>
-                <a href="/static/metrology.html" style="text-decoration: none;">
+                <a href="/static/metrology.html" style="text-decoration: none; color: var(--text-primary);">
                     <div
                         style="padding: 16px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; text-align: center;">
                         <div style="font-size: 24px; margin-bottom: 8px;">⏱️</div>
@@ -159,7 +134,7 @@
                         <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Timing & metrology</div>
                     </div>
                 </a>
-                <a href="/static/ionosphere.html" style="text-decoration: none;">
+                <a href="/static/ionosphere.html" style="text-decoration: none; color: var(--text-primary);">
                     <div
                         style="padding: 16px; background: rgba(139, 92, 246, 0.1); border-radius: 8px; text-align: center;">
                         <div style="font-size: 24px; margin-bottom: 8px;">🔬</div>
@@ -167,7 +142,7 @@
                         <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Ionospheric analysis</div>
                     </div>
                 </a>
-                <a href="/api/docs" style="text-decoration: none;">
+                <a href="/api/docs" style="text-decoration: none; color: var(--text-primary);">
                     <div
                         style="padding: 16px; background: rgba(245, 158, 11, 0.1); border-radius: 8px; text-align: center;">
                         <div style="font-size: 24px; margin-bottom: 8px;">📚</div>
@@ -179,8 +154,10 @@
         </div>
     </div>
 
-    <script src="/static/js/common.js"></script>
     <script>
+        // Station tile colours (Overview only)
+        const TILE_COLORS = { WWV: '#3b82f6', WWVH: '#ec4899', BPM: '#ef4444' };
+
         // Load station metadata
         async function loadStationInfo() {
             try {
@@ -190,48 +167,22 @@
                 document.getElementById('station-subtitle').textContent =
                     `${data.callsign} - ${data.grid_square} - ${data.mode.toUpperCase()} MODE`;
 
-                // Update station info grid
-                const infoGrid = document.getElementById('station-info');
-                infoGrid.innerHTML = `
+                // Update station info grid; fields the operator left empty stay hidden
+                const items = [
+                    ['Callsign', escapeHtml(data.callsign)],
+                    ['Grid Square', escapeHtml(data.grid_square)],
+                    ['Station ID', escapeHtml(data.station_id)],
+                    ['Instrument ID', escapeHtml(data.instrument_id)],
+                    ['Location', formatLatLon(data.latitude, data.longitude, 4)],
+                    ['Mode', `<span class="badge ${data.mode === 'production' ? 'status-healthy' : 'status-degraded'}">${escapeHtml(data.mode.toUpperCase())}</span>`],
+                    ['Description', escapeHtml(data.description)],
+                    ['Channels', data.channels.length],
+                ].filter(([, v]) => v !== '' && v !== null && v !== undefined);
+                document.getElementById('station-info').innerHTML = items.map(([k, v]) => `
                     <div class="info-item">
-                        <div class="info-label">Callsign</div>
-                        <div class="info-value">${data.callsign}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Grid Square</div>
-                        <div class="info-value">${data.grid_square}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Station ID</div>
-                        <div class="info-value">${data.station_id}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Instrument ID</div>
-                        <div class="info-value">${data.instrument_id}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Location</div>
-                        <div class="info-value">${data.latitude.toFixed(4)}°N, ${Math.abs(data.longitude).toFixed(4)}°W</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Mode</div>
-                        <div class="info-value">
-                            <span class="badge ${data.mode === 'production' ? 'status-healthy' : 'status-degraded'}">
-                                ${data.mode.toUpperCase()}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Description</div>
-                        <div class="info-value">${data.description}</div>
-                    </div>
-                    <div class="info-item">
-                        <div class="info-label">Channels</div>
-                        <div class="info-value">${data.channels.length}</div>
-                    </div>
-                `;
-
-                document.getElementById('total-channels').textContent = data.channels.length;
+                        <div class="info-label">${k}</div>
+                        <div class="info-value">${v}</div>
+                    </div>`).join('');
 
             } catch (error) {
                 showError(`Failed to load station info: ${error.message}`);
@@ -246,11 +197,19 @@
 
                 // Update system status
                 const statusEl = document.getElementById('system-status');
-                statusEl.innerHTML = `<span class="badge status-${health.status}">${health.status.toUpperCase()}</span>`;
+                statusEl.innerHTML = `<span class="badge status-${escapeHtml(health.status)}">${escapeHtml(health.status.toUpperCase())}</span>`;
 
-                // Update active channels
-                const activeCount = health.channels.filter(ch => ch.status === 'active').length;
-                document.getElementById('active-channels').textContent = activeCount;
+                // Not-VALID products, named, so DEGRADED carries its reason
+                const failing = Object.entries(health.products || {})
+                    .filter(([, p]) => p.applicable && p.verdict !== 'VALID' && p.verdict !== 'INFORMATIONAL')
+                    .map(([name, p]) => `${name} ${p.verdict}`);
+                document.getElementById('system-status-reason').textContent = failing.join(', ');
+
+                // /api/health/system lists channel NAMES (distinct channels in
+                // L2_timing_measurements); count them as such.
+                const names = health.channels || [];
+                document.getElementById('active-channels').textContent = names.length;
+                document.getElementById('channel-names').textContent = names.join(', ') || '-';
 
             } catch (error) {
                 console.error('Failed to load system status:', error);
@@ -267,7 +226,7 @@
                 const precision = Math.abs(dclock) < 0.001 ? 6 : 3;
                 document.getElementById('latest-dclock').textContent = formatNumber(dclock, precision);
                 document.getElementById('latest-quality').innerHTML =
-                    `Grade <span class="badge ${getQualityClass(fusion.quality_grade)}">${fusion.quality_grade}</span> ± ${formatNumber(fusion.uncertainty_ms, 3)} ms`;
+                    `Grade <span class="badge ${escapeHtml(getQualityClass(fusion.quality_grade))}">${escapeHtml(fusion.quality_grade)}</span> ± ${formatNumber(fusion.uncertainty_ms, 3)} ms`;
 
             } catch (error) {
                 console.error('Failed to load fusion data:', error);
@@ -305,7 +264,7 @@
                                             <strong>Fusion Timing</strong> - ${formatTime(ts)}
                                         </div>
                                         <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
-                                            ${recentBroadcasts[i]} broadcasts from multiple stations
+                                            ${escapeHtml(recentBroadcasts[i])} broadcasts from multiple stations
                                         </div>
                                     </div>
                                     <div style="text-align: right;">
@@ -313,7 +272,7 @@
                                             ${formatNumber(recentDclock[i], precision)} ms
                                         </div>
                                         <div style="margin-top: 4px;">
-                                            <span class="badge ${getQualityClass(recentGrades[i])}">${recentGrades[i]}</span>
+                                            <span class="badge ${escapeHtml(getQualityClass(recentGrades[i]))}">${escapeHtml(recentGrades[i])}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -336,8 +295,32 @@
 
 
 
+        // Monitored stations, from the broadcast registry
+        async function loadStationTiles() {
+            const el = document.getElementById('station-tiles');
+            try {
+                const data = await api.get('/stations/');
+                const stations = data.stations || [];
+                if (stations.length === 0) {
+                    el.innerHTML = '<p style="color: #94a3b8;">No stations in the broadcast registry</p>';
+                    return;
+                }
+                el.innerHTML = stations.map(st => `
+                <a href="/static/station.html?id=${encodeURIComponent(st.station_id)}" style="text-decoration: none; color: inherit;">
+                    <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
+                        <div style="font-weight: 700; font-size: 1.25rem; color: ${TILE_COLORS[st.station_id] || '#94a3b8'};">${escapeHtml(st.station_id)}</div>
+                        <div style="font-size: 0.875rem; color: #94a3b8;">${escapeHtml(st.location || '')}</div>
+                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">${Math.round(st.distance_km)} km, az ${Math.round(st.azimuth_deg)}°</div>
+                    </div>
+                </a>`).join('');
+            } catch (error) {
+                el.innerHTML = `<p style="color: #ef4444;">Stations unavailable: ${escapeHtml(error.message)}</p>`;
+            }
+        }
+
         // Initialize
         async function init() {
+            loadStationTiles();
             await loadStationInfo();
             await loadQuickStatus();
             await loadRecentActivity();
