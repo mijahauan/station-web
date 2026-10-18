@@ -464,3 +464,22 @@ body {
         font-size: 36px;
     }
 }
+
+/* Station callsign badge, appended to each page's h1 by common.js */
+.station-badge {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 2px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 0.55em;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+    color: var(--text-secondary);
+}
+
+/* Empty-state / error text drawn inside a chart frame (showPlotMessage) */
+.plot-message {
+    box-sizing: border-box;
+}
