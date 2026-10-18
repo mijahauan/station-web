@@ -1,5 +1,9 @@
 /**
- * Common utilities for hf-timestd Web UI
+ * Common utilities for the station-web UI.
+ *
+ * Time: every printed time is UTC and says so ("Z" or "UTC").  Plotly draws
+ * a JS Date in the browser's local zone, so plot x values go in as ISO
+ * strings (plotTime), which plotly renders as written: UTC.
  */
 
 // API client
@@ -24,7 +28,18 @@ class TimestdAPI {
         
         const response = await fetch(url);
         if (!response.ok) {
-            throw new Error(`API error: ${response.statusText}`);
+            // The server's JSON ``detail`` says why; statusText is empty
+            // under HTTP/2, so never rely on it alone.
+            let detail = '';
+            try {
+                const body = await response.json();
+                detail = typeof body.detail === 'string' ? body.detail
+                    : (body.detail ? JSON.stringify(body.detail) : (body.reason || ''));
+            } catch (e) { /* not JSON */ }
+            const err = new Error(`HTTP ${response.status}${detail ? ': ' + detail : (response.statusText ? ' ' + response.statusText : '')}`);
+            err.status = response.status;
+            err.detail = detail;
+            throw err;
         }
         return response.json();
     }
@@ -33,40 +48,44 @@ class TimestdAPI {
 // Global API instance
 const api = new TimestdAPI();
 
-// Time formatting
+// Time formatting — always UTC, always marked.
+function _toDate(t) {
+    if (t instanceof Date) return t;
+    if (typeof t === 'number') return new Date(t < 1e11 ? t * 1000 : t);  // unix s or ms
+    return new Date(t);
+}
+
+function _isoUTC(t) {
+    const d = _toDate(t);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function formatTimestamp(iso8601) {
     if (!iso8601) return 'N/A';
-    const date = new Date(iso8601);
-    return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
+    const s = _isoUTC(iso8601);
+    return s ? s.slice(0, 19).replace('T', ' ') + ' UTC' : 'N/A';
 }
 
 function formatTime(iso8601) {
     if (!iso8601) return 'N/A';
-    const date = new Date(iso8601);
-    return date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    });
+    const s = _isoUTC(iso8601);
+    return s ? s.slice(11, 19) + 'Z' : 'N/A';
 }
 
 function formatDate(iso8601) {
     if (!iso8601) return 'N/A';
-    const date = new Date(iso8601);
-    return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    });
+    const s = _isoUTC(iso8601);
+    return s ? s.slice(0, 10) : 'N/A';
+}
+
+/**
+ * A plot x value as an ISO-8601 UTC string.  Accepts unix seconds, unix ms,
+ * a Date or a date string.  Plotly drops the "Z" and draws the wall-clock
+ * value as written, so the axis reads UTC whatever the browser's zone.
+ */
+function plotTime(t) {
+    if (t === null || t === undefined) return null;
+    return _isoUTC(t);
 }
 
 function timeAgo(iso8601) {
@@ -78,6 +97,24 @@ function timeAgo(iso8601) {
     if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
     if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
     return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+/**
+ * Escape a value for interpolation into innerHTML.  Every value that came
+ * from an API (or an error message quoting one) passes through here.
+ */
+function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Coordinates, sign-aware: 38.92°N, 92.13°W
+function formatLatLon(lat, lon, decimals = 2) {
+    if (lat === null || lat === undefined || lon === null || lon === undefined) return 'N/A';
+    const la = Number(lat), lo = Number(lon);
+    return `${Math.abs(la).toFixed(decimals)}°${la >= 0 ? 'N' : 'S'}, ` +
+           `${Math.abs(lo).toFixed(decimals)}°${lo >= 0 ? 'E' : 'W'}`;
 }
 
 // Number formatting
@@ -132,7 +169,7 @@ function showError(message, containerId = 'error-container') {
     if (container) {
         container.innerHTML = `
             <div class="error-message">
-                <strong>Error:</strong> ${message}
+                <strong>Error:</strong> ${escapeHtml(message)}
             </div>
         `;
         container.style.display = 'block';
@@ -162,6 +199,69 @@ function hideLoading(containerId) {
     if (container) {
         container.innerHTML = '';
     }
+}
+
+/**
+ * Put a message INSIDE a chart frame (or any container), replacing a
+ * "Loading..." placeholder or a stale plot.  kind: 'empty' | 'error'.
+ */
+function showPlotMessage(containerId, message, kind = 'empty') {
+    const el = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
+    if (!el) return;
+    if (window.Plotly && el.classList && el.classList.contains('js-plotly-plot')) {
+        try { Plotly.purge(el); } catch (e) { /* not a plot */ }
+    }
+    const color = kind === 'error' ? 'var(--quality-d, #ef4444)' : 'var(--text-secondary, #94a3b8)';
+    const box = document.createElement('div');
+    box.className = 'plot-message plot-message-' + kind;
+    box.style.cssText = 'display:flex;align-items:center;justify-content:center;text-align:center;' +
+        `min-height:inherit;height:100%;padding:24px;color:${color};font-size:14px;`;
+    box.textContent = message;
+    el.innerHTML = '';
+    el.appendChild(box);
+}
+
+/** The reason an API gave for having no data, or a fallback. */
+function noDataReason(data, fallback = 'No data for this window') {
+    if (!data) return fallback;
+    return data.reason || data.message || data.detail || data.note || fallback;
+}
+
+// Station identity: one cached fetch of /api/station/metadata per page.
+let _stationMetaPromise = null;
+function loadStationMeta() {
+    if (!_stationMetaPromise) {
+        _stationMetaPromise = api.get('/station/metadata').catch(e => {
+            console.error('station metadata unavailable:', e);
+            _stationMetaPromise = null;
+            return null;
+        });
+    }
+    return _stationMetaPromise;
+}
+
+/** Put the station callsign into the page title and header. */
+async function applyStationIdentity() {
+    const meta = await loadStationMeta();
+    const callsign = meta && meta.callsign;
+    if (!callsign) return;
+    if (document.title.includes('station-web') && !document.title.includes(callsign)) {
+        document.title = document.title.replace('station-web', `station-web ${callsign}`);
+    }
+    document.querySelectorAll('.station-callsign').forEach(el => { el.textContent = callsign; });
+    const h1 = document.querySelector('.header h1');
+    if (h1 && !h1.querySelector('.station-callsign')) {
+        const badge = document.createElement('span');
+        badge.className = 'station-callsign station-badge';
+        badge.textContent = callsign;
+        h1.appendChild(badge);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applyStationIdentity);
+} else {
+    applyStationIdentity();
 }
 
 // Auto-refresh helper
@@ -360,6 +460,13 @@ window.api = api;
 window.formatTimestamp = formatTimestamp;
 window.formatTime = formatTime;
 window.formatDate = formatDate;
+window.plotTime = plotTime;
+window.escapeHtml = escapeHtml;
+window.formatLatLon = formatLatLon;
+window.showPlotMessage = showPlotMessage;
+window.noDataReason = noDataReason;
+window.loadStationMeta = loadStationMeta;
+window.applyStationIdentity = applyStationIdentity;
 window.timeAgo = timeAgo;
 window.formatNumber = formatNumber;
 window.formatFrequency = formatFrequency;
