@@ -406,6 +406,14 @@ async function loadData() {
     }
 }
 
+// Plotly draws beside a placeholder child rather than replacing it, so the
+// "Loading…" text would sit on top of the finished chart.
+function clearMsg(id) {
+    document.getElementById(id)
+        .querySelectorAll('.loading-msg, .plot-message')
+        .forEach(el => el.remove());
+}
+
 function setLoading(id) {
     document.getElementById(id).innerHTML = '<div class="loading-msg">Loading…</div>';
 }
@@ -510,7 +518,7 @@ function renderTimeSeries(data) {
     const solarTof = makeSolarTrace(solar, 'y2');
     if (solarTof) tofTraces.push(solarTof);
 
-    Plotly.newPlot('tofPlot', tofTraces, {
+    clearMsg('tofPlot'); Plotly.newPlot('tofPlot', tofTraces, {
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         font: { color: '#e2e8f0', size: 11 },
         margin: sharedMargin,
@@ -545,7 +553,7 @@ function renderTimeSeries(data) {
     const solarSnr = makeSolarTrace(solar, 'y2');
     if (solarSnr) { solarSnr.showlegend = false; snrTraces.push(solarSnr); }
 
-    Plotly.newPlot('snrPlot', snrTraces, {
+    clearMsg('snrPlot'); Plotly.newPlot('snrPlot', snrTraces, {
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         font: { color: '#e2e8f0', size: 11 },
         margin: sharedMargin,
@@ -569,7 +577,7 @@ function renderTimeSeries(data) {
         const solarH = makeSolarTrace(solar, 'y2');
         if (solarH) { solarH.showlegend = false; heightTraces.push(solarH); }
 
-        Plotly.newPlot('heightPlot', heightTraces, {
+        clearMsg('heightPlot'); Plotly.newPlot('heightPlot', heightTraces, {
             paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
             font: { color: '#e2e8f0', size: 11 },
             margin: sharedMargin,
@@ -652,7 +660,7 @@ function renderCluster(data) {
         });
     }
 
-    Plotly.newPlot('clusterPlot', traces, {
+    clearMsg('clusterPlot'); Plotly.newPlot('clusterPlot', traces, {
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         font: { color: '#e2e8f0', size: 11 },
         margin: { t: 10, b: 50, l: 70, r: 10 },
@@ -745,7 +753,7 @@ function renderDopplerDelay(data) {
         hoverinfo: 'text',
     });
 
-    Plotly.newPlot('dopplerDelayPlot', traces, {
+    clearMsg('dopplerDelayPlot'); Plotly.newPlot('dopplerDelayPlot', traces, {
         paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
         font: { color: '#e2e8f0', size: 11 },
         margin: { t: 10, b: 50, l: 70, r: 10 },
@@ -762,7 +770,7 @@ function renderDopplerDelay(data) {
 
     if (dTs.length >= 3) {
         const toDate = ts => new Date(ts * 1000).toISOString();
-        Plotly.newPlot('dopplerTsPlot', [{
+        clearMsg('dopplerTsPlot'); Plotly.newPlot('dopplerTsPlot', [{
             x: dTs.map(toDate),
             y: dHz,
             mode: 'markers+lines',

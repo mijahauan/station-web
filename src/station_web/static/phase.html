@@ -435,11 +435,11 @@
                     traces.push({
                         x: s.timestamps,
                         y: s.sigma_phi_rad,
-                        name: `&sigma;<sub>&phi;</sub> ${s.channel} / ${s.station}`,
+                        name: `σ<sub>φ</sub> ${s.channel} / ${s.station}`,
                         type: 'scattergl',
                         mode: 'lines',
                         line: { color: s.color, width: 1.5 },
-                        hovertemplate: '&sigma;<sub>&phi;</sub> = %{y:.3f} rad<extra>%{fullData.name}</extra>',
+                        hovertemplate: 'σ<sub>φ</sub> = %{y:.3f} rad<extra>%{fullData.name}</extra>',
                         visible: i === 0 ? true : 'legendonly',
                     });
                     
@@ -473,7 +473,7 @@
                 const layout = {
                     ...darkLayout,
                     xaxis: { ...darkLayout.xaxis, range: xRange, title: '' },
-                    yaxis: { ...darkLayout.yaxis, title: '&sigma;<sub>&phi;</sub> (rad)', rangemode: 'tozero' },
+                    yaxis: { ...darkLayout.yaxis, title: 'σ<sub>φ</sub> (rad)', rangemode: 'tozero' },
                     yaxis2: { 
                         title: '',
                         overlaying: 'y', 
