@@ -25,6 +25,7 @@ import numpy as np
 from hamsci_dsp.io import make_data_product_reader
 from hamsci_dsp.data_product_registry import DataProductRegistry
 from station_web.config import config
+from station_web.timeutil import iso_z
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class TIDService:
 
         Returns:
             List of TID event dictionaries, newest first.  Empty list
-            on missing data or read failure -- never raises.
+            when the window holds no event; a read failure raises.
         """
         end = datetime.now(timezone.utc)
         start = end - timedelta(hours=hours)
@@ -109,22 +110,13 @@ class TIDService:
         """
         if self.reader is None:
             return []
-        try:
-            start_utc = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
-            end_utc = end if end.tzinfo else end.replace(tzinfo=timezone.utc)
-            rows = self.reader.read_time_range(
-                start=start_utc.isoformat().replace('+00:00', 'Z'),
-                end=end_utc.isoformat().replace('+00:00', 'Z'),
-            )
-            events = [self._row_to_event(r) for r in rows]
-            events.sort(
-                key=lambda e: e.get('timestamp_utc', ''),
-                reverse=True,
-            )
-            return events
-        except Exception as e:
-            logger.error(f"Error getting TID events: {e}")
-            return []
+        rows = self.reader.read_time_range(start=iso_z(start), end=iso_z(end))
+        events = [self._row_to_event(r) for r in rows]
+        events.sort(
+            key=lambda e: e.get('timestamp_utc', ''),
+            reverse=True,
+        )
+        return events
 
     def get_event_details(self, event_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -143,20 +135,18 @@ class TIDService:
         if self.reader is None or len(event_id) < 8:
             return None
         try:
-            yyyymmdd = event_id[:8]
-            day_start = datetime.strptime(yyyymmdd, '%Y%m%d').replace(tzinfo=timezone.utc)
-            # Search ±1 day so an event at 00:00 UTC isn't missed.
-            events = self.get_events_in_range(
-                day_start - timedelta(days=1),
-                day_start + timedelta(days=2),
-            )
-            for ev in events:
-                if ev.get('event_id') == event_id:
-                    return ev
-            return None
-        except Exception as e:
-            logger.error(f"Error getting TID event details: {e}")
-            return None
+            day_start = datetime.strptime(event_id[:8], '%Y%m%d').replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None                 # not an id this writer mints: not found
+        # Search ±1 day so an event at 00:00 UTC isn't missed.
+        events = self.get_events_in_range(
+            day_start - timedelta(days=1),
+            day_start + timedelta(days=2),
+        )
+        for ev in events:
+            if ev.get('event_id') == event_id:
+                return ev
+        return None
 
     def get_statistics(self, days: int = 7) -> Dict[str, Any]:
         """

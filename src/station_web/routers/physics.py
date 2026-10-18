@@ -3,7 +3,7 @@ Physics API endpoints.
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 
 from station_web.services.physics_service import PhysicsService
@@ -11,29 +11,14 @@ from station_web.services.scintillation_service import ScintillationService
 from station_web.services.test_signal_service import TestSignalService
 from station_web.services.event_service import EventService
 from station_web.config import config
+from station_web.timeutil import parse_utc, parse_window
 
 router = APIRouter(prefix="/physics", tags=["physics"])
 
 
 def parse_time_param(time_str: str) -> datetime:
-    """Parse time parameter (ISO8601 or relative)."""
-    if time_str == "now":
-        return datetime.utcnow()
-    
-    if time_str.startswith("-"):
-        value = int(time_str[1:-1])
-        unit = time_str[-1]
-        
-        if unit == 'h':
-            return datetime.utcnow() - timedelta(hours=value)
-        elif unit == 'd':
-            return datetime.utcnow() - timedelta(days=value)
-        elif unit == 'm':
-            return datetime.utcnow() - timedelta(minutes=value)
-        else:
-            raise ValueError(f"Unknown time unit: {unit}")
-    
-    return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+    """Parse a time parameter into an AWARE UTC datetime (see station_web.timeutil)."""
+    return parse_utc(time_str)
 
 
 @router.get("/latest")
@@ -58,12 +43,8 @@ def get_physics_history(
 ):
     """Get physics data history."""
     try:
-        start_dt = parse_time_param(start)
-        end_dt = parse_time_param(end)
-        
-        if start_dt > end_dt:
-            raise HTTPException(status_code=400, detail="Start time must be before end time")
-        
+        start_dt, end_dt = parse_window(start, end)
+
         service = PhysicsService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt)
     
@@ -100,8 +81,7 @@ def get_scintillation_history(
 ):
     """Get scintillation history."""
     try:
-        start_dt = parse_time_param(start)
-        end_dt = parse_time_param(end)
+        start_dt, end_dt = parse_window(start, end)
         
         service = ScintillationService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt, station=station)
@@ -151,8 +131,7 @@ def get_channel_history(
 ):
     """Get test signal history with full metrics."""
     try:
-        start_dt = parse_time_param(start)
-        end_dt = parse_time_param(end)
+        start_dt, end_dt = parse_window(start, end)
         
         service = TestSignalService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt, frequency_mhz=frequency_mhz, station=station)

@@ -9,11 +9,14 @@ routes say so honestly rather than serving a value nobody produced.
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta
+from datetime import timedelta
 import logging
 
+from station_web.broadcast import DEFAULT_STATIONS
+from station_web.errors import internal_error
 from station_web.services.space_weather_cache import SpaceWeatherCache
 from station_web.config import config
+from station_web.timeutil import iso_z, parse_window, utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +74,7 @@ def get_summary(
     """
     current = SpaceWeatherCache(config.data_root).current()
     return {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": iso_z(utcnow()),
         "period_hours": hours,
         "current": current,
         "xray": SpaceWeatherCache.series_unavailable("xray"),
@@ -88,7 +91,7 @@ def get_solar_elevation(
     interval_minutes: int = Query(5, ge=1, le=60, description="Sample interval in minutes"),
 ):
     """
-    Solar elevation angle at the path midpoint for each station (WWV, WWVH, CHU, BPM).
+    Solar elevation angle at the path midpoint for each broadcast station.
 
     Uses the receiver grid square from station config and the existing
     hamsci_physics.solar_zenith to compute elevation at the geographic midpoint
@@ -108,28 +111,14 @@ def get_solar_elevation(
                        "solar elevation needs a receiver location",
             )
 
-        # Parse time window
-        now = datetime.utcnow()
-        def _parse(s):
-            s = s.strip()
-            if s == "now":
-                return now
-            if s.startswith("-"):
-                val = float(s[1:-1])
-                u = s[-1]
-                if u == "h": return now - timedelta(hours=val)
-                if u == "d": return now - timedelta(days=val)
-                if u == "m": return now - timedelta(minutes=val)
-            return datetime.fromisoformat(s.replace("Z", ""))
-
-        t0 = _parse(start)
-        t1 = _parse(end)
+        # Parse time window (station_web.timeutil); a bad value is a 400.
+        try:
+            t0, t1 = parse_window(start, end)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Solar geometry moved to hamsci-physics in the 2026-08-24 split
-        from hamsci_physics.solar_zenith import (
-            grid_to_latlon, calculate_midpoint, solar_position,
-            WWV_LOCATION, WWVH_LOCATION, CHU_LOCATION, BPM_LOCATION,
-        )
+        from hamsci_physics.solar_zenith import grid_to_latlon, solar_position
 
         import math as _math
 
@@ -172,11 +161,12 @@ def get_solar_elevation(
             f = 0.25 if d_deg > 60 else 0.5
             return _gc_point(rx_lat, rx_lon, tx_lat, tx_lon, f)
 
+        # One midpoint per broadcast station, from the broadcast catalogue
+        # (whose coordinates come from hamsci_dsp.stations) — CHU left the
+        # fleet and no longer has a path here.
         midpoints = {
-            "WWV":  _path_midpoint(rx_lat, rx_lon, *WWV_LOCATION),
-            "WWVH": _path_midpoint(rx_lat, rx_lon, *WWVH_LOCATION),
-            "CHU":  _path_midpoint(rx_lat, rx_lon, *CHU_LOCATION),
-            "BPM":  _path_midpoint(rx_lat, rx_lon, *BPM_LOCATION),
+            st.name: _path_midpoint(rx_lat, rx_lon, st.latitude, st.longitude)
+            for st in DEFAULT_STATIONS
         }
 
         timestamps = []
@@ -205,5 +195,4 @@ def get_solar_elevation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error computing solar elevation: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "Solar elevation", e)

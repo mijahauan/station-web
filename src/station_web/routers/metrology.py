@@ -3,47 +3,25 @@ Metrology API endpoints.
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from station_web.models.timing import FusionResponse, FusionHistoryResponse
 from station_web.services.fusion_service import FusionService
 from station_web.config import config
+from station_web.timeutil import parse_utc, parse_window
 
 router = APIRouter(prefix="/metrology", tags=["metrology"])
 
 
 def parse_time_param(time_str: str) -> datetime:
+    """Parse a time parameter into an AWARE UTC datetime.
+
+    ``now`` used to come back naive and ISO input aware, so a mixed query
+    (``start=<ISO>&end=now``) raised TypeError comparing the two and
+    answered 500.  See station_web.timeutil for the accepted forms.
     """
-    Parse time parameter (ISO8601 or relative).
-    
-    Args:
-        time_str: Time string (e.g., "2026-01-03T12:00:00Z", "-6h", "now")
-        
-    Returns:
-        Datetime object
-    """
-    if time_str == "now":
-        return datetime.utcnow()
-    
-    # Relative time (e.g., "-6h", "-1d")
-    if time_str.startswith("-"):
-        value = int(time_str[1:-1])
-        unit = time_str[-1]
-        
-        if unit == 'h':
-            return datetime.utcnow() - timedelta(hours=value)
-        elif unit == 'd':
-            return datetime.utcnow() - timedelta(days=value)
-        elif unit == 'm':
-            return datetime.utcnow() - timedelta(minutes=value)
-        elif unit == 's':
-            return datetime.utcnow() - timedelta(seconds=value)
-        else:
-            raise ValueError(f"Unknown time unit: {unit}")
-    
-    # ISO8601
-    return datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+    return parse_utc(time_str)
 
 
 @router.get("/fusion/latest", response_model=FusionResponse)
@@ -94,17 +72,8 @@ def get_fusion_history(
     - Quality filtered: ?start=-6h&end=now&min_quality=B
     """
     try:
-        # Parse time parameters
-        start_dt = parse_time_param(start)
-        end_dt = parse_time_param(end)
-        
-        # Validate time range
-        if start_dt > end_dt:
-            raise HTTPException(
-                status_code=400,
-                detail="Start time must be before end time"
-            )
-        
+        start_dt, end_dt = parse_window(start, end)
+
         service = FusionService(fusion_dir=config.fusion_dir)
         return service.get_history(
             start=start_dt,
