@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Living Documentation - hf-timestd</title>
+    <title>Living Documentation - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -73,37 +73,6 @@
         .status-warn { color: #f59e0b; }
         .status-bad { color: #ef4444; }
         
-        /* Log panel styles */
-        .log-panel {
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid #334155;
-            border-radius: 8px;
-            margin: 16px 0;
-            overflow: hidden;
-        }
-        .log-panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 16px;
-            background: rgba(30, 41, 59, 0.6);
-            border-bottom: 1px solid #334155;
-            cursor: pointer;
-        }
-        .log-panel-header:hover { background: rgba(30, 41, 59, 0.8); }
-        .log-panel-title { font-size: 12px; font-weight: 600; color: #94a3b8; display: flex; align-items: center; gap: 8px; }
-        .log-panel-toggle { color: #64748b; font-size: 14px; }
-        .log-panel-content { max-height: 200px; overflow-y: auto; font-family: 'Fira Code', monospace; font-size: 12px; line-height: 1.6; display: none; }
-        .log-panel-content.expanded { display: block; }
-        .log-line { padding: 4px 16px; border-bottom: 1px solid rgba(51, 65, 85, 0.3); }
-        .log-line:hover { background: rgba(59, 130, 246, 0.1); }
-        .log-time { color: #64748b; margin-right: 12px; }
-        .log-level-INFO { color: #60a5fa; }
-        .log-level-WARNING { color: #f59e0b; }
-        .log-level-ERROR { color: #ef4444; }
-        .log-level-DEBUG { color: #94a3b8; }
-        .log-message { color: #cbd5e1; }
-        .log-empty { padding: 16px; color: #64748b; text-align: center; font-style: italic; }
         
         /* Document selector */
         .doc-selector { margin-bottom: 24px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -220,15 +189,12 @@
         let currentDoc = null;
         let currentRoot = null;
         let docsByRoot = {};       // { rootName: [doc names] }
-        let liveData = { fusion: null, stability: null, logs: [] };
-        let logBuffer = [];
+        let liveData = { fusion: null };
 
         // Escape untrusted text before it goes into option markup (root/doc
         // names come from config or the filesystem listing — treat as data).
         function esc(text) {
-            const div = document.createElement('div');
-            div.textContent = text == null ? '' : String(text);
-            return div.innerHTML;
+            return escapeHtml(text);     // common.js: escapes quotes too, safe in attributes
         }
 
         // Initialize
@@ -236,7 +202,6 @@
             await loadDocumentList();
             await fetchLiveData();
             setInterval(fetchLiveData, 5000);
-            // setInterval(fetchLogs, 3000);  // Disabled — evidence/log endpoints removed
         });
 
         // Load the root list, then the documents for the first present root
@@ -285,9 +250,8 @@
             if (!rootName || !docName) return;
 
             try {
-                const res = await fetch(`/api/living-docs/${encodeURIComponent(rootName)}/${encodeURIComponent(docName)}`);
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const doc = await res.json();
+                // docName may carry a subdirectory ("design/MEASUREMENT_MODEL.md")
+                const doc = await api.get(`/living-docs/${encodeURIComponent(rootName)}/${docName.split('/').map(encodeURIComponent).join('/')}`);
                 doc.sections = parseSections(doc.content);
                 currentDoc = doc;
 
@@ -300,7 +264,7 @@
             } catch (e) {
                 console.error('Failed to load document:', e);
                 document.getElementById('doc-content').innerHTML =
-                    `<div style="color: #ef4444; padding: 20px;">Failed to load document: ${e.message}</div>`;
+                    `<div style="color: #ef4444; padding: 20px;">Failed to load document: ${esc(e.message)}</div>`;
             }
         }
 
@@ -332,7 +296,6 @@
             // Process markdown - replace directives with HTML placeholders BEFORE marked parsing
             let markdown = doc.content;
             let widgetIndex = 0;
-            let logIndex = 0;
             
             // Replace LIVE directives with special markers that survive markdown parsing
             markdown = markdown.replace(/<!--\s*LIVE:\s*([^>]+?)\s*-->/g, (match, widgetType) => {
@@ -341,18 +304,10 @@
                 return `\n\n<div class="live-widget" id="${id}" data-widget="${widgetType.trim()}"><div style="color:#64748b;padding:12px;">Loading widget...</div></div>\n\n`;
             });
             
-            // Replace LOGS directives with log panel placeholders
-            markdown = markdown.replace(/<!--\s*LOGS:\s*([^|>]+?)(?:\s*\|\s*filter:\s*"([^"]*)")?\s*-->/g, (match, tag, filter) => {
-                const id = `logs-${logIndex++}`;
-                return `\n\n<div class="log-panel" id="${id}" data-tag="${tag.trim()}" data-filter="${filter || ''}">
-                    <div class="log-panel-header" onclick="toggleLogPanel('${id}')">
-                        <div class="log-panel-title">📋 Relevant Logs: <code>${tag.trim()}</code></div>
-                        <div class="log-panel-toggle">▼</div>
-                    </div>
-                    <div class="log-panel-content" id="${id}-content"></div>
-                </div>\n\n`;
-            });
-            
+            // LOGS directives named a log-evidence endpoint that no longer
+            // exists; drop them so the comment never reaches the page.
+            markdown = markdown.replace(/<!--\s*LOGS:[^>]*-->/g, '');
+
             // Render markdown to HTML.  Trust assumption: the four docs
             // roots are operator-configured repository documentation, at
             // this page's own trust level — do not add a root drawn from a
@@ -377,7 +332,6 @@
             
             // Initialize widgets with current data
             updateWidgets();
-            updateLogPanels();
         }
         
         // Update section navigation
@@ -389,12 +343,12 @@
             const navSections = sections.filter(s => s.level >= 2 && s.level <= 4);
             
             nav.innerHTML = navSections.map(s => 
-                `<a href="javascript:void(0)" onclick="scrollToSection('${s.id}')" class="level-${s.level}">${s.title}</a>`
+                `<a href="javascript:void(0)" onclick="scrollToSection('${esc(s.id)}')" class="level-${s.level}">${esc(s.title)}</a>`
             ).join('');
             
             select.innerHTML = '<option value="">Jump to section...</option>' +
                 navSections.map(s => 
-                    `<option value="${s.id}">${'  '.repeat(s.level - 2)}${s.title}</option>`
+                    `<option value="${esc(s.id)}">${'  '.repeat(s.level - 2)}${esc(s.title)}</option>`
                 ).join('');
         }
         
@@ -418,30 +372,10 @@
         // Fetch live data
         async function fetchLiveData() {
             try {
-                const [fusionRes, stabilityRes] = await Promise.all([
-                    fetch('/api/metrology/fusion/latest').then(r => r.ok ? r.json() : null).catch(() => null),
-                    fetch('/api/metrology/fusion/latest').then(r => r.ok ? r.json() : null).catch(() => null)
-                ]);
-                
-                liveData.fusion = fusionRes;
-                liveData.stability = stabilityRes;
+                liveData.fusion = await api.get('/metrology/fusion/latest').catch(() => null);
                 updateWidgets();
             } catch (e) {
                 console.error('Failed to fetch live data:', e);
-            }
-        }
-        
-        // Fetch logs
-        async function fetchLogs() {
-            try {
-                const res = await fetch('/api/logs/?service=fusion&lines=100');
-                if (res.ok) {
-                    const data = await res.json();
-                    logBuffer = data.logs || [];
-                    updateLogPanels();
-                }
-            } catch (e) {
-                console.error('Failed to fetch logs:', e);
             }
         }
         
@@ -451,31 +385,6 @@
                 const widgetType = widget.dataset.widget;
                 renderWidget(widget, widgetType);
             });
-        }
-        
-        // Update all log panels
-        function updateLogPanels() {
-            document.querySelectorAll('.log-panel[data-tag]').forEach(panel => {
-                const tag = panel.dataset.tag;
-                const filter = panel.dataset.filter;
-                const contentEl = document.getElementById(panel.id + '-content');
-                if (contentEl) {
-                    renderLogPanel(contentEl, tag, filter);
-                }
-            });
-        }
-        
-        // Toggle log panel
-        function toggleLogPanel(id) {
-            const content = document.getElementById(id + '-content');
-            const toggle = document.querySelector(`#${id} .log-panel-toggle`);
-            if (content.classList.contains('expanded')) {
-                content.classList.remove('expanded');
-                toggle.textContent = '▼';
-            } else {
-                content.classList.add('expanded');
-                toggle.textContent = '▲';
-            }
         }
         
         // Render a widget
@@ -553,17 +462,13 @@
             const diff = f.l1_l2_difference_ms;
             
             // If L1/L2 fields not available, show explanation
-            if (l1 === null && l2 === null) {
+            if (l1 == null && l2 == null) {
                 container.innerHTML = `
-                    <div class="widget-title">TSL1 vs TSL2 Comparison — Live</div>
+                    <div class="widget-title">L1 vs L2 Fusion Comparison — Live</div>
                     <div style="padding: 16px; color: #94a3b8;">
-                        <p><strong>Note:</strong> Both TSL1 and TSL2 show <code>+0ns</code> in chrony because the feedback loop has converged.</p>
-                        <p style="margin-top: 8px;">This is correct behavior — it means the system clock now tracks the HF estimate of UTC.</p>
-                        <p style="margin-top: 8px;">To validate absolute accuracy, compare against external references (GPS, NTP pools) in <code>chronyc sources</code>.</p>
-                        <p style="margin-top: 12px; font-size: 0.85em; color: #64748b;">
-                            L1/L2 comparison data not available in current fusion output. 
-                            Check that both L1 and L2 fusion pipelines are running.
-                        </p>
+                        The fusion product (L3_fusion_timing) carries no separate L1 and L2
+                        estimates (d_clock_l1_ms, d_clock_l2_ms), so there is nothing to compare.
+                        The chrony refclocks hf-timestd feeds are FUSE and HPPS; see the Chrony page.
                     </div>
                 `;
                 return;
@@ -576,14 +481,14 @@
                               '❌ Large divergence — investigate calibration';
             
             container.innerHTML = `
-                <div class="widget-title">TSL1 vs TSL2 Comparison — Live</div>
+                <div class="widget-title">L1 vs L2 Fusion Comparison — Live</div>
                 <div class="widget-grid">
                     <div class="widget-metric">
-                        <div class="widget-metric-label">TSL1 (L1 Fusion)</div>
+                        <div class="widget-metric-label">L1 Fusion</div>
                         <div class="widget-metric-value">${l1?.toFixed(3) ?? '—'}<span class="widget-unit">ms</span></div>
                     </div>
                     <div class="widget-metric">
-                        <div class="widget-metric-label">TSL2 (L2 Fusion)</div>
+                        <div class="widget-metric-label">L2 Fusion</div>
                         <div class="widget-metric-value">${l2?.toFixed(3) ?? '—'}<span class="widget-unit">ms</span></div>
                     </div>
                     <div class="widget-metric">
@@ -593,7 +498,7 @@
                 </div>
                 <div class="widget-subtitle">${statusMsg}</div>
                 <div style="margin-top: 8px; font-size: 0.8em; color: #64748b;">
-                    <strong>TSL1/TSL2</strong> = raw D_clock (tone arrival − propagation delay)<br>
+                    <strong>L1/L2</strong> = D_clock (tone arrival − propagation delay)<br>
                     Should converge to near zero as bootstrap refines the RTP-to-UTC offset.<br>
                     Values of 5-40ms are normal (ionospheric variability).<br><br>
                     <strong>L1−L2 difference</strong> shows propagation correction quality<br>
@@ -665,7 +570,7 @@
                     </div>
                     <div class="widget-metric">
                         <div class="widget-metric-label">Quality</div>
-                        <div class="widget-metric-value ${gradeColor}">${grade ?? '—'}</div>
+                        <div class="widget-metric-value ${gradeColor}">${escapeHtml(grade ?? '—')}</div>
                     </div>
                     <div class="widget-metric">
                         <div class="widget-metric-label">Broadcasts</div>
@@ -723,11 +628,11 @@
                 <div class="widget-grid">
                     <div class="widget-metric">
                         <div class="widget-metric-label">Dominant Mode</div>
-                        <div class="widget-metric-value">${dominant}</div>
+                        <div class="widget-metric-value">${escapeHtml(dominant)}</div>
                     </div>
                     <div class="widget-metric">
                         <div class="widget-metric-label">All Modes</div>
-                        <div class="widget-metric-value" style="font-size: 14px;">${modes}</div>
+                        <div class="widget-metric-value" style="font-size: 14px;">${escapeHtml(modes)}</div>
                     </div>
                 </div>
             `;
@@ -768,7 +673,7 @@
                 
                 const stationsHtml = data.stations.map(s => `
                     <div class="widget-metric">
-                        <div class="widget-metric-label">${s.station_id}</div>
+                        <div class="widget-metric-label">${escapeHtml(s.station_id)}</div>
                         <div class="widget-metric-value">${s.distance_km}<span class="widget-unit">km</span></div>
                         <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Az: ${s.azimuth_deg}°</div>
                     </div>
@@ -922,7 +827,7 @@
             }
             
             // Extract per-station residuals from fusion data
-            const stations = ['WWV', 'WWVH', 'CHU', 'BPM'];
+            const stations = ['WWV', 'WWVH', 'BPM'];
             const residuals = [];
             
             for (const s of stations) {
@@ -948,7 +853,7 @@
                 const status = Math.abs(r.residual) < 0.5 ? 'status-good' : Math.abs(r.residual) < 1.5 ? 'status-warn' : 'status-bad';
                 return `
                     <div class="widget-metric">
-                        <div class="widget-metric-label">${r.station}</div>
+                        <div class="widget-metric-label">${escapeHtml(r.station)}</div>
                         <div class="widget-metric-value ${status}">${r.residual >= 0 ? '+' : ''}${r.residual.toFixed(2)}<span class="widget-unit">ms</span></div>
                         <div style="font-size: 11px; color: #64748b;">${r.count} broadcasts</div>
                     </div>
@@ -1002,7 +907,7 @@
                     </div>
                     <div class="widget-metric">
                         <div class="widget-metric-label">Quality Grade</div>
-                        <div class="widget-metric-value ${grade === 'A' || grade === 'B' ? 'status-good' : 'status-warn'}">${grade}</div>
+                        <div class="widget-metric-value ${grade === 'A' || grade === 'B' ? 'status-good' : 'status-warn'}">${escapeHtml(grade)}</div>
                     </div>
                 </div>
                 <div class="widget-subtitle">Target: ±0.5 ms (1σ) to UTC(NIST) via multi-broadcast fusion</div>
@@ -1073,7 +978,7 @@
                 const paths = data.paths || {};
                 const pathHtml = Object.entries(paths).map(([station, info]) => `
                     <div class="widget-metric">
-                        <div class="widget-metric-label">${station}</div>
+                        <div class="widget-metric-label">${escapeHtml(station)}</div>
                         <div class="widget-metric-value">${info.mean_tec?.toFixed(1) ?? '—'}<span class="widget-unit">TECU</span></div>
                         <div style="font-size: 11px; color: #64748b;">${info.n_measurements || 0} meas</div>
                     </div>
@@ -1106,7 +1011,7 @@
                                          severity === 'strong' ? '#ef4444' : '#64748b';
                     return `
                         <div class="widget-metric">
-                            <div class="widget-metric-label">${station}</div>
+                            <div class="widget-metric-label">${escapeHtml(station)}</div>
                             <div class="widget-metric-value" style="color: ${severityColor}">${s4?.toFixed(2) ?? '—'}</div>
                             <div style="font-size: 11px; color: ${severityColor};">${severity}</div>
                         </div>
@@ -1145,7 +1050,7 @@
                     const freqs = stationFreqs[station] ? Array.from(stationFreqs[station]).sort((a,b) => a-b) : [];
                     return `
                         <div class="widget-metric">
-                            <div class="widget-metric-label">${station}</div>
+                            <div class="widget-metric-label">${escapeHtml(station)}</div>
                             <div class="widget-metric-value">${count}</div>
                             <div style="font-size: 11px; color: #64748b;">${freqs.length} freq</div>
                         </div>
@@ -1181,11 +1086,11 @@
                         </div>
                         <div class="widget-metric">
                             <div class="widget-metric-label">Sunrise</div>
-                            <div class="widget-metric-value" style="font-size: 14px;">${sunTimes.sunrise ? new Date(sunTimes.sunrise).toLocaleTimeString() : '—'}</div>
+                            <div class="widget-metric-value" style="font-size: 14px;">${sunTimes.sunrise ? formatTime(sunTimes.sunrise) : '—'}</div>
                         </div>
                         <div class="widget-metric">
                             <div class="widget-metric-label">Sunset</div>
-                            <div class="widget-metric-value" style="font-size: 14px;">${sunTimes.sunset ? new Date(sunTimes.sunset).toLocaleTimeString() : '—'}</div>
+                            <div class="widget-metric-value" style="font-size: 14px;">${sunTimes.sunset ? formatTime(sunTimes.sunset) : '—'}</div>
                         </div>
                     </div>
                     <div class="widget-subtitle">Ionospheric conditions affect propagation delays and TEC</div>
@@ -1252,20 +1157,6 @@
             }
         }
         
-        // Log panels: the LOGS directive's evidence endpoint (it shelled out
-        // to read the unit journal) was removed as a command-injection
-        // surface — see routers/docs.py.  The placeholder still renders so
-        // the directive comment doesn't leak into the page, but there is
-        // nothing left to fetch.
-        async function renderLogPanel(container, source, filter) {
-            container.innerHTML = '<div class="log-empty">Log evidence is no longer served here — check the unit logs on the station directly.</div>';
-        }
-        
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
     </script>
 </body>
 </html>
