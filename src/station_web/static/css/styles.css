@@ -305,11 +305,6 @@ body {
     border-left: 5px solid var(--quality-b);
 }
 
-.hero-metric.grade-a { border-left-color: var(--quality-a); }
-.hero-metric.grade-b { border-left-color: var(--quality-b); }
-.hero-metric.grade-c { border-left-color: var(--quality-c); }
-.hero-metric.grade-d { border-left-color: var(--quality-d); }
-
 .hero-value {
     font-size: 72px;
     font-weight: 700;
@@ -333,10 +328,6 @@ body {
     font-size: 14px;
 }
 
-.badge.grade-a { background: var(--quality-a); color: #fff; }
-.badge.grade-b { background: var(--quality-b); color: #fff; }
-.badge.grade-c { background: var(--quality-c); color: #fff; }
-.badge.grade-d { background: var(--quality-d); color: #fff; }
 
 .badge.status-healthy { background: var(--status-healthy); color: var(--status-ink); }
 .badge.status-degraded { background: var(--status-degraded); color: var(--status-ink); }

@@ -11,7 +11,8 @@ from pathlib import Path
 
 from conftest import _write_rows
 
-PAGE = Path(__file__).resolve().parents[1] / "src" / "station_web" / "static" / "chrony.html"
+# chrony folded into the Timing page; js/timing.js now reads these fields
+PAGE = Path(__file__).resolve().parents[1] / "src" / "station_web" / "static" / "js" / "timing.js"
 
 
 def _row(t, name, **extra):
@@ -80,5 +81,5 @@ def test_history_rejects_bad_window(seeded_client):
 
 def test_page_requests_the_window_not_hours():
     page = PAGE.read_text()
-    assert re.search(r"/chrony/history', \{ start: range\.start, end: range\.end \}", page)
+    assert re.search(r"/chrony/envelope', \{ start: range\.start, end: range\.end \}", page)
     assert "hours=" not in page

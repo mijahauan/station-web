@@ -129,22 +129,6 @@ function formatFrequency(hz) {
     return `${mhz.toFixed(3)} MHz`;
 }
 
-// Quality grade colors
-const QUALITY_COLORS = {
-    'A': '#10b981',  // green
-    'B': '#3b82f6',  // blue
-    'C': '#f59e0b',  // orange
-    'D': '#ef4444'   // red
-};
-
-function getQualityColor(grade) {
-    return QUALITY_COLORS[grade] || '#94a3b8';
-}
-
-function getQualityClass(grade) {
-    return `grade-${grade.toLowerCase()}`;
-}
-
 // Status colors
 const STATUS_COLORS = {
     'healthy': '#10b981',
@@ -538,8 +522,7 @@ function statusBadge(kind, text) {
 // ════════════════════════════════════════════════════════════════════
 const NAV_ITEMS = [
     { href: '/', label: 'Status', also: ['/index.html', '/static/index.html', '/static/health.html'] },
-    { href: '/static/metrology.html', label: 'Timing' },
-    { href: '/static/chrony.html', label: 'Chrony' },
+    { href: '/static/metrology.html', label: 'Timing', also: ['/static/chrony.html'] },
     { href: '/static/phase.html', label: 'Phase', also: ['/phase'] },
     { href: '/static/ionosphere.html', label: 'Observatory', also: ['/static/station.html'] },
     { href: '/static/ionogram.html', label: 'Ionogram' },
@@ -781,8 +764,6 @@ window.applyStationIdentity = applyStationIdentity;
 window.timeAgo = timeAgo;
 window.formatNumber = formatNumber;
 window.formatFrequency = formatFrequency;
-window.getQualityColor = getQualityColor;
-window.getQualityClass = getQualityClass;
 window.getStatusColor = getStatusColor;
 window.getStatusClass = getStatusClass;
 window.showError = showError;

@@ -178,7 +178,8 @@ def test_nav_marks_the_current_page():
     out = _run("[siteNavHTML('/static/chrony.html'), siteNavHTML('/static/health.html'),"
                " siteNavHTML('/')]")
     chrony, health, root = out
-    assert re.search(r'href="/static/chrony.html"[^>]*aria-current="page"', chrony)
+    # chrony.html folded into Timing; its old URL lights up Timing
+    assert re.search(r'href="/static/metrology.html"[^>]*aria-current="page"', chrony)
     assert re.search(r'href="/"[^>]*aria-current="page"', health)   # Health sits under Status
     assert re.search(r'href="/"[^>]*aria-current="page"', root)
     assert chrony.count('aria-current') == 1

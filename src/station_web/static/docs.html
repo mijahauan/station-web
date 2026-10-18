@@ -203,10 +203,16 @@
                     `<option value="${esc(r.name)}"${r.present ? '' : ' disabled'}>${esc(r.name)}${r.present ? '' : ' (unavailable)'}</option>`
                 ).join('');
 
-                const defaultRoot = (data.roots || []).find(r => r.present) || (data.roots || [])[0];
+                // A link may name its document: ?root=<root>&doc=<path>#<section>.
+                // Only a name the listing offers gets loaded.
+                const params = new URLSearchParams(window.location.search);
+                const linked = (data.roots || []).find(r => r.present && r.name === params.get('root'));
+                const defaultRoot = linked || (data.roots || []).find(r => r.present) || (data.roots || [])[0];
                 if (defaultRoot) {
                     rootSelect.value = defaultRoot.name;
-                    selectRoot(defaultRoot.name);
+                    const doc = linked && (docsByRoot[linked.name] || []).includes(params.get('doc'))
+                        ? params.get('doc') : null;
+                    selectRoot(defaultRoot.name, doc);
                 }
             } catch (e) {
                 console.error('Failed to load document list:', e);
@@ -214,7 +220,7 @@
         }
 
         // Populate the document selector for a chosen root, then load its first doc
-        function selectRoot(rootName) {
+        function selectRoot(rootName, preferredDoc = null) {
             if (!rootName) return;
             currentRoot = rootName;
             const docs = docsByRoot[rootName] || [];
@@ -223,8 +229,12 @@
                 ? docs.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')
                 : '<option value="">No documents</option>';
             if (docs.length) {
-                docSelect.value = docs[0];
-                loadDocument(rootName, docs[0]);
+                const first = preferredDoc || docs[0];
+                docSelect.value = first;
+                loadDocument(rootName, first).then(() => {
+                    const hash = decodeURIComponent(window.location.hash.slice(1));
+                    if (preferredDoc && hash) scrollToSection(hash);
+                });
             } else {
                 document.getElementById('doc-content').innerHTML =
                     '<div style="color: #64748b; padding: 20px;">No documents in this root.</div>';
@@ -538,25 +548,18 @@
             
             const dclock = f.d_clock_ms;
             const unc = f.uncertainty_ms;
-            const grade = f.quality_grade;
             const nBroadcasts = f.n_broadcasts;
-            
-            const gradeColor = grade === 'A' ? 'status-good' : grade === 'B' ? 'status-good' : grade === 'C' ? 'status-warn' : 'status-bad';
-            
+
             container.innerHTML = `
-                <div class="widget-title">Current UTC Offset — Live</div>
+                <div class="widget-title">T3 estimate (tick fusion) — Live</div>
                 <div style="text-align: center; padding: 12px 0;">
                     <div style="font-size: 36px; font-weight: 700; font-family: 'Fira Code', monospace;">${dclock >= 0 ? '+' : ''}${dclock?.toFixed(3) ?? '—'}<span class="widget-unit">ms</span></div>
-                    <div style="margin-top: 8px; color: #94a3b8;">D_clock = T_system − T_UTC(NIST)</div>
+                    <div style="margin-top: 8px; color: #94a3b8;">d_clock_fused_ms from L3_fusion_timing; the Timing page draws its history</div>
                 </div>
                 <div class="widget-grid">
                     <div class="widget-metric">
                         <div class="widget-metric-label">Uncertainty</div>
                         <div class="widget-metric-value">±${unc?.toFixed(3) ?? '—'}<span class="widget-unit">ms</span></div>
-                    </div>
-                    <div class="widget-metric">
-                        <div class="widget-metric-label">Quality</div>
-                        <div class="widget-metric-value ${gradeColor}">${escapeHtml(grade ?? '—')}</div>
                     </div>
                     <div class="widget-metric">
                         <div class="widget-metric-label">Broadcasts</div>
@@ -866,7 +869,6 @@
             
             const unc = f.uncertainty_ms ?? 999;
             const nBroadcasts = f.n_broadcasts ?? 0;
-            const grade = f.quality_grade ?? 'D';
             
             // Calculate theoretical improvement
             const singleBroadcastUnc = 3.0; // typical single-broadcast uncertainty
@@ -891,12 +893,7 @@
                         <div class="widget-metric-value">${actualImprovement.toFixed(1)}×</div>
                         <div style="font-size: 11px; color: #64748b;">vs single broadcast</div>
                     </div>
-                    <div class="widget-metric">
-                        <div class="widget-metric-label">Quality Grade</div>
-                        <div class="widget-metric-value ${grade === 'A' || grade === 'B' ? 'status-good' : 'status-warn'}">${escapeHtml(grade)}</div>
-                    </div>
                 </div>
-                <div class="widget-subtitle">Target: ±0.5 ms (1σ) to UTC(NIST) via multi-broadcast fusion</div>
             `;
         }
         
