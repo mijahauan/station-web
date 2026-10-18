@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("/etc/station-web/config.toml")
 DEFAULT_DATA_ROOT = Path("/var/lib/timestd")
+DEFAULT_AUTHORITY_PATH = Path("/run/hf-timestd/authority.json")
 DEFAULT_DOCS_ROOTS = [
     {"name": "hf-timestd",     "path": "/opt/git/sigmond/hf-timestd/docs"},
     {"name": "hamsci-physics", "path": "/opt/git/sigmond/hamsci-physics/docs"},
@@ -57,6 +58,25 @@ class Settings:
     @property
     def data_root(self) -> Path:
         return Path((self.raw.get("data", {}) or {}).get("root", DEFAULT_DATA_ROOT))
+
+    # ── the timing authority's files, outside the product database ──
+    # hf-timestd writes the current registration snapshot under /run and
+    # its history and watchdog under the data root.  Read-only, each one;
+    # every path is configurable so tests can point at fixtures.
+    @property
+    def authority_path(self) -> Path:
+        return Path((self.raw.get("data", {}) or {}).get("authority_path",
+                                                          DEFAULT_AUTHORITY_PATH))
+
+    @property
+    def authority_history_path(self) -> Path:
+        p = (self.raw.get("data", {}) or {}).get("authority_history_path")
+        return Path(p) if p else self.data_root / "authority_history.db"
+
+    @property
+    def timing_status_dir(self) -> Path:
+        p = (self.raw.get("data", {}) or {}).get("status_dir")
+        return Path(p) if p else self.data_root / "status"
 
     @property
     def fusion_dir(self) -> Path:

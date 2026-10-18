@@ -98,8 +98,10 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
 def _register_routers(app: FastAPI) -> None:
     from station_web.routers import (chrony, correlations, dashboard, docs, grape, health,
                                      ionogram, metrology, phase, physics, propagation,
-                                     space_weather, stability, station, stations, tec, tid)
+                                     space_weather, stability, station, stations, tec, tid,
+                                     timing)
     for mod in (station, stations, health, metrology, stability, propagation, space_weather,
-                correlations, physics, tec, tid, dashboard, phase, grape, ionogram, chrony):
+                correlations, physics, tec, tid, dashboard, phase, grape, ionogram, chrony,
+                timing):
         app.include_router(mod.router, prefix="/api")
     app.include_router(docs.router)          # carries its own /api/living-docs prefix

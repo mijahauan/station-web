@@ -20,6 +20,7 @@ def settings(tmp_path, monkeypatch):
     cfg.write_text(f'[station]\ncallsign = "AC0G"\ngrid_square = "EM38ww"\n'
                    f'latitude = 38.9\nlongitude = -92.3\n'
                    f'[data]\nroot = "{root}"\n'
+                   f'authority_path = "{root / "run" / "authority.json"}"\n'
                    f'[storage]\nsqlite_path = "{root / "phase2" / "timestd.db"}"\n')
     monkeypatch.setenv("STATION_WEB_CONFIG", str(cfg))
     s = cfgmod.load_settings()
