@@ -95,9 +95,11 @@ def test_empty_root_is_indeterminate_not_error(settings):
     """No database at all: nothing is applicable, so nothing is a fault —
     but the station is not healthy either.  ``L3_tid`` is the one exception:
     an event product reports INFORMATIONAL regardless of data, never
-    INDETERMINATE — there is no cadence for it to have failed."""
+    INDETERMINATE — there is no cadence for it to have failed.  The timing
+    authority's two files are INFORMATIONAL too (test_freshness_authority)."""
     t = freshness.table(settings)
-    non_event = {k: v for k, v in t["products"].items() if k != "L3_tid"}
+    non_event = {k: v for k, v in t["products"].items()
+                 if k != "L3_tid" and k not in freshness.AUTHORITY_EXPECTED}
     assert all(p["verdict"] == "INDETERMINATE" for p in non_event.values())
     assert all(p["applicable"] is False for p in t["products"].values())
     assert t["products"]["L3_tid"]["verdict"] == "INFORMATIONAL"

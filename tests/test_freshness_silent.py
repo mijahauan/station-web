@@ -77,7 +77,8 @@ def test_only_silent_products_is_degraded(seeded):
     con.commit()
     con.close()
     t = freshness.table(seeded)
-    assert {p["verdict"] for k, p in t["products"].items() if k != "L3_tid"} <= {"SILENT", "INDETERMINATE"}
+    assert {p["verdict"] for k, p in t["products"].items() if k != "L3_tid"
+            and k not in freshness.AUTHORITY_EXPECTED} <= {"SILENT", "INDETERMINATE"}
     assert t["status"] == "degraded"
 
 

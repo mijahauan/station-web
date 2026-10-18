@@ -29,6 +29,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from station_web.config import Settings
+from station_web.services import timing_authority
 from station_web.services.channels import _db_path, discover_channels
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,52 @@ def _newest_across_channels(settings: Settings, level: str, name: str, channels:
     return best_ts, best_channel
 
 
+#: the timing authority's files: name -> expected max age in seconds.  Both
+#: are INFORMATIONAL: a station without hf-timestd has neither, and a stale
+#: authority shows on the Status page, named, without judging ``status``.
+AUTHORITY_EXPECTED = {"authority.json": 30, "authority_history.db": 120}
+
+
+def _authority_entries(settings: Settings, now: datetime) -> dict[str, dict]:
+    """Age of authority.json (its ``utc_published``) and of the newest
+    authority_history.db row (``MAX`` on the primary key: one index seek)."""
+    out: dict[str, dict] = {}
+    for name, expected in AUTHORITY_EXPECTED.items():
+        ts, present = None, False
+        try:
+            if name == "authority.json":
+                snap = timing_authority.read_authority(settings.authority_path)
+                present = snap is not None
+                ts = snap.get("utc_published") if snap else None
+            else:
+                path = settings.authority_history_path
+                if path.exists():
+                    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+                    try:
+                        present = True
+                        ts = con.execute(
+                            "SELECT MAX(utc_published) FROM authority_snapshot").fetchone()[0]
+                    finally:
+                        con.close()
+        except (OSError, ValueError, sqlite3.Error) as exc:
+            logger.warning("freshness probe of %s failed: %s", name, exc)
+            present = True
+            ts = None
+        entry = {"verdict": "INFORMATIONAL", "expected_s": expected, "channel": None,
+                 "applicable": present, "age_s": None, "stale": None}
+        if not present:
+            entry["reason"] = f"{name} not available on this station (hf-timestd not publishing here)"
+        else:
+            age = None if not ts else round((now - _parse_utc(ts)).total_seconds(), 1)
+            entry["age_s"] = age
+            entry["stale"] = age is None or age > expected
+            entry["reason"] = ("timing authority: informational, never judges status"
+                               if not entry["stale"] else
+                               f"timing authority stale: {name} older than {expected} s")
+        out[name] = entry
+    return out
+
+
 def table(settings: Settings) -> dict:
     now = datetime.now(timezone.utc)
     channels = [c["name"] for c in discover_channels(settings)]
@@ -209,6 +256,7 @@ def table(settings: Settings) -> dict:
                  "reason": "event product — written only when an event is "
                            "detected; age is informational"}
         products[tbl] = entry
+    products.update(_authority_entries(settings, now))
     judged = [p for p in products.values()
               if p["applicable"] and p["verdict"] != "INFORMATIONAL"]
     verdicts = {p["verdict"] for p in judged}
