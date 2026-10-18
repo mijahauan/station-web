@@ -14,7 +14,6 @@ Cross-correlation of S4 (amplitude) and σ_φ (phase) provides validation:
 during a real scintillation event both should increase simultaneously.
 """
 
-import sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
@@ -23,24 +22,33 @@ import math
 
 import numpy as np
 
+from station_web.broadcast import DEFAULT_STATIONS
 from station_web.config import config as _web_config
+from station_web.services.channels import discover_channels
+from station_web.timeutil import as_utc, iso_z
 
 from hamsci_dsp.io import make_data_product_reader
 
 logger = logging.getLogger(__name__)
 
-# Channels with tick_phase data (phase scintillation)
-TICK_PHASE_CHANNELS = [
-    'SHARED_2500', 'SHARED_5000', 'SHARED_10000', 'SHARED_15000',
-    'WWV_20000', 'WWV_25000', 'CHU_3330', 'CHU_7850', 'CHU_14670',
-]
+#: Stations that send the minute-8/44 multitone test signal (S4 source).
+TEST_SIGNAL_STATIONS = ('WWV', 'WWVH')
 
-# Channels with test_signal data (amplitude scintillation S4)
-# Only WWV/WWVH have the multi-tone test signal
-TEST_SIGNAL_CHANNELS = [
-    'SHARED_2500', 'SHARED_5000', 'SHARED_10000', 'SHARED_15000',
-    'WWV_20000', 'WWV_25000',
-]
+
+def tick_phase_channels() -> List[str]:
+    """Channels with tick_phase data (phase scintillation): every receiver
+    channel the products name.  A hard-coded list used to open readers for
+    three CHU channels that left the fleet."""
+    return [c['name'] for c in discover_channels(_web_config)]
+
+
+def test_signal_channels() -> List[str]:
+    """Channels whose frequency carries WWV or WWVH, the only stations
+    with the multitone test signal (amplitude scintillation S4)."""
+    freqs = {f for st in DEFAULT_STATIONS if st.name in TEST_SIGNAL_STATIONS
+             for f in st.frequencies_hz}
+    return [c['name'] for c in discover_channels(_web_config)
+            if c.get('frequency_hz') in freqs]
 
 
 def _safe_float(val) -> Optional[float]:
@@ -92,36 +100,23 @@ class ScintillationService:
         """Read S4 amplitude scintillation from the L2_test_signal SQLite
         table."""
         records: List[Dict[str, Any]] = []
-        start_iso = start.isoformat().replace('+00:00', 'Z')
-        end_iso = end.isoformat().replace('+00:00', 'Z')
+        # iso_z makes every bound aware UTC: a naive bound reached the
+        # reader as a zone-less string and raised TypeError there.
+        start_iso, end_iso = iso_z(start), iso_z(end)
         storage_config = getattr(_web_config, 'storage', {}) if _web_config else {}
 
-        for channel in TEST_SIGNAL_CHANNELS:
+        for channel in test_signal_channels():
+            reader = make_data_product_reader(
+                data_dir=self.phase2_dir / channel / 'test_signal',
+                product_level='L2',
+                product_name='test_signal',
+                channel=channel,
+                storage_config=storage_config,
+            )
             try:
-                reader = make_data_product_reader(
-                    data_dir=self.phase2_dir / channel / 'test_signal',
-                    product_level='L2',
-                    product_name='test_signal',
-                    channel=channel,
-                    storage_config=storage_config,
-                )
-            except Exception as e:
-                logger.warning(f"L2_test_signal reader init failed for {channel}: {e}")
-                continue
-
-            try:
-                try:
-                    rows = reader.read_time_range(start=start_iso, end=end_iso)
-                except Exception as e:
-                    logger.warning(f"L2_test_signal read failed for {channel}: {e}")
-                    rows = []
+                rows = reader.read_time_range(start=start_iso, end=end_iso)
             finally:
-                close_fn = getattr(reader, 'close', None)
-                if close_fn is not None:
-                    try:
-                        close_fn()
-                    except Exception:
-                        pass
+                reader.close()
 
             for row in rows:
                 records.append({
@@ -157,38 +152,24 @@ class ScintillationService:
         with a linear fit to remove Doppler, and reports std(residual) as σ_φ.
         """
         records: List[Dict[str, Any]] = []
+        start, end = as_utc(start), as_utc(end)
         start_epoch = start.timestamp()
         end_epoch = end.timestamp()
-        start_iso = start.isoformat().replace('+00:00', 'Z')
-        end_iso = end.isoformat().replace('+00:00', 'Z')
+        start_iso, end_iso = iso_z(start), iso_z(end)
         storage_config = getattr(_web_config, 'storage', {}) if _web_config else {}
 
-        for channel in TICK_PHASE_CHANNELS:
+        for channel in tick_phase_channels():
+            reader = make_data_product_reader(
+                data_dir=self.phase2_dir / channel / 'tick_phase',
+                product_level='L2',
+                product_name='tick_phase',
+                channel=channel,
+                storage_config=storage_config,
+            )
             try:
-                reader = make_data_product_reader(
-                    data_dir=self.phase2_dir / channel / 'tick_phase',
-                    product_level='L2',
-                    product_name='tick_phase',
-                    channel=channel,
-                    storage_config=storage_config,
-                )
-            except Exception as e:
-                logger.warning(f"L2_tick_phase reader init failed for {channel}: {e}")
-                continue
-
-            try:
-                try:
-                    rows = reader.read_time_range(start=start_iso, end=end_iso)
-                except Exception as e:
-                    logger.warning(f"L2_tick_phase read failed for {channel}: {e}")
-                    rows = []
+                rows = reader.read_time_range(start=start_iso, end=end_iso)
             finally:
-                close_fn = getattr(reader, 'close', None)
-                if close_fn is not None:
-                    try:
-                        close_fn()
-                    except Exception:
-                        pass
+                reader.close()
 
             # Group rows by (station, minute_boundary_utc) for sigma-phi
             # estimation.
@@ -301,87 +282,83 @@ class ScintillationService:
         """
         Get latest scintillation data organized by propagation path.
 
-        Combines S4 from test_signal and σ_φ from tick_phase.
+        Combines S4 from test_signal and σ_φ from tick_phase.  A read
+        failure raises; the router reports it as a fault.
         """
-        try:
-            end_time = datetime.now(timezone.utc)
-            start_time = end_time - timedelta(hours=2)
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(hours=2)
 
-            s4_records = self._read_test_signal_s4(start_time, end_time)
-            sigma_records = self._read_tick_phase_sigma_phi(start_time, end_time)
+        s4_records = self._read_test_signal_s4(start_time, end_time)
+        sigma_records = self._read_tick_phase_sigma_phi(start_time, end_time)
 
-            # Aggregate by station
-            path_data: Dict[str, Dict] = {}
+        # Aggregate by station
+        path_data: Dict[str, Dict] = {}
 
-            for rec in s4_records:
-                stn = rec['station']
-                if stn not in path_data:
-                    path_data[stn] = {'s4_values': [], 'sigma_phi_values': [], 'fading_variances': [], 'frequencies': set()}
-                s4_val = rec.get('s4')
-                if s4_val is not None:
-                    path_data[stn]['s4_values'].append(s4_val)
-                fv = rec.get('fading_variance')
-                if fv is not None:
-                    path_data[stn]['fading_variances'].append(fv)
-                if rec.get('frequency_mhz'):
-                    path_data[stn]['frequencies'].add(rec['frequency_mhz'])
+        for rec in s4_records:
+            stn = rec['station']
+            if stn not in path_data:
+                path_data[stn] = {'s4_values': [], 'sigma_phi_values': [], 'fading_variances': [], 'frequencies': set()}
+            s4_val = rec.get('s4')
+            if s4_val is not None:
+                path_data[stn]['s4_values'].append(s4_val)
+            fv = rec.get('fading_variance')
+            if fv is not None:
+                path_data[stn]['fading_variances'].append(fv)
+            if rec.get('frequency_mhz'):
+                path_data[stn]['frequencies'].add(rec['frequency_mhz'])
 
-            for rec in sigma_records:
-                stn = rec['station']
-                if stn not in path_data:
-                    path_data[stn] = {'s4_values': [], 'sigma_phi_values': [], 'fading_variances': [], 'frequencies': set()}
-                sp = rec.get('sigma_phi_rad')
-                if sp is not None:
-                    path_data[stn]['sigma_phi_values'].append(sp)
-                if rec.get('frequency_mhz'):
-                    path_data[stn]['frequencies'].add(rec['frequency_mhz'])
+        for rec in sigma_records:
+            stn = rec['station']
+            if stn not in path_data:
+                path_data[stn] = {'s4_values': [], 'sigma_phi_values': [], 'fading_variances': [], 'frequencies': set()}
+            sp = rec.get('sigma_phi_rad')
+            if sp is not None:
+                path_data[stn]['sigma_phi_values'].append(sp)
+            if rec.get('frequency_mhz'):
+                path_data[stn]['frequencies'].add(rec['frequency_mhz'])
 
-            result = {'paths': {}, 'timestamp': end_time.isoformat()}
+        result = {'paths': {}, 'timestamp': iso_z(end_time)}
 
-            for station, data in path_data.items():
-                s4_vals = [v for v in data['s4_values'] if v is not None]
-                sigma_vals = [v for v in data['sigma_phi_values'] if v is not None]
+        for station, data in path_data.items():
+            s4_vals = [v for v in data['s4_values'] if v is not None]
+            sigma_vals = [v for v in data['sigma_phi_values'] if v is not None]
 
-                avg_s4 = sum(s4_vals) / len(s4_vals) if s4_vals else None
-                avg_sigma = sum(sigma_vals) / len(sigma_vals) if sigma_vals else None
+            avg_s4 = sum(s4_vals) / len(s4_vals) if s4_vals else None
+            avg_sigma = sum(sigma_vals) / len(sigma_vals) if sigma_vals else None
 
-                # Severity from S4 (amplitude) if available, else from σ_φ
-                if avg_s4 is not None:
-                    if avg_s4 < 0.3:
-                        severity = 'weak'
-                    elif avg_s4 < 0.6:
-                        severity = 'moderate'
-                    else:
-                        severity = 'strong'
-                elif avg_sigma is not None:
-                    if avg_sigma < 0.2:
-                        severity = 'weak'
-                    elif avg_sigma < 0.5:
-                        severity = 'moderate'
-                    else:
-                        severity = 'strong'
+            # Severity from S4 (amplitude) if available, else from σ_φ
+            if avg_s4 is not None:
+                if avg_s4 < 0.3:
+                    severity = 'weak'
+                elif avg_s4 < 0.6:
+                    severity = 'moderate'
                 else:
-                    severity = 'unknown'
+                    severity = 'strong'
+            elif avg_sigma is not None:
+                if avg_sigma < 0.2:
+                    severity = 'weak'
+                elif avg_sigma < 0.5:
+                    severity = 'moderate'
+                else:
+                    severity = 'strong'
+            else:
+                severity = 'unknown'
 
-                result['paths'][station] = {
-                    'station': station,
-                    's4_mean': _safe_float(avg_s4),
-                    's4_max': _safe_float(max(s4_vals)) if s4_vals else None,
-                    'sigma_phi_mean': _safe_float(avg_sigma),
-                    'sigma_phi_max': _safe_float(max(sigma_vals)) if sigma_vals else None,
-                    'fading_variance_mean': _safe_float(sum(data['fading_variances']) / len(data['fading_variances'])) if data['fading_variances'] else None,
-                    'n_s4_measurements': len(s4_vals),
-                    'n_sigma_phi_measurements': len(sigma_vals),
-                    'severity': severity,
-                    'frequencies_observed': sorted(data['frequencies']),
-                }
+            result['paths'][station] = {
+                'station': station,
+                's4_mean': _safe_float(avg_s4),
+                's4_max': _safe_float(max(s4_vals)) if s4_vals else None,
+                'sigma_phi_mean': _safe_float(avg_sigma),
+                'sigma_phi_max': _safe_float(max(sigma_vals)) if sigma_vals else None,
+                'fading_variance_mean': _safe_float(sum(data['fading_variances']) / len(data['fading_variances'])) if data['fading_variances'] else None,
+                'n_s4_measurements': len(s4_vals),
+                'n_sigma_phi_measurements': len(sigma_vals),
+                'severity': severity,
+                'frequencies_observed': sorted(data['frequencies']),
+            }
 
-            result['n_paths'] = len(result['paths'])
-            return _convert_to_native(result)
-
-        except Exception as e:
-            logger.error(f"Error getting scintillation data: {e}")
-            return {'paths': {}, 'n_paths': 0, 'error': str(e)}
+        result['n_paths'] = len(result['paths'])
+        return _convert_to_native(result)
 
     def get_history(
         self,
@@ -392,36 +369,32 @@ class ScintillationService:
         """
         Get scintillation history combining S4 and σ_φ time series.
 
-        Returns both test_signal S4 and tick_phase σ_φ records, sorted by time.
+        Returns both test_signal S4 and tick_phase σ_φ records, sorted by
+        time.  A read failure raises instead of reading as "count 0".
         """
-        try:
-            s4_records = self._read_test_signal_s4(start, end)
-            sigma_records = self._read_tick_phase_sigma_phi(start, end)
+        s4_records = self._read_test_signal_s4(start, end)
+        sigma_records = self._read_tick_phase_sigma_phi(start, end)
 
-            all_data = []
+        all_data = []
 
-            for rec in s4_records:
-                if station and rec.get('station') != station:
-                    continue
-                all_data.append(rec)
+        for rec in s4_records:
+            if station and rec.get('station') != station:
+                continue
+            all_data.append(rec)
 
-            for rec in sigma_records:
-                if station and rec.get('station') != station:
-                    continue
-                all_data.append(rec)
+        for rec in sigma_records:
+            if station and rec.get('station') != station:
+                continue
+            all_data.append(rec)
 
-            all_data.sort(key=lambda x: x.get('timestamp', ''))
+        all_data.sort(key=lambda x: x.get('timestamp') or '')
 
-            return _convert_to_native({
-                'measurements': all_data,
-                'count': len(all_data),
-                'n_s4': sum(1 for r in all_data if r.get('source') == 'test_signal'),
-                'n_sigma_phi': sum(1 for r in all_data if r.get('source') == 'tick_phase'),
-            })
-
-        except Exception as e:
-            logger.error(f"Error getting scintillation history: {e}")
-            return {'measurements': [], 'count': 0, 'error': str(e)}
+        return _convert_to_native({
+            'measurements': all_data,
+            'count': len(all_data),
+            'n_s4': sum(1 for r in all_data if r.get('source') == 'test_signal'),
+            'n_sigma_phi': sum(1 for r in all_data if r.get('source') == 'tick_phase'),
+        })
 
     # ------------------------------------------------------------------
     # Helpers
