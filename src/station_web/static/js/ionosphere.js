@@ -75,7 +75,7 @@ function ionoTecFigure(tec, vtec, xRange) {
     if (vtec && vtec.available && vtec.time && vtec.time.length) {
         data.push({
             x: vtec.time, y: vtec.vtec_tecu, mode: 'lines', type: 'scatter',
-            name: vtec.label || 'GNSS VTEC (reference)',
+            name: escapeHtml(vtec.label || 'GNSS VTEC (reference)'),
             line: { color: IONO_REFERENCE, width: 2, dash: 'dash' },
             hovertemplate: '%{x}<br>GNSS VTEC %{y:.1f} TECU<extra>reference</extra>',
         });
@@ -261,7 +261,7 @@ function ionoRenderTecFit(tl) {
         if (!fit) continue;
         const tec = fit.slope / 1.344;
         data.push({ x: xs, y: ys, text: labels, mode: 'markers+text', textposition: 'top center',
-                    name: `${st} (mode ${best || 'UNKNOWN'})`, marker: { size: 9, color: stationColor(st) },
+                    name: escapeHtml(`${st} (mode ${best || 'UNKNOWN'})`), marker: { size: 9, color: stationColor(st) },
                     textfont: { size: 10, color: stationColor(st) } });
         const x0 = Math.min(...xs) * 0.8, x1 = Math.max(...xs) * 1.2;
         data.push({ x: [x0, x1], y: [fit.slope * x0 + fit.intercept, fit.slope * x1 + fit.intercept],

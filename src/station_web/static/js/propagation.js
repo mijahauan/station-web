@@ -53,7 +53,7 @@ function propMufFigure(stats, station, xRange) {
         const s = stats.stations[st];
         return {
             x: s.time, y: s.muf_mhz, customdata: s.muf_confidence,
-            mode: 'lines+markers', type: 'scatter', name: st, connectgaps: false,
+            mode: 'lines+markers', type: 'scatter', name: escapeHtml(st), connectgaps: false,
             line: { color: stationColor(st), width: 2, shape: 'hv' },
             marker: { color: stationColor(st), size: 5 },
             hovertemplate: '%{x}<br>MUF %{y:.1f} MHz<br>confidence %{customdata:.2f}<extra>' +
@@ -88,7 +88,7 @@ function propModeFigure(stats, station, xRange) {
     const data = order.map(k => ({
         x: times,
         y: times.map(t => { const a = byTime.get(t); return a.n ? a.p[k] / a.n : null; }),
-        name: k, type: 'scatter', mode: 'lines', stackgroup: 'modes', line: { width: 0.5, shape: 'hv' },
+        name: escapeHtml(k), type: 'scatter', mode: 'lines', stackgroup: 'modes', line: { width: 0.5, shape: 'hv' },
         fillcolor: withAlpha(PROP_MODE_COLORS[k] || '#888888', 0.75),
         marker: { color: PROP_MODE_COLORS[k] || '#888888' },
         hovertemplate: '%{x}<br>' + escapeHtml(k) + ' %{y:.2f}<extra></extra>',
@@ -111,7 +111,8 @@ function _propBroadcastLabel(b) {
 /** Horizontal stacked bars per broadcast: detected, then each rejection reason. */
 function propFunnelFigure(data, station) {
     const rows = _propBroadcasts(data, station);
-    const labels = rows.map(_propBroadcastLabel);
+    // plotly renders a subset of HTML in category labels and trace names
+    const labels = rows.map(b => escapeHtml(_propBroadcastLabel(b)));
     const reasons = (data && data.reasons_order) || [];
     const greys = ['#B45309', '#9CA3AF', '#6B7280', '#78716C', '#A8A29E', '#57534E', '#D6D3D1'];
     const traces = [{
@@ -120,7 +121,7 @@ function propFunnelFigure(data, station) {
         hovertemplate: '%{y}<br>detected %{x}<extra></extra>',
     }];
     reasons.forEach((r, i) => traces.push({
-        type: 'bar', orientation: 'h', name: r, y: labels,
+        type: 'bar', orientation: 'h', name: escapeHtml(r), y: labels,
         x: rows.map(b => (b.reasons || {})[r] || 0),
         marker: { color: greys[i % greys.length] },
         hovertemplate: '%{y}<br>' + escapeHtml(r) + ' %{x}<extra></extra>',
@@ -301,7 +302,7 @@ function propRenderSignal() {
     }
     const sza = propState.station !== 'ALL' ? propSolarTrace(propState.station) : null;
     const snrTraces = Object.entries(groups).map(([key, g]) => ({
-        x: g.ts, y: g.snr, mode: 'markers', type: 'scattergl', name: key,
+        x: g.ts, y: g.snr, mode: 'markers', type: 'scattergl', name: escapeHtml(key),
         marker: { size: 3, color: freqColor(g.fk), opacity: 0.8 },
         hovertemplate: '%{x}<br>SNR %{y:.1f} dB<extra>' + escapeHtml(key) + '</extra>',
     }));
@@ -323,7 +324,7 @@ function propRenderSignal() {
         g.res.forEach((v, i) => { if (latticeSuspect(v)) { sx.push(g.ts[i]); sy.push(v); sn.push(key); } });
         resTraces.push({
             x: g.ts, y: g.res.map(v => latticeSuspect(v) ? null : v), mode: 'markers', type: 'scattergl',
-            name: key, marker: { size: 3, color: freqColor(g.fk), opacity: 0.8 },
+            name: escapeHtml(key), marker: { size: 3, color: freqColor(g.fk), opacity: 0.8 },
             hovertemplate: '%{x}<br>residual %{y:.2f} ms<extra>' + escapeHtml(key) + '</extra>',
         });
     }
@@ -353,10 +354,10 @@ function propRenderModes() {
         const m = tl.modes[i] || 'UNKNOWN';
         const g = byMode[m] || (byMode[m] = { x: [], y: [] });
         g.x.push(t);
-        g.y.push(`${tl.stations[i]} ${propFreqKey(tl.frequencies[i])} MHz`);
+        g.y.push(escapeHtml(`${tl.stations[i]} ${propFreqKey(tl.frequencies[i])} MHz`));
     });
     const data = Object.entries(byMode).map(([m, g]) => ({
-        x: g.x, y: g.y, mode: 'markers', type: 'scattergl', name: m,
+        x: g.x, y: g.y, mode: 'markers', type: 'scattergl', name: escapeHtml(m),
         marker: { size: 4, color: PROP_MODE_COLORS[m] || '#888888', opacity: 0.85 },
         hovertemplate: '%{x}<br>%{y}<br>mode ' + escapeHtml(m) + '<extra></extra>',
     }));

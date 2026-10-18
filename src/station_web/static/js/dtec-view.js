@@ -143,7 +143,7 @@
             y: s.dtec_rate_tecu_per_s,
             mode: 'lines',
             type: 'scattergl',
-            name: s.label || `${s.station} ${s.frequency_mhz.toFixed(1)} MHz`,
+            name: escapeHtml(s.label || `${s.station} ${s.frequency_mhz.toFixed(1)} MHz`),
             line: { color: stationColor(s.composite ? 'composite' : s.station), width,
                     dash: getSeriesDash(s.frequency_mhz) },
             opacity,

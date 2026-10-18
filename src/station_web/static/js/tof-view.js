@@ -359,7 +359,7 @@
                 y: ts.doppler_hz,
                 mode: 'markers+lines',
                 type: 'scatter',
-                name: data.doppler_label || 'Doppler',
+                name: escapeHtml(data.doppler_label || 'Doppler'),
                 marker: { color: data.doppler_composite ? stationColor('composite') : (data.color || stationColor('composite')), size: 3 },
                 line: { width: 1 },
                 hovertemplate: '%{y:.4f} Hz<extra></extra>',

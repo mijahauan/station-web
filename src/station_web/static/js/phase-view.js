@@ -64,7 +64,7 @@
     // A trace's legend name: its channel and whose carrier it measures
     // (a SHARED channel: "composite: WWV + WWVH + BPM")
     function traceName(s) {
-        return `${s.channel} / ${s.label || s.station}`;
+        return escapeHtml(`${s.channel} / ${s.label || s.station}`);
     }
 
     // Collect unique stations from plot series and build combined shapes.

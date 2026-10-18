@@ -356,3 +356,37 @@ def test_redraw_never_wipes_a_live_plot(name):
     for m in re.finditer(r"^(.*)el\.innerHTML = '';", text, re.M):
         assert "js-plotly-plot" in m.group(1), m.group(0)
     assert not re.search(r"getElementById\('[\w-]+-plot'\)\.innerHTML\s*=", text)
+
+
+@needs_node
+def test_plotly_names_and_labels_escape_database_strings():
+    """Plotly renders a subset of HTML in trace names and category labels;
+    every one built from a database string goes through escapeHtml."""
+    data = {"available": True, "reasons_order": ["<img src=x>"],
+            "broadcasts": [{"channel": "<b>X</b>", "station": "<i>S</i>", "frequency_mhz": 10,
+                            "attempts": 5, "detected": 0, "rejected": 5, "detection_rate": 0,
+                            "reasons": {"<img src=x>": 5}}]}
+    stats = {"available": True, "modes_order": ["<b>M</b>"],
+             "stations": {"<i>S</i>": {"time": ["2026-10-18T01:00:00Z"], "muf_mhz": [20.0],
+                                       "muf_confidence": [0.5], "n_observations": [3],
+                                       "mode_probability": {"<b>M</b>": [1.0]}}}}
+    fig, muf, modes = _run(
+        f"[propFunnelFigure({json.dumps(data)}, 'ALL'), propMufFigure({json.dumps(stats)}, 'ALL'),"
+        f" propModeFigure({json.dumps(stats)}, 'ALL')]", "propagation.js")
+    strings = []
+    for f in (fig, muf, modes):
+        for t in f["data"]:
+            strings.append(t["name"])
+            strings.extend(y for y in (t.get("y") or []) if isinstance(y, str))
+    assert strings and not any("<" in s for s in strings), strings
+    assert "&lt;img src=x&gt;" in strings
+
+
+def test_trace_names_from_data_are_escaped_in_page_scripts():
+    """The pages whose trace builders are closures: check the source."""
+    phase = (STATIC / "js" / "phase-view.js").read_text()
+    assert "return escapeHtml(`${s.channel} / ${s.label || s.station}`)" in phase
+    for f, needle in (("dtec-view.js", "name: escapeHtml(s.label ||"),
+                      ("ionosphere.js", "name: escapeHtml(vtec.label ||"),
+                      ("tof-view.js", "name: escapeHtml(data.doppler_label ||")):
+        assert needle in (STATIC / "js" / f).read_text(), f
