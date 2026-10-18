@@ -268,10 +268,30 @@ def registration_snapshot(settings: Settings, now: Optional[datetime] = None) ->
 
 # ── history ─────────────────────────────────────────────────────────────
 
-def _connect(path: Path) -> Optional[sqlite3.Connection]:
+#: The reason a history file that exists but will not open gives.
+UNREADABLE = "authority_history.db unreadable"
+
+
+def connect_history(path: Path) -> Optional[sqlite3.Connection]:
+    """A read-only connection to authority_history.db, or None when absent.
+
+    The database runs in WAL mode, in a directory this unit mounts
+    read-only.  While hf-timestd holds it open, ``-wal`` and ``-shm`` exist
+    and ``mode=ro`` reads them.  A clean stop deletes both, and a plain
+    ``mode=ro`` open would then have to create ``-shm`` and fails ("attempt
+    to write a readonly database").  With no ``-wal`` file the main file
+    holds every committed row, so ``immutable=1`` reads it without touching
+    ``-shm``.
+    """
     if not path.exists():
         return None
-    return sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+    uri = path.absolute().as_uri() + "?mode=ro"
+    if not Path(f"{path}-wal").exists():
+        uri += "&immutable=1"
+    return sqlite3.connect(uri, uri=True, timeout=5.0)
+
+
+_connect = connect_history
 
 
 def _columns(conn: sqlite3.Connection) -> set:
@@ -304,7 +324,12 @@ def counter_epoch_changes(settings: Settings, now: datetime) -> dict:
     table records no epoch id today; when it gains one of
     ``EPOCH_COLUMNS``, this counts the changes.
     """
-    conn = _connect(settings.authority_history_path)
+    # The count must never take the snapshot down: an unreadable history
+    # costs this one field, with a reason.
+    try:
+        conn = _connect(settings.authority_history_path)
+    except sqlite3.Error:
+        return {"count": None, "reason": UNREADABLE}
     if conn is None:
         return {"count": None, "reason": "authority_history.db not available on this station"}
     try:
@@ -319,6 +344,8 @@ def counter_epoch_changes(settings: Settings, now: datetime) -> dict:
             if eid is not None and (not ids or ids[-1] != eid):
                 ids.append(eid)
         return {"count": max(0, len(ids) - 1), "ids": ids[-20:], "field": col}
+    except sqlite3.Error:
+        return {"count": None, "reason": UNREADABLE}
     finally:
         conn.close()
 
@@ -338,13 +365,20 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
     never hides one.
     """
     start, end = as_utc(start), as_utc(end)
-    conn = _connect(settings.authority_history_path)
+    unreadable = _unavailable(f"timing history not available: {UNREADABLE}")
+    try:
+        conn = _connect(settings.authority_history_path)
+    except sqlite3.Error:
+        return unreadable
     if conn is None:
         return _unavailable("timing history not available on this station: no "
                             "authority_history.db")
     with heavy.guard(HEAVY_FAMILY):
         try:
-            present = _columns(conn)
+            try:
+                present = _columns(conn)
+            except sqlite3.DatabaseError:
+                return unreadable
             if not present:
                 return _unavailable("timing history not available on this station: "
                                     "authority_history.db holds no authority_snapshot table")

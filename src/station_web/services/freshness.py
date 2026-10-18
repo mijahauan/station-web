@@ -183,9 +183,8 @@ def _authority_entries(settings: Settings, now: datetime) -> dict[str, dict]:
                 present = snap is not None
                 ts = snap.get("utc_published") if snap else None
             else:
-                path = settings.authority_history_path
-                if path.exists():
-                    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5.0)
+                con = timing_authority.connect_history(settings.authority_history_path)
+                if con is not None:
                     try:
                         present = True
                         ts = con.execute(
