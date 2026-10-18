@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station Overview - station-web</title>
+    <meta name="color-scheme" content="dark">
+    <title>Status - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/js/common.js"></script>
 </head>
@@ -12,33 +13,55 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📡 station-web</h1>
+            <h1>station-web</h1>
             <div class="header-subtitle" id="station-subtitle">Loading station information...</div>
-            <nav class="nav">
-                <a href="/" class="nav-link active">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link">⏱️ Timing</a>
-                <a href="/static/chrony.html" class="nav-link">🕑 Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link">📡 Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link">🔬 Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">📻 Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link">⚡ dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">🔊 Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">📚 Docs</a>
-            </nav>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
         <div id="error-container" style="display: none;"></div>
+
+        <!-- The three questions: do the products arrive, does the station hold
+             a registration, and what has the radiod timing watchdog seen? -->
+        <div class="grid grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Product freshness</div>
+                        <div class="card-subtitle">Checked <span id="freshness-time">-</span></div>
+                    </div>
+                    <a class="card-link" href="/static/health.html">Detail &rarr;</a>
+                </div>
+                <div id="freshness-status"><div class="loading"></div></div>
+                <ul class="status-list" id="freshness-failing" style="margin-top: 12px;"></ul>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Registration</div>
+                        <div class="card-subtitle">The timing authority hf-timestd publishes</div>
+                    </div>
+                    <a class="card-link" href="/static/metrology.html">Timing &rarr;</a>
+                </div>
+                <div id="registration-panel"><div class="loading"></div></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Recent timing alarms</div>
+                    <div class="card-subtitle">The radiod timing watchdog: its latest verdict and last incidents</div>
+                </div>
+            </div>
+            <div id="alarms"><div class="loading"></div></div>
+        </div>
 
         <!-- Station Information -->
         <div class="card">
             <div class="card-header">
                 <div>
-                    <div class="card-title">Station Information</div>
+                    <div class="card-title">Station information</div>
                     <div class="card-subtitle">Local receiver configuration</div>
                 </div>
             </div>
@@ -50,290 +73,167 @@
         <!-- Monitored Stations -->
         <div class="card">
             <div class="card-header">
-                <div class="card-title">Monitored Stations</div>
+                <div class="card-title">Monitored stations</div>
             </div>
-            <div class="grid grid-4" id="station-tiles" style="padding: 1rem; gap: 1rem;">
+            <div class="grid grid-4" id="station-tiles" style="gap: 1rem;">
                 <div class="loading"></div>
-            </div>
-        </div>
-
-        <!-- Quick Status -->
-        <div class="grid grid-3">
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">System Status</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-value" id="system-status">
-                        <div class="loading"></div>
-                    </div>
-                    <div class="metric-label">Product freshness</div>
-                    <div class="metric-sublabel" id="system-status-reason"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Channels</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-value" id="active-channels">
-                        <div class="loading"></div>
-                    </div>
-                    <div class="metric-label">with L2 timing data</div>
-                    <div class="metric-sublabel" id="channel-names">-</div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Latest UTC Offset</div>
-                </div>
-                <div class="metric">
-                    <div class="metric-value" id="latest-dclock">
-                        <div class="loading"></div>
-                    </div>
-                    <div class="metric-label">D_clock (ms)</div>
-                    <div class="metric-sublabel" id="latest-quality">-</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Recent Activity -->
-        <div class="card">
-            <div class="card-header">
-                <div>
-                    <div class="card-title">Recent Activity</div>
-                    <div class="card-subtitle">Latest system events and measurements</div>
-                </div>
-            </div>
-            <div id="recent-activity" style="padding: 16px;">
-                <div class="loading"></div>
-            </div>
-        </div>
-
-        <!-- Quick Links -->
-        <div class="card">
-            <div class="card-header">
-                <div class="card-title">Quick Links</div>
-            </div>
-            <div class="grid grid-4">
-                <a href="/static/health.html" style="text-decoration: none; color: var(--text-primary);">
-                    <div
-                        style="padding: 16px; background: rgba(59, 130, 246, 0.1); border-radius: 8px; text-align: center;">
-                        <div style="font-size: 24px; margin-bottom: 8px;">🏥</div>
-                        <div style="font-weight: 600;">System Health</div>
-                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Product freshness</div>
-                    </div>
-                </a>
-                <a href="/static/metrology.html" style="text-decoration: none; color: var(--text-primary);">
-                    <div
-                        style="padding: 16px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; text-align: center;">
-                        <div style="font-size: 24px; margin-bottom: 8px;">⏱️</div>
-                        <div style="font-weight: 600;">UTC Offset</div>
-                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Timing & metrology</div>
-                    </div>
-                </a>
-                <a href="/static/ionosphere.html" style="text-decoration: none; color: var(--text-primary);">
-                    <div
-                        style="padding: 16px; background: rgba(139, 92, 246, 0.1); border-radius: 8px; text-align: center;">
-                        <div style="font-size: 24px; margin-bottom: 8px;">🔬</div>
-                        <div style="font-weight: 600;">Observatory</div>
-                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Ionospheric analysis</div>
-                    </div>
-                </a>
-                <a href="/api/docs" style="text-decoration: none; color: var(--text-primary);">
-                    <div
-                        style="padding: 16px; background: rgba(245, 158, 11, 0.1); border-radius: 8px; text-align: center;">
-                        <div style="font-size: 24px; margin-bottom: 8px;">📚</div>
-                        <div style="font-weight: 600;">API Docs</div>
-                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Interactive API</div>
-                    </div>
-                </a>
             </div>
         </div>
     </div>
 
     <script>
-        // Station tile colours (Overview only)
-        const TILE_COLORS = { WWV: '#3b82f6', WWVH: '#ec4899', BPM: '#ef4444' };
+        const ALARMS_SHOWN = 5;
 
-        // Load station metadata
         async function loadStationInfo() {
             try {
                 const data = await api.get('/station/metadata');
-
-                // Update subtitle
                 document.getElementById('station-subtitle').textContent =
                     `${data.callsign} - ${data.grid_square} - ${data.mode.toUpperCase()} MODE`;
-
-                // Update station info grid; fields the operator left empty stay hidden
+                // fields the operator left empty stay hidden
                 const items = [
                     ['Callsign', escapeHtml(data.callsign)],
                     ['Grid Square', escapeHtml(data.grid_square)],
                     ['Station ID', escapeHtml(data.station_id)],
                     ['Instrument ID', escapeHtml(data.instrument_id)],
                     ['Location', formatLatLon(data.latitude, data.longitude, 4)],
-                    ['Mode', `<span class="badge ${data.mode === 'production' ? 'status-healthy' : 'status-degraded'}">${escapeHtml(data.mode.toUpperCase())}</span>`],
+                    ['Mode', statusBadge(data.mode === 'production' ? 'ok' : 'warn', data.mode.toUpperCase())],
                     ['Description', escapeHtml(data.description)],
-                    ['Channels', data.channels.length],
+                    ['Channels', escapeHtml(data.channels.length)],
                 ].filter(([, v]) => v !== '' && v !== null && v !== undefined);
                 document.getElementById('station-info').innerHTML = items.map(([k, v]) => `
                     <div class="info-item">
                         <div class="info-label">${k}</div>
                         <div class="info-value">${v}</div>
                     </div>`).join('');
-
             } catch (error) {
                 showError(`Failed to load station info: ${error.message}`);
             }
         }
 
-        // Load quick status
-        async function loadQuickStatus() {
+        // Product freshness: the status word, then every product that keeps
+        // the station from "healthy", named with its reason.
+        async function loadFreshness() {
+            const statusEl = document.getElementById('freshness-status');
+            const listEl = document.getElementById('freshness-failing');
             try {
-                // Get system health
                 const health = await api.get('/health/system');
-
-                // Update system status
-                const statusEl = document.getElementById('system-status');
-                statusEl.innerHTML = `<span class="badge status-${escapeHtml(health.status)}">${escapeHtml(health.status.toUpperCase())}</span>`;
-
-                // Not-VALID products, named, so DEGRADED carries its reason
-                const failing = Object.entries(health.products || {})
-                    .filter(([, p]) => p.applicable && p.verdict !== 'VALID' && p.verdict !== 'INFORMATIONAL')
-                    .map(([name, p]) => `${name} ${p.verdict}`);
-                document.getElementById('system-status-reason').textContent = failing.join(', ');
-
-                // /api/health/system lists channel NAMES (distinct channels in
-                // L2_timing_measurements); count them as such.
+                document.getElementById('freshness-time').textContent = formatTime(health.timestamp);
+                // /api/health/system lists channel NAMES (distinct channels in L2_timing_measurements)
                 const names = health.channels || [];
-                document.getElementById('active-channels').textContent = names.length;
-                document.getElementById('channel-names').textContent = names.join(', ') || '-';
-
+                statusEl.innerHTML = statusBadge(statusKind(health.status), health.status.toUpperCase()) +
+                    ` <span class="status-note" style="display: inline;">${escapeHtml(names.length)} channel${names.length === 1 ? '' : 's'}` +
+                    ` with L2 timing data${names.length ? ': ' + escapeHtml(names.join(', ')) : ''}</span>`;
+                const products = Object.entries(health.products || {});
+                const failing = products.filter(([, p]) =>
+                    p.applicable && p.verdict !== 'VALID' && p.verdict !== 'INFORMATIONAL');
+                // Informational entries (the timing authority's files) never
+                // judge the status, but a stale one is still worth naming.
+                const stale = products.filter(([, p]) =>
+                    p.verdict === 'INFORMATIONAL' && p.applicable && p.stale === true);
+                const rows = failing.map(([name, p]) => `<li>${statusBadge(statusKind(p.verdict), p.verdict)}
+                        <strong>${escapeHtml(name)}</strong>
+                        ${p.age_s !== null && p.age_s !== undefined ? `· ${escapeHtml(formatAge(p.age_s))} old` : ''}
+                        <span class="status-note">${escapeHtml(p.reason || `expected every ${p.expected_s} s`)}</span></li>`)
+                    .concat(stale.map(([name, p]) => `<li>${statusBadge('warn', 'STALE')}
+                        <strong>${escapeHtml(name)}</strong>
+                        ${p.age_s !== null && p.age_s !== undefined ? `· ${escapeHtml(formatAge(p.age_s))} old` : ''}
+                        <span class="status-note">${escapeHtml(p.reason || '')}</span></li>`));
+                if (!rows.length && health.status !== 'healthy') {
+                    // DEGRADED with nothing failing: nothing here could be judged.
+                    const count = (v) => products.filter(([, p]) => p.verdict === v).length;
+                    rows.push(`<li class="status-note">No product on this station can be judged: ` +
+                        `${escapeHtml(count('INDETERMINATE'))} have no table (client not installed), ` +
+                        `${escapeHtml(count('SILENT'))} have a table that never held a row.</li>`);
+                }
+                listEl.innerHTML = rows.length ? rows.join('')
+                    : '<li class="status-note">Every product station-web reads arrives on time.</li>';
             } catch (error) {
-                console.error('Failed to load system status:', error);
-                document.getElementById('system-status').innerHTML = '<span class="badge status-error">ERROR</span>';
-                document.getElementById('active-channels').textContent = '?';
-            }
-
-            try {
-                // Get latest fusion
-                const fusion = await api.get('/metrology/fusion/latest');
-
-                // Use more precision for very small values
-                const dclock = fusion.d_clock_ms;
-                const precision = Math.abs(dclock) < 0.001 ? 6 : 3;
-                document.getElementById('latest-dclock').textContent = formatNumber(dclock, precision);
-                document.getElementById('latest-quality').innerHTML =
-                    `Grade <span class="badge ${escapeHtml(getQualityClass(fusion.quality_grade))}">${escapeHtml(fusion.quality_grade)}</span> ± ${formatNumber(fusion.uncertainty_ms, 3)} ms`;
-
-            } catch (error) {
-                console.error('Failed to load fusion data:', error);
-                document.getElementById('latest-dclock').textContent = 'N/A';
-                document.getElementById('latest-quality').textContent = 'No data';
+                statusEl.innerHTML = statusBadge('fault', 'ERROR');
+                listEl.innerHTML = `<li class="status-note">${escapeHtml(error.message)}</li>`;
             }
         }
 
-        // Load recent activity
-        async function loadRecentActivity() {
+        function formatAge(s) {
+            const a = Number(s);
+            if (!isFinite(a)) return '?';
+            if (a < 120) return `${a.toFixed(0)} s`;
+            if (a < 7200) return `${(a / 60).toFixed(0)} min`;
+            if (a < 172800) return `${(a / 3600).toFixed(1)} h`;
+            return `${(a / 86400).toFixed(1)} d`;
+        }
+
+        function alarmKind(severity) {
+            const s = String(severity || '').toLowerCase();
+            return s === 'warn' || s === 'warning' ? 'warn'
+                : (s === 'critical' || s === 'error' || s === 'alarm') ? 'fault'
+                : s === 'info' ? 'ok' : 'unknown';
+        }
+
+        async function loadAlarms() {
+            const el = document.getElementById('alarms');
             try {
-                const fusion = await api.get('/metrology/fusion/history', { start: '-1h', end: 'now' });
-
-                const activityDiv = document.getElementById('recent-activity');
-
-                if (fusion.count === 0) {
-                    activityDiv.innerHTML = '<p style="color: #94a3b8;">No recent measurements</p>';
+                const data = await api.get('/timing/alarms', { n: ALARMS_SHOWN });
+                if (!data.available) {
+                    el.innerHTML = `<p class="status-note">${escapeHtml(data.reason)}</p>`;
                     return;
                 }
-
-                // Show last 5 measurements
-                const recent = fusion.timestamps.slice(-5).reverse();
-                const recentDclock = fusion.d_clock_ms.slice(-5).reverse();
-                const recentGrades = fusion.quality_grade.slice(-5).reverse();
-                const recentBroadcasts = fusion.n_broadcasts.slice(-5).reverse();
-
-                activityDiv.innerHTML = `
-                    <div style="display: flex; flex-direction: column; gap: 12px;">
-                        ${recent.map((ts, i) => {
-                    const precision = Math.abs(recentDclock[i]) < 0.001 ? 6 : 3;
-                    return `
-                                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(30, 41, 59, 0.3); border-radius: 6px;">
-                                    <div>
-                                        <div style="font-size: 14px; color: #e0e0e0;">
-                                            <strong>Fusion Timing</strong> - ${formatTime(ts)}
-                                        </div>
-                                        <div style="font-size: 12px; color: #94a3b8; margin-top: 4px;">
-                                            ${escapeHtml(recentBroadcasts[i])} broadcasts from multiple stations
-                                        </div>
-                                    </div>
-                                    <div style="text-align: right;">
-                                        <div style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: 600;">
-                                            ${formatNumber(recentDclock[i], precision)} ms
-                                        </div>
-                                        <div style="margin-top: 4px;">
-                                            <span class="badge ${escapeHtml(getQualityClass(recentGrades[i]))}">${escapeHtml(recentGrades[i])}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            `;
-                }).join('')}
-                    </div>
-                    <div style="margin-top: 16px; text-align: center;">
-                        <a href="/static/metrology.html" style="color: #3b82f6; text-decoration: none; font-size: 14px;">
-                            View full history →
-                        </a>
-                    </div>
-                `;
-
+                const w = data.watchdog;
+                const latest = w ? `<p>${statusBadge(alarmKind(w.severity), w.verdict)}
+                        latest verdict, ${escapeHtml(formatTimestamp(w.ts))}
+                        ${w.channel ? `on <code>${escapeHtml(w.channel)}</code>` : ''}</p>
+                        <p class="status-note" style="margin: 4px 0 12px;">${escapeHtml(w.detail || '')}</p>`
+                    : '<p class="status-note">The watchdog has written no verdict yet.</p>';
+                const incidents = data.incidents || [];
+                const table = incidents.length ? `<div style="overflow-x: auto;"><table class="table">
+                        <thead><tr><th>Time (UTC)</th><th>Verdict</th><th>Channel</th><th>Jump (s)</th><th>Detail</th></tr></thead>
+                        <tbody>${incidents.map(i => `<tr>
+                            <td>${escapeHtml(formatTimestamp(i.ts))}</td>
+                            <td>${statusBadge(alarmKind(i.severity), i.verdict)}</td>
+                            <td>${escapeHtml(i.channel || '-')}</td>
+                            <td>${i.delta_sec !== null && i.delta_sec !== undefined ? escapeHtml(formatNumber(i.delta_sec, 1)) : '-'}</td>
+                            <td style="font-size: 12px; color: var(--text-secondary);">${escapeHtml(i.detail || '')}</td>
+                        </tr>`).join('')}</tbody></table></div>`
+                    : '<p class="status-note">No incidents recorded.</p>';
+                el.innerHTML = latest + table;
             } catch (error) {
-                console.error('Failed to load recent activity:', error);
-                document.getElementById('recent-activity').innerHTML =
-                    '<p style="color: #94a3b8;">Unable to load recent activity</p>';
+                el.innerHTML = `<p>${statusBadge('fault', 'ERROR')} ${escapeHtml(error.message)}</p>`;
             }
         }
 
-
-
-        // Monitored stations, from the broadcast registry
+        // Monitored stations, from the broadcast registry; each in its palette colour.
         async function loadStationTiles() {
             const el = document.getElementById('station-tiles');
             try {
                 const data = await api.get('/stations/');
                 const stations = data.stations || [];
                 if (stations.length === 0) {
-                    el.innerHTML = '<p style="color: #94a3b8;">No stations in the broadcast registry</p>';
+                    el.innerHTML = '<p class="status-note">No stations in the broadcast registry</p>';
                     return;
                 }
                 el.innerHTML = stations.map(st => `
                 <a href="/static/station.html?id=${encodeURIComponent(st.station_id)}" style="text-decoration: none; color: inherit;">
-                    <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid #334155; border-radius: 8px; padding: 1rem; text-align: center; transition: background 0.2s;">
-                        <div style="font-weight: 700; font-size: 1.25rem; color: ${TILE_COLORS[st.station_id] || '#94a3b8'};">${escapeHtml(st.station_id)}</div>
-                        <div style="font-size: 0.875rem; color: #94a3b8;">${escapeHtml(st.location || '')}</div>
-                        <div style="font-size: 0.75rem; color: #64748b; margin-top: 4px;">${Math.round(st.distance_km)} km, az ${Math.round(st.azimuth_deg)}°</div>
+                    <div style="background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border-color); border-left: 4px solid ${escapeHtml(stationColor(st.station_id))}; border-radius: 8px; padding: 1rem; text-align: center;">
+                        <div style="font-weight: 700; font-size: 1.25rem; color: ${escapeHtml(stationColor(st.station_id))};">${escapeHtml(st.station_id)}</div>
+                        <div style="font-size: 0.875rem; color: var(--text-secondary);">${escapeHtml(st.location || '')}</div>
+                        <div style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 4px;">${escapeHtml(Math.round(st.distance_km))} km, az ${escapeHtml(Math.round(st.azimuth_deg))}°</div>
                     </div>
                 </a>`).join('');
             } catch (error) {
-                el.innerHTML = `<p style="color: #ef4444;">Stations unavailable: ${escapeHtml(error.message)}</p>`;
+                el.innerHTML = `<p>${statusBadge('fault', 'ERROR')} Stations unavailable: ${escapeHtml(error.message)}</p>`;
             }
         }
 
-        // Initialize
-        async function init() {
-            loadStationTiles();
-            await loadStationInfo();
-            await loadQuickStatus();
-            await loadRecentActivity();
-
-            // Auto-refresh every 60 seconds
-            const refresh = new AutoRefresh(() => {
-                loadQuickStatus();
-                loadRecentActivity();
-            }, 60000);
-            refresh.start();
+        async function refresh() {
+            await Promise.all([loadFreshness(), loadRegistrationPanel('registration-panel', 'compact'),
+                               loadAlarms()]);
         }
 
-        // Start when page loads
+        function init() {
+            loadStationInfo();
+            loadStationTiles();
+            new AutoRefresh(refresh, 30000).start();
+        }
+
         init();
     </script>
 </body>

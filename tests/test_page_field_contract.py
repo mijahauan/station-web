@@ -17,6 +17,8 @@ from pathlib import Path
 
 import pytest
 
+from timing_fixture import authority_files  # noqa: F401
+
 STATIC = Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
 
 CONTRACT = [
@@ -24,14 +26,28 @@ CONTRACT = [
      ["callsign", "grid_square", "station_id", "instrument_id", "latitude", "longitude",
       "mode", "description", "channels"]),
     ("index.html", "/api/health/system",
-     ["status", "channels", "products{}.verdict", "products{}.applicable"]),
+     ["status", "timestamp", "channels", "products{}.verdict", "products{}.applicable",
+      "products{}.age_s", "products{}.expected_s"]),     # ``reason``: only when not VALID
     ("index.html", "/api/stations/",
      ["stations[].station_id", "stations[].location", "stations[].distance_km",
       "stations[].azimuth_deg"]),
-    ("index.html", "/api/metrology/fusion/latest",
-     ["d_clock_ms", "quality_grade", "uncertainty_ms"]),
-    ("index.html", "/api/metrology/fusion/history?start=-1h&end=now",
-     ["count", "timestamps", "d_clock_ms", "quality_grade", "n_broadcasts"]),
+    ("index.html", "/api/timing/alarms?n=5",
+     ["available", "watchdog.verdict", "watchdog.severity", "watchdog.ts", "watchdog.channel",
+      "watchdog.detail", "incidents[].ts", "incidents[].verdict", "incidents[].severity",
+      "incidents[].channel", "incidents[].delta_sec", "incidents[].detail"]),
+    # the registration panel lives in common.js and serves every page that shows it
+    ("js/common.js", "/api/timing/registration",
+     ["available", "stale", "age_s", "utc_published", "tier_active", "tiers_available",
+      "witnesses", "ruler.a_level", "ruler.disciplined", "ruler.provenance", "sigma.value",
+      "sigma.unit", "sigma.field", "u_epoch", "stability", "registration.state",
+      "registration.source", "registration.age_s", "registration.counter_epoch_id",
+      "registration.sigma_ms", "registration.contributing", "registration.stations",
+      "t6.authority_state", "t6.violations", "t6.suspect_criteria", "host_clock.verdict",
+      "host_clock.reason", "host_clock.witnesses[].name", "host_clock.witnesses[].value",
+      "host_clock.witnesses[].unit", "host_clock.witnesses[].bound",
+      "host_clock.witnesses[].exceeded", "disagreement_flags", "last_transition_utc",
+      "governor_radiod", "counter_epoch_changes_24h.count",
+      "counter_epoch_changes_24h.reason"]),
     ("health.html", "/api/health/system",
      ["status", "timestamp", "channels", "products{}.verdict", "products{}.age_s",
       "products{}.expected_s", "products{}.channel"]),
@@ -129,9 +145,15 @@ def _resolve(obj, path):
     return out
 
 
+#: endpoints that read the timing authority's files, not the product database
+TIMING_URLS = ("/api/timing/",)
+
+
 @pytest.mark.parametrize("page,url,fields", CONTRACT,
                          ids=[f"{p}:{u.split('?')[0]}" for p, u, _ in CONTRACT])
-def test_page_fields_exist_in_api(seeded_client, page, url, fields):
+def test_page_fields_exist_in_api(seeded_client, request, page, url, fields):
+    if url.startswith(TIMING_URLS):
+        request.getfixturevalue("authority_files")
     text = (STATIC / page).read_text()
     r = seeded_client.get(url)
     assert r.status_code == 200, (url, r.text[:200])
