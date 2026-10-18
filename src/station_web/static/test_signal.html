@@ -166,11 +166,11 @@
                 </div>
                 <div class="chart-row" style="margin-top:16px;">
                     <div>
-                        <div style="font-size:13px;font-weight:600;color:var(--wwv-color);margin-bottom:4px;">WWV &mdash; S4 Scintillation</div>
+                        <div style="font-size:13px;font-weight:600;color:var(--wwv-color);margin-bottom:4px;">WWV &mdash; S4 Scintillation (uncorrected for noise)</div>
                         <div class="chart-container" id="heatmap-wwv-s4"></div>
                     </div>
                     <div>
-                        <div style="font-size:13px;font-weight:600;color:var(--wwvh-color);margin-bottom:4px;">WWVH &mdash; S4 Scintillation</div>
+                        <div style="font-size:13px;font-weight:600;color:var(--wwvh-color);margin-bottom:4px;">WWVH &mdash; S4 Scintillation (uncorrected for noise)</div>
                         <div class="chart-container" id="heatmap-wwvh-s4"></div>
                     </div>
                 </div>
@@ -280,7 +280,7 @@
                 </div></div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">SNR by Frequency</div>
                 <div class="chart-container" id="chart-path-wwv-snr"></div>
-                <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">S4 Scintillation by Frequency</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">S4 Scintillation by Frequency (uncorrected for noise)</div>
                 <div class="chart-container" id="chart-path-wwv-s4"></div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">Coherence Time by Frequency</div>
                 <div class="chart-container" id="chart-path-wwv-coherence"></div>
@@ -294,7 +294,7 @@
                 </div></div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:4px;">SNR by Frequency</div>
                 <div class="chart-container" id="chart-path-wwvh-snr"></div>
-                <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">S4 Scintillation by Frequency</div>
+                <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">S4 Scintillation by Frequency (uncorrected for noise)</div>
                 <div class="chart-container" id="chart-path-wwvh-s4"></div>
                 <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-top:16px;margin-bottom:4px;">Coherence Time by Frequency</div>
                 <div class="chart-container" id="chart-path-wwvh-coherence"></div>
@@ -541,9 +541,9 @@
                     <div class="stat-row"><span class="stat-label">Station</span><span class="stat-value" style="color:${escapeHtml(stationColor(r.station))}">${escapeHtml(r.station||'-')}</span></div>
                     <div class="stat-row"><span class="stat-label">SNR</span><span class="stat-value">${fmt(r.snr_db,1,' dB')}</span></div>
                     <div class="stat-row"><span class="stat-label">Eff. SNR</span><span class="stat-value">${fmt(r.effective_snr_db,1,' dB')}</span></div>
-                    <div class="stat-row"><span class="stat-label">S4</span><span class="stat-value" style="color:${s4Color(r.scintillation_index)}">${fmt(r.scintillation_index,3)}</span></div>
-                    <div class="stat-row"><span class="stat-label">Delay Spread</span><span class="stat-value">${fmt(r.delay_spread_ms,2,' ms')}</span></div>
-                    <div class="stat-row"><span class="stat-label">Coherence</span><span class="stat-value">${fmt(r.coherence_time_sec,2,' s')}</span></div>
+                    <div class="stat-row"><span class="stat-label" title="uncorrected for noise">S4 (uncorrected for noise)</span><span class="stat-value">${fmt(r.scintillation_index,3)}</span></div>
+                    <div class="stat-row"><span class="stat-label">Delay Spread</span><span class="stat-value">${fmtMeasured('delay_spread_ms', r.delay_spread_ms, 2, ' ms')}</span></div>
+                    <div class="stat-row"><span class="stat-label">Coherence</span><span class="stat-value">${fmtMeasured('coherence_time_sec', r.coherence_time_sec, 2, ' s')}</span></div>
                     <div class="stat-row"><span class="stat-label">Confidence</span><span class="stat-value">${fmt(r.detection_confidence,2)}</span></div>
                     <div style="font-size:10px;color:var(--text-muted);margin-top:10px;text-align:center;">${formatTime(r.timestamp)}</div>
                 </div>`).join('');
@@ -632,10 +632,10 @@
             // SNR
             plotEvoChart('chart-evo-snr', wwv, wwvh, 'snr_db', 'SNR (dB)', solar, nightShapes, solarTraces);
             // S4
-            plotEvoChart('chart-evo-s4', wwv, wwvh, 'scintillation_index', 'S4 Index', solar, nightShapes, solarTraces, [
-                { type:'line', y0:0.3, y1:0.3, xref:'paper', x0:0, x1:1, line:{color:'#10b981',width:1,dash:'dash'} },
-                { type:'line', y0:0.6, y1:0.6, xref:'paper', x0:0, x1:1, line:{color:'#f59e0b',width:1,dash:'dash'} }
-            ]);
+            // S4, uncorrected for noise.  No threshold lines: the familiar
+            // 0.3/0.6 come from L-band GNSS, not HF (the phase views dropped
+            // theirs for the same reason).
+            plotEvoChart('chart-evo-s4', wwv, wwvh, 'scintillation_index', 'S4 Index (uncorrected for noise)', solar, nightShapes, solarTraces);
             // Delay spread
             plotEvoSingle('chart-evo-delay', wwv, wwvh, 'delay_spread_ms', 'Delay Spread (ms)', nightShapes);
             // Coherence time
@@ -652,14 +652,14 @@
             const wm = wwv.filter(m=>m.frequency_mhz===f).sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
             const hm = wwvh.filter(m=>m.frequency_mhz===f).sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
             if (wm.length) traces.push({
-                x: wm.map(m=>m.timestamp), y: wm.map(m=>m[field]),
+                x: wm.map(m=>m.timestamp), y: wm.map(m=>measuredOrNull(field, m[field])),
                 name: f+' MHz WWV', legendgroup: f+'MHz',
                 type:'scatter', mode:'lines+markers',
                 marker:{size:5, color:color, symbol:'circle'},
                 line:{width:2, color:color}
             });
             if (hm.length) traces.push({
-                x: hm.map(m=>m.timestamp), y: hm.map(m=>m[field]),
+                x: hm.map(m=>m.timestamp), y: hm.map(m=>measuredOrNull(field, m[field])),
                 name: f+' MHz WWVH', legendgroup: f+'MHz',
                 type:'scatter', mode:'lines+markers',
                 marker:{size:5, color:color, symbol:'diamond-open'},
@@ -684,7 +684,8 @@
         const container = document.getElementById(containerId);
         const traces = makeFreqStationTraces(wwv, wwvh, field);
         Plotly.newPlot(container, traces, pLayout({
-            xaxis: gridAxis('UTC Time'), yaxis: gridAxis(yTitle), shapes: nightShapes
+            xaxis: gridAxis('UTC Time'), yaxis: gridAxis(yTitle), shapes: nightShapes,
+            annotations: floorAnnotation([...wwv, ...wwvh], field)
         }), PLOTLY_CONFIG);
     }
 
@@ -930,7 +931,7 @@
 
         // Plot each metric
         ['snr_db', 'scintillation_index', 'coherence_time_sec'].forEach((field, idx) => {
-            const yTitles = ['SNR (dB)', 'S4 Index', 'Coherence Time (s)'];
+            const yTitles = ['SNR (dB)', 'S4 Index (uncorrected for noise)', 'Coherence Time (s)'];
             const containerId = `chart-path-${prefix}-${['snr','s4','coherence'][idx]}`;
             const container = document.getElementById(containerId);
 
@@ -941,7 +942,7 @@
                     .sort((a,b) => a.timestamp.localeCompare(b.timestamp));
                 if (!fm.length) return;
                 traces.push({
-                    x: fm.map(m=>m.timestamp), y: fm.map(m=>m[field]),
+                    x: fm.map(m=>m.timestamp), y: fm.map(m=>measuredOrNull(field, m[field])),
                     name: f + ' MHz', legendgroup: f + 'MHz',
                     type: 'scatter', mode: 'lines+markers',
                     marker: { size: 5, color: freqColor(f) },
@@ -1024,8 +1025,44 @@
     // UTILITY
     // ====================================================================
     function qualityClass(q) { return (q==='excellent'||q==='good')?'good':q==='fair'?'moderate':'poor'; }
-    function s4Color(v) { return v==null?'#94a3b8':v<0.3?'#10b981':v<0.6?'#f59e0b':'#ef4444'; }
     function fmt(v, dp, suffix) { return v!=null ? v.toFixed(dp)+(suffix||'') : '-'; }
+
+    // -- producer floors --
+    // hf-timestd's WWVTestSignalDetector (core/wwv_test_signal.py) clamps
+    // two estimates.  Delay spread = the long chirp's -3 dB width less its
+    // 0.2 ms ideal width, floored at 0.0.  Coherence time = 5 / fading
+    // variance (dB^2), clipped to [0.1, 30] s, and set to 10.0 s when the
+    // variance is too small to model.  Those values say "below resolution"
+    // or "not measured", so they print as words and never plot as data.
+    const PRODUCER_FLOORS = {
+        delay_spread_ms: v => v <= 1e-9 ? 'below resolution (under 0.2 ms chirp width)' : null,
+        coherence_time_sec: v => v <= 0.1 + 1e-9 ? 'below resolution (0.1 s floor)'
+            : Math.abs(v - 10) < 1e-9 ? 'not measured (fading too weak to model; producer writes 10 s)'
+            : v >= 30 - 1e-9 ? 'at ceiling (30 s)' : null,
+    };
+    /** Why ``v`` holds a producer floor or sentinel, or null for a measurement. */
+    function floorNote(field, v) {
+        const f = PRODUCER_FLOORS[field];
+        return (f && v !== null && v !== undefined) ? f(Number(v)) : null;
+    }
+    /** ``v`` when it is a measurement; null (a gap) at a floor or sentinel. */
+    function measuredOrNull(field, v) {
+        if (v === null || v === undefined) return null;
+        return floorNote(field, v) === null ? v : null;
+    }
+    // -- end producer floors --
+
+    function fmtMeasured(field, v, dp, suffix) {
+        const note = floorNote(field, v);
+        return note === null ? fmt(v, dp, suffix) : escapeHtml(note);
+    }
+    function floorAnnotation(measurements, field) {
+        const n = measurements.filter(m => floorNote(field, m[field]) !== null).length;
+        if (!n) return [];
+        return [{ xref: 'paper', yref: 'paper', x: 0, y: 1.08, showarrow: false, xanchor: 'left',
+                  font: { size: 10, color: '#94a3b8' },
+                  text: `${n} of ${measurements.length} values at the producer's floor or sentinel (below resolution), not plotted` }];
+    }
     function avg(arr) { const v=arr.filter(x=>x!=null); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null; }
 
     function buildTabGroup(containerId, values, active, onClick) {
