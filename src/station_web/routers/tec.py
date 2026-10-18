@@ -7,12 +7,14 @@ from typing import Optional, List
 import logging
 from pathlib import Path
 
+from datetime import timedelta
+
+from station_web import heavy, projected
 from station_web.broadcast import DEFAULT_STATIONS
 from station_web.errors import internal_error
 from station_web.services.tec_service import TECService
 from station_web.config import config
 from station_web.timeutil import iso_z, parse_window, utcnow
-from hamsci_dsp.io import make_data_product_reader
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,16 @@ def _service() -> TECService:
     """
     return TECService(config.data_root)
 
+
+#: Longest windows the routes serve.  dTEC runs one row per station per
+#: frequency per minute (~26k a day); dtec.html asks for a day at most.
+#: L3_tec runs one row per station per 5 minutes.
+DTEC_MAX_SPAN = timedelta(days=2)
+TEC_HISTORY_MAX_SPAN = timedelta(days=31)
+
+#: The L3_dtec columns /dtec uses.
+_DTEC_COLUMNS = ('minute_boundary', 'mean_snr_db', 'station', 'frequency_mhz',
+                 'dtec_rate_tecu_per_s', 'dtec_mean_tecu', 'is_anchored')
 
 #: Stations a /tec/station/{station} request may name: the broadcast
 #: catalogue's, not a hand-kept list (which still carried CHU).
@@ -53,28 +65,18 @@ def get_dtec_timeseries(
     Each series is keyed as '<STATION>_<freq>MHz', e.g. 'WWV_10.0MHz'.
     """
     try:
-        t0, t1 = parse_window(start, end)
+        t0, t1 = parse_window(start, end, max_span=DTEC_MAX_SPAN)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:
         ts0 = int(t0.timestamp())
         ts1 = int(t1.timestamp())
 
-        dtec_dir = Path(config.data_root) / 'phase2' / 'science' / 'dtec'
-        reader = make_data_product_reader(
-            data_dir=dtec_dir,
-            product_level='L3',
-            product_name='dtec',
-            channel='AGGREGATED',
-            storage_config=getattr(config, 'storage', {}) or {},
-        )
-        # Pass an ISO window to the reader so its (channel, timestamp_utc)
-        # index narrows the scan; minute_boundary equality is verified
-        # in Python because timestamp_utc carries sub-second slop.
-        try:
-            rows = reader.read_time_range(start=iso_z(t0), end=iso_z(t1))
-        finally:
-            reader.close()
+        # The (channel, timestamp_utc) index narrows the read, which carries
+        # only the columns used; minute_boundary is checked in Python because
+        # timestamp_utc carries sub-second slop.
+        with heavy.guard("dtec"):
+            rows = projected.read_rows('L3_dtec', 'AGGREGATED', t0, t1, _DTEC_COLUMNS)
 
         if not rows:
             return {
@@ -136,6 +138,8 @@ def get_dtec_timeseries(
             "series": series,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise internal_error(logger, "dTEC read", e)
 
@@ -190,7 +194,7 @@ def get_tec_history(
     Returns TEC values over time for all paths or filtered by station.
     """
     try:
-        start_time, end_time = parse_window(start, end)
+        start_time, end_time = parse_window(start, end, max_span=TEC_HISTORY_MAX_SPAN)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:

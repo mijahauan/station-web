@@ -2,6 +2,8 @@
 Propagation and ionospheric analysis API endpoints.
 """
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 import logging
@@ -16,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/propagation", tags=["propagation"])
 
+#: Longest window /tec and /test-signals serve; the pages ask for a day.
+SUMMARY_MAX_SPAN = timedelta(days=7)
+
 def _service() -> PropagationService:
     """Built per request, never at import.
 
@@ -27,10 +32,10 @@ def _service() -> PropagationService:
     return PropagationService(config.data_root)
 
 
-def _window(start: str, end: str):
-    """Parse ``start``/``end`` (station_web.timeutil); a bad value is a 400."""
+def _window(start: str, end: str, max_span: Optional[timedelta] = None):
+    """Parse ``start``/``end`` (station_web.timeutil); a bad or too-long value is a 400."""
     try:
-        return parse_window(start, end)
+        return parse_window(start, end, max_span=max_span)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -67,10 +72,7 @@ def get_mode_timeline(
 
     Returns time series of propagation modes observed across all channels.
     """
-    start_time, end_time = _window(start, end)
-    if end_time - start_time > TIMELINE_MAX_WINDOW:
-        raise HTTPException(status_code=400,
-                            detail=f"Window longer than {TIMELINE_MAX_WINDOW.days} days")
+    start_time, end_time = _window(start, end, TIMELINE_MAX_WINDOW)
     if station is not None:
         station = station.upper()
         if station not in known_stations():
@@ -78,6 +80,8 @@ def get_mode_timeline(
                                 detail=f"Unknown station; use one of {', '.join(known_stations())}")
     try:
         timeline = _service().get_mode_timeline(start_time, end_time, station)
+    except HTTPException:
+        raise                      # 503: another timeline read held the lock
     except Exception as e:
         raise internal_error(logger, "Propagation timeline read", e)
     if timeline is None:
@@ -99,7 +103,7 @@ def get_tec_summary(
     Returns HF-derived TEC measurements for the requested window only, and
     the ``source`` channel (REANALYZED or AGGREGATED) they came from.
     """
-    start_time, end_time = _window(start, end)
+    start_time, end_time = _window(start, end, SUMMARY_MAX_SPAN)
     try:
         tec_data = _service().get_tec_summary(start_time, end_time)
     except Exception as e:
@@ -123,7 +127,7 @@ def get_test_signals(
     Returns test signal detections from minutes 8 (WWV) and 44 (WWVH) with
     ionospheric metrics including field strength, delay spread, and scintillation.
     """
-    start_time, end_time = _window(start, end)
+    start_time, end_time = _window(start, end, SUMMARY_MAX_SPAN)
     try:
         test_signal_data = _service().get_test_signal_summary(start_time, end_time)
     except Exception as e:

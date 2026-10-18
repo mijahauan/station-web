@@ -57,11 +57,12 @@ def test_iso_z_never_doubles_the_zone():
 
 # ── every time-taking route this worker owns ─────────────────────────
 
-def _forms():
+def _forms(span=timedelta(days=1)):
     now = datetime.now(timezone.utc)
-    day_ago = now - timedelta(days=1)
+    day_ago = now - span
     return {
-        "relative": ("-100000s", "now"),
+        "relative": ("-100000s" if span >= timedelta(days=1) else f"-{int(span.total_seconds())}s",
+                     "now"),
         "iso_z": (iso_z(day_ago), iso_z(now + timedelta(minutes=1))),
         "iso_naive": (day_ago.strftime("%Y-%m-%dT%H:%M:%S"),
                       (now + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S")),
@@ -76,6 +77,7 @@ ROUTES = [
     ("/api/tec/dtec", lambda j: j["n_series"] == 1),
     ("/api/physics/history", lambda j: j["count"] == 1),
     # The defect itself: σφ rows came back as count 0.
+    # (at most 6 h per request, so its forms span 5 h)
     ("/api/physics/scintillation/history", lambda j: j["n_sigma_phi"] == 2 and j["n_s4"] == 1),
     ("/api/physics/channels/history", lambda j: j is not None),
     ("/api/metrology/fusion/history", lambda j: j["count"] == 180),
@@ -88,7 +90,8 @@ ROUTES = [
 @pytest.mark.parametrize("form", ["relative", "iso_z", "iso_naive", "mixed"])
 @pytest.mark.parametrize("path,check", ROUTES, ids=[r[0] for r in ROUTES])
 def test_route_reads_every_time_form(seeded_client, path, check, form):
-    start, end = _forms()[form]
+    span = timedelta(hours=5) if "scintillation" in path else timedelta(days=1)
+    start, end = _forms(span)[form]
     r = seeded_client.get(path, params={"start": start, "end": end})
     assert r.status_code == 200, (path, form, r.status_code, r.text[:300])
     assert check(r.json()), (path, form, r.text[:400])

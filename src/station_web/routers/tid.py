@@ -2,6 +2,8 @@
 TID (Traveling Ionospheric Disturbance) API endpoints for v6.5.0.
 """
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 import logging
@@ -14,6 +16,10 @@ from station_web.timeutil import iso_z, parse_window
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/tid", tags=["ionosphere"])
+
+#: Longest window /history serves.  TID events are sparse, but the table
+#: only grows; a ceiling keeps one request from reading all of it.
+HISTORY_MAX_SPAN = timedelta(days=31)
 
 def _service() -> TIDService:
     """Built per request, never at import.
@@ -105,7 +111,7 @@ def get_tid_history(
     Returns all TID events detected between start and end times.
     """
     try:
-        start_time, end_time = parse_window(start, end)
+        start_time, end_time = parse_window(start, end, max_span=HISTORY_MAX_SPAN)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:

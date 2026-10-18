@@ -5,13 +5,14 @@ Physics API endpoints.
 import logging
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
 from station_web.services.physics_service import PhysicsService
 from station_web.services.scintillation_service import ScintillationService
 from station_web.services.test_signal_service import TestSignalService
 from station_web.services.event_service import EventService
+from station_web import heavy
 from station_web.config import config
 from station_web.errors import internal_error
 from station_web.timeutil import parse_utc, parse_window
@@ -19,6 +20,25 @@ from station_web.timeutil import parse_utc, parse_window
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/physics", tags=["physics"])
+
+#: Longest windows the history routes serve.  Scintillation history reads
+#: L2_tick_phase, about a million rows a day across channels; six hours of
+#: one channel is ~40k rows.  The physics and test-signal products run at
+#: one row a minute or slower.
+SCINTILLATION_MAX_SPAN = timedelta(hours=6)
+HISTORY_MAX_SPAN = timedelta(days=7)
+
+
+def _window(start: str, end: str, max_span: timedelta):
+    """Parse the window (station_web.timeutil); unreadable or too long is a 400.
+
+    Only the parse sits inside this ``try``: a ValueError from a service is a
+    fault, and answers 500 through ``internal_error``.
+    """
+    try:
+        return parse_window(start, end, max_span=max_span)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _event_service() -> EventService:
@@ -57,14 +77,10 @@ def get_physics_history(
     end: str = Query("now", description="End time")
 ):
     """Get physics data history."""
+    start_dt, end_dt = _window(start, end, HISTORY_MAX_SPAN)
     try:
-        start_dt, end_dt = parse_window(start, end)
-
         service = PhysicsService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt)
-
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(logger, "get physics history", e)
 
@@ -82,8 +98,11 @@ def get_scintillation_by_path():
     for each broadcast station path.
     """
     try:
-        service = ScintillationService(data_root=config.data_root)
-        return service.get_latest_by_path()
+        with heavy.guard("scintillation"):
+            service = ScintillationService(data_root=config.data_root)
+            return service.get_latest_by_path()
+    except HTTPException:
+        raise
     except Exception as e:
         raise internal_error(logger, "get scintillation by path", e)
 
@@ -94,14 +113,14 @@ def get_scintillation_history(
     end: str = Query("now", description="End time"),
     station: Optional[str] = Query(None, description="Station filter (WWV, WWVH, BPM)")
 ):
-    """Get scintillation history."""
+    """Get scintillation history (at most 6 h per request)."""
+    start_dt, end_dt = _window(start, end, SCINTILLATION_MAX_SPAN)
     try:
-        start_dt, end_dt = parse_window(start, end)
-
-        service = ScintillationService(data_root=config.data_root)
-        return service.get_history(start=start_dt, end=end_dt, station=station)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        with heavy.guard("scintillation"):
+            service = ScintillationService(data_root=config.data_root)
+            return service.get_history(start=start_dt, end=end_dt, station=station)
+    except HTTPException:
+        raise
     except Exception as e:
         raise internal_error(logger, "get scintillation history", e)
 
@@ -145,13 +164,10 @@ def get_channel_history(
     station: Optional[str] = Query(None, description="Station filter (WWV or WWVH)")
 ):
     """Get test signal history with full metrics."""
+    start_dt, end_dt = _window(start, end, HISTORY_MAX_SPAN)
     try:
-        start_dt, end_dt = parse_window(start, end)
-
         service = TestSignalService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt, frequency_mhz=frequency_mhz, station=station)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(logger, "get channel history", e)
 
@@ -172,15 +188,15 @@ def get_channel_daily_comparison(
     If 'hours' is specified, returns that many hours of data ending at now,
     ignoring the 'date' parameter.
     """
-    try:
-        date_dt = None
-        if date:
+    date_dt = None
+    if date:
+        try:
             date_dt = datetime.strptime(date, '%Y-%m-%d')
-
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    try:
         service = TestSignalService(data_root=config.data_root)
         return service.get_daily_comparison(date=date_dt, hours=hours)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(logger, "get channel daily comparison", e)
 

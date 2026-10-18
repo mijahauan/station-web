@@ -5,7 +5,7 @@ Metrology API endpoints.
 import logging
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from station_web.models.timing import FusionResponse, FusionHistoryResponse
@@ -17,6 +17,9 @@ from station_web.timeutil import parse_utc, parse_window
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metrology", tags=["metrology"])
+
+#: Longest window /fusion/history serves; the pages ask for a day at most.
+FUSION_HISTORY_MAX_SPAN = timedelta(days=7)
 
 
 def parse_time_param(time_str: str) -> datetime:
@@ -67,7 +70,8 @@ def get_fusion_history(
     """
     Get fusion timing history.
     
-    Returns time series of fusion estimates for the specified time range.
+    Returns time series of fusion estimates for the specified time range
+    (at most 7 days).
     Supports quality filtering and relative time specifications.
     
     Examples:
@@ -76,19 +80,19 @@ def get_fusion_history(
     - Specific range: ?start=2026-01-03T00:00:00Z&end=2026-01-03T12:00:00Z
     - Quality filtered: ?start=-6h&end=now&min_quality=B
     """
+    # Only the parse may answer 400: a ValueError from the service is a fault.
     try:
-        start_dt, end_dt = parse_window(start, end)
-
+        start_dt, end_dt = parse_window(start, end, max_span=FUSION_HISTORY_MAX_SPAN)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
         service = FusionService(fusion_dir=config.fusion_dir)
         return service.get_history(
             start=start_dt,
             end=end_dt,
             min_quality_grade=min_quality
         )
-    
     except HTTPException:
         raise
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise internal_error(logger, "get fusion history", e)
