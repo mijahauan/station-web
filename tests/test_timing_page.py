@@ -331,3 +331,11 @@ def test_decade_ticks_and_adev_layout():
     assert layout["yaxis"]["ticktext"] == ["10<sup>-11</sup>", "10<sup>-10</sup>", "10<sup>-9</sup>",
                                            "10<sup>-8</sup>"]
     assert layout["xaxis"]["ticktext"][0] == "10 s"
+
+
+def test_t3_card_names_what_it_plots():
+    """The T3 card's values carry D_clock (MEASUREMENT_MODEL §0.2), not t0 itself."""
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
+            / "metrology.html").read_text()
+    assert "plotted as host clock minus the T3 estimate (d_clock_fused_ms)" in html
