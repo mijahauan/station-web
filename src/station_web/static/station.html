@@ -209,7 +209,7 @@
 
         async function fetchData() {
             try {
-                // Station first: an unknown id (a stale CHU link, say) stops here
+                // Station first: an unknown id (a stale link to a retired station) stops here
                 const data = await api.get(`/stations/${encodeURIComponent(stationId)}`);
                 updateUI(data);
             } catch (err) {
