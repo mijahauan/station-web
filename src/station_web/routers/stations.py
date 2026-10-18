@@ -20,6 +20,7 @@ from station_web.broadcast import (
     BroadcastRegistry, ReceiverLocation, create_registry_from_config
 )
 from station_web.config import config
+from station_web.timeutil import iso_z, utcnow
 from station_web.errors import internal_error
 
 router = APIRouter(prefix="/stations", tags=["stations"])
@@ -76,26 +77,26 @@ def sanitize_for_json(obj):
 def list_stations():
     """
     List all broadcast stations with summary info.
-    
+
     Returns the 3 stations (WWV, WWVH, BPM) with their broadcasts
     and computed geometry from the receiver location.
     """
     try:
         registry = get_broadcast_registry()
-        
+
         stations = []
         for station_name in ["WWV", "WWVH", "BPM"]:
             station = registry.get_station(station_name)
             if not station:
                 continue
-            
+
             broadcasts = registry.get_broadcasts_for_station(station_name)
             if not broadcasts:
                 continue
-            
+
             # Use first broadcast for geometry
             b = broadcasts[0]
-            
+
             stations.append({
                 "station_id": station_name,
                 "location": station.location,
@@ -106,7 +107,7 @@ def list_stations():
                 "azimuth_deg": round(b.azimuth_deg, 1),
                 "min_propagation_ms": round(b.min_propagation_ms, 2),
             })
-        
+
         return {
             "receiver": {
                 "callsign": registry.receiver.callsign,
@@ -128,13 +129,13 @@ def list_stations():
 def list_broadcasts():
     """
     List all 17 broadcasts with computed geometry.
-    
+
     This is the station-centric view of the data pipeline, showing
     each station+frequency combination as a distinct broadcast.
     """
     try:
         registry = get_broadcast_registry()
-        
+
         broadcasts = []
         for broadcast_id, b in sorted(registry.broadcasts.items()):
             broadcasts.append({
@@ -149,7 +150,7 @@ def list_broadcasts():
                 "min_propagation_ms": round(b.min_propagation_ms, 2),
                 "tone_pattern": b.tone_pattern.value,
             })
-        
+
         return {
             "source_mode": registry.source_mode.value,
             "n_broadcasts": len(broadcasts),
@@ -163,13 +164,13 @@ def list_broadcasts():
 def list_channels():
     """
     List derived channels for recording.
-    
+
     In radiod mode: 9 channels (unique frequencies)
     In phase-engine mode: 17 channels (one per broadcast)
     """
     try:
         registry = get_broadcast_registry()
-        
+
         channels = []
         for ch in registry.channels:
             channels.append({
@@ -181,7 +182,7 @@ def list_channels():
                 "target_station": ch.target_station,
                 "beam_azimuth_deg": round(ch.beam_azimuth_deg, 1) if ch.beam_azimuth_deg else None,
             })
-        
+
         return {
             "source_mode": registry.source_mode.value,
             "n_channels": len(channels),
@@ -203,7 +204,7 @@ def get_station_dashboard(station_id: str):
     try:
         prop = get_prop_service()
         fusion = get_fusion_service()
-        
+
         # 1. Get current propagation conditions
         # We need to filter the global conditions for this station
         conditions = prop.get_current_conditions()
@@ -211,15 +212,15 @@ def get_station_dashboard(station_id: str):
         if conditions and 'broadcasts' in conditions:
             # Filter for this station
             station_broadcasts = [
-                b for b in conditions['broadcasts'] 
+                b for b in conditions['broadcasts']
                 if b['station'] == station_id
             ]
-            
+
             # Calculate aggregate stats
             if station_broadcasts:
                 avg_snr = sum(b['avg_snr_db'] for b in station_broadcasts if b['avg_snr_db'] is not None)
                 count_snr = sum(1 for b in station_broadcasts if b['avg_snr_db'] is not None)
-                
+
                 current_status = {
                     'active_frequencies': [b['frequency_mhz'] for b in station_broadcasts],
                     'avg_snr_db': avg_snr / count_snr if count_snr > 0 else None,
@@ -245,7 +246,7 @@ def get_station_dashboard(station_id: str):
 
         # 3. Get TEC Data (Ionosphere)
         # Last 24 hours
-        end = datetime.utcnow()
+        end = utcnow()
         start = end - timedelta(hours=24)
         tec_summary = prop.get_tec_summary(start, end)
         tec_stats = None
@@ -256,7 +257,8 @@ def get_station_dashboard(station_id: str):
                     'current_tec': path_data['tec_tecu'][-1] if path_data['tec_tecu'] else None,
                     'mean_24h': path_data['mean_tec'],
                     'min_24h': path_data['min_tec'],
-                    'max_24h': path_data['max_tec']
+                    'max_24h': path_data['max_tec'],
+                    'source': tec_summary.get('source'),
                 }
 
         # 4. Static Station Info (from config/metadata if available, or hardcoded defaults)
@@ -269,7 +271,7 @@ def get_station_dashboard(station_id: str):
             "status": current_status,
             "fusion": fusion_stats,
             "ionosphere": tec_stats,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": iso_z(utcnow())
         }
         return sanitize_for_json(response)
 
@@ -290,18 +292,18 @@ def get_station_history(
 
     try:
         prop = get_prop_service()
-        
-        end = datetime.utcnow()
+
+        end = utcnow()
         start = end - timedelta(hours=hours)
 
         # 1. Mode/SNR Timeline
         timeline = prop.get_mode_timeline(start, end, station=station_id)
-        
+
         # 2. TEC History
         tec_history = None
         tec_summary = prop.get_tec_summary(start, end)
         if tec_summary and 'paths' in tec_summary and station_id in tec_summary['paths']:
-            tec_history = tec_summary['paths'][station_id]
+            tec_history = {**tec_summary['paths'][station_id], 'source': tec_summary.get('source')}
 
         # 3. Solar Zenith at Path Midpoint
         solar_data = None
@@ -310,27 +312,27 @@ def get_station_history(
             # Receiver location (from config)
             rx_lat = config.station_metadata['latitude']
             rx_lon = config.station_metadata['longitude']
-            
+
             # Transmitter location (from info)
             if info and 'coordinates' in info:
                 tx_lat = info['coordinates']['lat']
                 tx_lon = info['coordinates']['lon']
-                
+
                 # Calculate midpoint
                 mid_lat, mid_lon = calculate_midpoint(rx_lat, rx_lon, tx_lat, tx_lon)
-                
+
                 # Generate time series matching the requested range
                 # We'll calculate every 15 minutes to save compute, client can interpolate
                 solar_timestamps = []
                 solar_elevations = []
-                
+
                 curr = start
                 while curr <= end:
                     az, el = solar_position(curr, mid_lat, mid_lon)
-                    solar_timestamps.append(curr.isoformat() + 'Z')
+                    solar_timestamps.append(iso_z(curr))
                     solar_elevations.append(el)
                     curr += timedelta(minutes=15)
-                    
+
                 solar_data = {
                     'timestamps': solar_timestamps,
                     'elevation_deg': solar_elevations,
@@ -341,7 +343,7 @@ def get_station_history(
 
         response = {
             "station_id": station_id,
-            "range": {"start": start, "end": end},
+            "range": {"start": iso_z(start), "end": iso_z(end)},
             "timeline": timeline,
             "tec": tec_history,
             "solar": solar_data
@@ -354,19 +356,19 @@ def get_station_history(
 def get_station_info(station_id: str) -> Dict[str, Any]:
     """
     Get station info from BroadcastRegistry.
-    
+
     Returns computed geometry (distance, azimuth, min propagation time)
     in addition to static station data.
     """
     registry = get_broadcast_registry()
     station = registry.get_station(station_id)
-    
+
     if not station:
         return {}
-    
+
     # Get broadcasts for this station (with computed geometry)
     broadcasts = registry.get_broadcasts_for_station(station_id)
-    
+
     # Use first broadcast for geometry (all same station have same geometry)
     geometry = {}
     if broadcasts:
@@ -376,14 +378,14 @@ def get_station_info(station_id: str) -> Dict[str, Any]:
             "azimuth_deg": round(b.azimuth_deg, 1),
             "min_propagation_ms": round(b.min_propagation_ms, 2),
         }
-    
+
     # Station descriptions (static, could be moved to config)
     descriptions = {
         "WWV": "NIST standard frequency and time signal station.",
         "WWVH": "NIST Pacific sister station to WWV.",
         "BPM": "NTSC Chinese standard time station.",
     }
-    
+
     return {
         "name": f"Radio Station {station_id}",
         "location": station.location,
