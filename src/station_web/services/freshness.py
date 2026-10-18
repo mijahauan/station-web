@@ -4,13 +4,16 @@ Each product gets one of five verdicts (the first three borrowed from the
 heartbeat schema):
 
 - VALID: the newest row is no older than the product's expected cadence.
-- INVALID: the newest row is older than expected, but the producer wrote
-  within the last ``APPLICABLE_WINDOW_DAYS``.  A producer that stopped.
+- INVALID: the newest row is older than expected.  A producer that
+  stopped, however long ago: a product that wrote rows on this station and
+  then went quiet is a fault until someone fixes it or removes the table.
+  Rows under some channel other than the writer's also read INVALID.
 - INDETERMINATE: there is no table at all (the producing client is not
   installed here), or no database.
-- SILENT: the table exists but holds no row from the last
-  ``APPLICABLE_WINDOW_DAYS`` ("producer silent").  On B4, hamsci-physics
-  created ``L3_dtec`` and ``L3_physics`` and never filled them.
+- SILENT: the table exists but has never held a row on this station
+  ("producer silent").  On B4, hamsci-physics created ``L3_dtec`` and
+  ``L3_physics`` and never filled them.  (Retention pruning that emptied a
+  table would also read SILENT; nothing on these stations prunes yet.)
 - INFORMATIONAL: an event product (``EVENT_PRODUCTS``) with no cadence;
   only its age is reported.
 
@@ -50,11 +53,6 @@ EXPECTED = {
 FIXED_CHANNEL = {("L3", "fusion_timing"): "fusion", ("DIAG", "chrony_stats"): "fusion",
                  ("L3", "physics"): "global", ("L3", "tec"): ("REANALYZED", "AGGREGATED"),
                  ("L3", "dtec"): "AGGREGATED", ("L3", "gnss_vtec"): "GNSS"}
-
-#: A product whose newest row is older than this reads SILENT, not INVALID:
-#: weeks without a row means the producer is not running here, which is not
-#: the same fact as a running producer that fell behind.
-APPLICABLE_WINDOW_DAYS = 7
 
 #: (level, name) -> fixed channel, for products with no cadence expectation at
 #: all: hamsci-physics writes a TID row only when it detects a travelling
@@ -132,6 +130,20 @@ def _max_timestamp(settings: Settings, level: str, name: str, channel: str) -> s
     return row[0] if row else None
 
 
+def _holds_any_row(settings: Settings, table: str) -> bool:
+    """True when ``table`` holds at least one row, on any channel."""
+    db = _db_path(settings)
+    try:
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            return con.execute(f'SELECT 1 FROM "{table}" LIMIT 1').fetchone() is not None
+        finally:
+            con.close()
+    except sqlite3.Error as exc:
+        logger.warning("freshness row probe on %s failed: %s", table, exc)
+        return True            # unknown: never let a probe failure hide a fault
+
+
 def _newest_across_channels(settings: Settings, level: str, name: str, channels: list[str]):
     """The newest row for a per-receiver-channel product, across every
     discovered channel — not just the alphabetically first one.
@@ -156,7 +168,6 @@ def table(settings: Settings) -> dict:
     now = datetime.now(timezone.utc)
     channels = [c["name"] for c in discover_channels(settings)]
     present = _existing_tables(settings)
-    silent_after = APPLICABLE_WINDOW_DAYS * 86400
     products: dict[str, dict] = {}
     for (level, name), expected in EXPECTED.items():
         tbl = f"{level}_{name}"
@@ -172,10 +183,14 @@ def table(settings: Settings) -> dict:
         if tbl not in present:
             verdict = "INDETERMINATE"
             reason = f"no {tbl} table — producing client not installed"
-        elif age is None or age > silent_after:
+        elif age is None and not _holds_any_row(settings, tbl):
             verdict = "SILENT"
-            reason = (f"producer silent: {tbl} exists but holds no row from the "
-                      f"last {APPLICABLE_WINDOW_DAYS} days")
+            reason = f"producer silent: {tbl} exists but has never held a row here"
+        elif age is None:
+            verdict = "INVALID"
+            where = (fixed if isinstance(fixed, str)
+                     else ", ".join(fixed) if fixed else "any receiver channel")
+            reason = f"{tbl} holds rows, but none on {where}"
         else:
             verdict = "VALID" if age <= expected else "INVALID"
             reason = None

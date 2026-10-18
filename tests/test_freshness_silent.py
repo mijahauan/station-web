@@ -2,9 +2,14 @@
 
 On B4 ``L3_dtec`` and ``L3_physics`` exist (hamsci-physics created them)
 but never get a row.  They counted as applicable, read INDETERMINATE, and
-held the station at "degraded" forever.  A product now counts as
-applicable only if it held a row within ``APPLICABLE_WINDOW_DAYS``;
-otherwise it reads SILENT, visibly, without judging the station.
+held the station at "degraded" forever.  Such a table now reads SILENT,
+visibly, without judging the station.
+
+SILENT means only that: the table has never held a row here.  A product
+that wrote rows and then stopped stays INVALID however long ago it
+stopped (final review S6).  An earlier rule let a producer dead for more
+than seven days read SILENT, and the station flip back to "healthy" with
+nobody having fixed anything.
 """
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -39,21 +44,28 @@ def test_empty_tables_read_silent_and_station_stays_healthy(seeded):
     assert t["status"] == "healthy"
 
 
-def test_a_row_older_than_the_window_is_silent_not_invalid(seeded):
-    _age(seeded, "L3_physics", freshness.APPLICABLE_WINDOW_DAYS + 1)
-    t = freshness.table(seeded)
-    p = t["products"]["L3_physics"]
-    assert p["verdict"] == "SILENT" and p["age_s"] > freshness.APPLICABLE_WINDOW_DAYS * 86400
-    assert t["status"] == "healthy"
+def test_a_producer_dead_for_weeks_stays_an_error(seeded):
+    """A producer that wrote and then stopped is a fault, however long ago."""
+    for days in (1, 8, 400):
+        _age(seeded, "L3_physics", days)
+        t = freshness.table(seeded)
+        p = t["products"]["L3_physics"]
+        assert p["verdict"] == "INVALID", (days, p)
+        assert p["applicable"] is True
+        assert p["age_s"] > days * 86400 - 60
+        assert t["status"] == "error", days
 
 
-def test_a_row_inside_the_window_but_stale_is_still_an_error(seeded):
-    """Silence is weeks of nothing; a producer that stopped yesterday is a
-    fault and must still turn the station red."""
-    _age(seeded, "L3_physics", 1)
-    t = freshness.table(seeded)
-    assert t["products"]["L3_physics"]["verdict"] == "INVALID"
-    assert t["status"] == "error"
+def test_rows_only_under_another_channel_are_not_silent(seeded):
+    """The table has held rows, just not on the channel the writer uses:
+    something changed, and the page must say so rather than go quiet."""
+    con = sqlite3.connect(seeded.storage["sqlite_path"])
+    con.execute('UPDATE "L3_physics" SET channel = ?', ("elsewhere",))
+    con.commit()
+    con.close()
+    p = freshness.table(seeded)["products"]["L3_physics"]
+    assert p["verdict"] == "INVALID" and p["applicable"] is True
+    assert "reason" in p
 
 
 def test_only_silent_products_is_degraded(seeded):
