@@ -377,15 +377,17 @@ async function loadData() {
     ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot'].forEach(setLoading);
 
     try {
-        const [ts, scatter, doppler] = await Promise.all([
-            api.get('/ionogram/arrivals/timeseries', { ...common, min_snr_db: minSnr }),
-            api.get('/ionogram/arrivals', { ...common, min_snr_db: minSnr, downsample: ds, include_kde: true }),
-            api.get('/ionogram/doppler-delay', { ...common, min_snr_db: 3, method: 'edge_tick', include_kde: true })
-                .catch(e => ({ status: 'no_data', reason: e.message })),
-        ]);
+        // One read serves all three views: three parallel day-long reads
+        // once pushed station-web past its memory limit.
+        const all = await api.get('/ionogram/combined', {
+            ...common, min_snr_db: minSnr, downsample: ds,
+            doppler_min_snr_db: 3, doppler_method: 'edge_tick', include_kde: true,
+        });
+        const ts = all.timeseries;
+        const scatter = all.arrivals;
         _tsData = ts;
         _scatterData = scatter;
-        _dopplerData = doppler;
+        _dopplerData = all.doppler_delay;
 
         if (ts.status === 'no_data' && scatter.status === 'no_data') {
             const why = noDataReason(ts, 'No data for this channel and window');

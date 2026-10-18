@@ -54,7 +54,10 @@ def parse_utc(value: str, now: datetime | None = None) -> datetime:
         return ref
     m = _RELATIVE.match(s)
     if m:
-        return ref - timedelta(**{_UNITS[m.group(2)]: float(m.group(1))})
+        try:
+            return ref - timedelta(**{_UNITS[m.group(2)]: float(m.group(1))})
+        except OverflowError:
+            raise ValueError("Relative time reaches past the calendar") from None
     if s.startswith("-"):
         raise ValueError(f"Invalid relative time {value!r}: use -<n><s|m|h|d|w>, e.g. -6h")
     try:
@@ -64,13 +67,33 @@ def parse_utc(value: str, now: datetime | None = None) -> datetime:
     return as_utc(dt)
 
 
-def parse_window(start: str, end: str, now: datetime | None = None) -> tuple[datetime, datetime]:
-    """Parse a ``start``/``end`` pair against ONE ``now``; refuse an inverted window."""
+def parse_window(start: str, end: str, now: datetime | None = None,
+                 max_span: timedelta | None = None) -> tuple[datetime, datetime]:
+    """Parse a ``start``/``end`` pair against ONE ``now``; refuse an inverted window.
+
+    ``max_span`` caps the window's length.  Every route that reads rows
+    over the window names one, so no request can read a table end to end.
+    The refusal is a ``ValueError`` with fixed text (a 400 at the router).
+    """
     ref = as_utc(now) if now is not None else utcnow()
     t0, t1 = parse_utc(start, ref), parse_utc(end, ref)
     if t0 > t1:
         raise ValueError("Start time must be before end time")
+    if max_span is not None and t1 - t0 > max_span:
+        raise ValueError(f"Window longer than {span_text(max_span)}")
     return t0, t1
+
+
+def span_text(span: timedelta) -> str:
+    """``span`` in the largest whole unit: ``7 days``, ``24 hours``, ``90 minutes``."""
+    s = int(span.total_seconds())
+    for unit, size in (("day", 86400), ("hour", 3600), ("minute", 60)):
+        if s % size == 0 and s >= size:
+            n = s // size
+            if unit == "day" and n == 1:
+                return "24 hours"
+            return f"{n} {unit}{'s' if n != 1 else ''}"
+    return f"{s} seconds"
 
 
 def iso_z(dt: datetime) -> str:
