@@ -43,11 +43,10 @@ def client(settings):
 # validates it — a field that drifts out of the schema fails here rather
 # than on a station.
 #
-# One channel carries every per-receiver product.  ``WWV_20000`` is the
-# channel that appears in all three hard-coded channel lists the moved code
-# still carries (``ionogram.ALL_ARRIVALS_CHANNELS``,
-# ``scintillation_service.TICK_PHASE_CHANNELS`` and its
-# ``TEST_SIGNAL_CHANNELS``), so a single channel reaches every reader.
+# One channel carries every per-receiver product.  The readers now discover
+# their channels from the products themselves, so one channel, ``WWV_20000``,
+# reaches every reader.  tests/shared_fixture.py adds a SHARED channel with
+# three interleaved stations for the readers that must keep them apart.
 # ---------------------------------------------------------------------------
 
 CHANNEL = "WWV_20000"
@@ -108,9 +107,9 @@ def seeded(settings):
     ts, mb = _iso(t), _minute_boundary(t)
 
     # ── L1: every arrival peak the tone correlator found ───────────────
-    # For WWV/WWVH/BPM the writer stores per-second boundaries, so
-    # minute_boundary_utc == utc_second; the ionogram router's ToF maths
-    # depends on that identity.
+    # A tone_correlator row: arrival_ms counts from the start of the minute
+    # buffer (hf-timestd metrology_service), and the ionogram router derives
+    # time of flight from it.
     _write_rows(root, storage, "L1", "all_arrivals", CHANNEL,
                 f"{CHANNEL}/all_arrivals", [
         {"timestamp_utc": ts, "minute_boundary_utc": mb, "channel": CHANNEL,

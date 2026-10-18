@@ -81,6 +81,7 @@ ROUTES = [
     ("/api/metrology/fusion/history", lambda j: j["count"] == 180),
     ("/api/tid/history", lambda j: j["n_events"] == 1),
     ("/api/space-weather/solar/elevation", lambda j: len(j["timestamps"]) > 0),
+    ("/api/stability/adev", lambda j: len(j["tau_seconds"]) > 0),
 ]
 
 
@@ -97,3 +98,9 @@ def test_route_reads_every_time_form(seeded_client, path, check, form):
 def test_route_rejects_garbage_time_with_400(seeded_client, path):
     r = seeded_client.get(path, params={"start": "-6x", "end": "now"})
     assert r.status_code == 400, (path, r.status_code, r.text[:200])
+
+
+def test_stability_reads_the_shared_relative_forms(seeded_client):
+    # stability kept its own parser, which knew s/m/h/d but not w.
+    r = seeded_client.get("/api/stability/adev", params={"start": "-1w", "end": "now"})
+    assert r.status_code == 200, r.text[:200]

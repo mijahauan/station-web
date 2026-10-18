@@ -3,12 +3,12 @@ Stability analysis API endpoints.
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta
-from typing import Optional
 import logging
 
+from station_web.errors import internal_error
 from station_web.services.stability_service import StabilityService
 from station_web.config import config
+from station_web.timeutil import parse_window
 
 logger = logging.getLogger(__name__)
 
@@ -37,32 +37,8 @@ def get_allan_deviation(
     Includes tau values, ADEV values, and noise type identification.
     """
     try:
-        # Parse time range
-        if end == "now":
-            end_time = datetime.utcnow()
-        else:
-            end_time = datetime.fromisoformat(end.replace('Z', ''))
-        
-        if start.startswith('-'):
-            # Relative time
-            duration_str = start[1:]
-            if duration_str.endswith('h'):
-                hours = int(duration_str[:-1])
-                start_time = end_time - timedelta(hours=hours)
-            elif duration_str.endswith('d'):
-                days = int(duration_str[:-1])
-                start_time = end_time - timedelta(days=days)
-            elif duration_str.endswith('m'):
-                minutes = int(duration_str[:-1])
-                start_time = end_time - timedelta(minutes=minutes)
-            elif duration_str.endswith('s'):
-                seconds = int(duration_str[:-1])
-                start_time = end_time - timedelta(seconds=seconds)
-            else:
-                raise ValueError(f"Invalid duration format: {start}")
-        else:
-            start_time = datetime.fromisoformat(start.replace('Z', ''))
-        
+        start_time, end_time = parse_window(start, end)
+
         # Compute stability metrics
         metrics = _service().compute_stability_metrics(start_time, end_time)
         
@@ -79,5 +55,4 @@ def get_allan_deviation(
     except HTTPException:
         raise                      # the 404 above is the answer, not a fault
     except Exception as e:
-        logger.error(f"Error getting Allan deviation: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "Allan deviation", e)
