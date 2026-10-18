@@ -358,3 +358,13 @@ def test_snapshot_one_slow_cycle_old_is_not_stale(settings):
     assert s["stale"] is False and s["stale_after_s"] == 75.0
     write_authority(settings.authority_path, T6_SNAPSHOT, published=NOW - timedelta(seconds=76))
     assert ta.registration_snapshot(settings, now=NOW)["stale"] is True
+
+
+def test_history_decimates_on_row_count_not_an_assumed_cadence(settings):
+    """A writer faster than 30 s must not push the answer past MAX_POINTS."""
+    end = NOW
+    rows = [history_row(end - timedelta(seconds=5 * k), k) for k in range(2160)]   # 3 h at 5 s
+    write_history(settings.authority_history_path, rows)
+    h = ta.history(settings, end - timedelta(hours=3), end)
+    assert h["n_rows"] == 2160
+    assert h["bucket_s"] is not None and h["n_points"] <= ta.MAX_POINTS

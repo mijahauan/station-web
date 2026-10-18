@@ -399,10 +399,14 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
                 return _unavailable("timing history not available on this station: "
                                     "authority_history.db holds no authority_snapshot table")
             span_s = max(1.0, (end - start).total_seconds())
-            # The writer publishes about every 30 s; decimate only when the
-            # window could hold more rows than the answer may carry.
-            bucket_s = None if span_s / 30.0 <= MAX_POINTS else span_s / MAX_POINTS
             sql, params = history_sql(present, start, end)
+            # Decimate when the window holds more rows than the answer may
+            # carry.  Count them (an index-only walk of the same range)
+            # rather than assume the writer's 30 s period.
+            n_in_range = conn.execute(
+                "SELECT COUNT(*) FROM authority_snapshot WHERE utc_published BETWEEN ? AND ?",
+                params).fetchone()[0]
+            bucket_s = None if n_in_range <= MAX_POINTS else span_s / MAX_POINTS
             out_t, out_tier, out_sigma = [], [], []
             est = {e: {"offset_ms": [], "sigma_ms": []} for e in ESTIMATORS}
             transitions: List[dict] = []
