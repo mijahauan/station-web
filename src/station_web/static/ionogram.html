@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ionogram — Time-of-Flight Cluster Analysis — hf-timestd</title>
+    <title>Ionogram — Time-of-Flight Cluster Analysis — station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -117,7 +117,7 @@
 <div class="container">
     <div class="header">
         <h1>Ionogram — Time-of-Flight Cluster Analysis</h1>
-        <div class="header-subtitle">GPS-referenced propagation delay: detection time minus scheduled broadcast time, corrected for transmitter onset delay. Clusters correspond to ionospheric propagation modes (1F2, 2F2, 1E, etc.).</div>
+        <div class="header-subtitle">GPS-referenced propagation delay: detection time minus scheduled broadcast time. Clusters correspond to ionospheric propagation modes (1F2, 2F2, 1E, etc.).</div>
         <nav class="nav">
                 <a href="/" class="nav-link">Overview</a>
                 <a href="/static/health.html" class="nav-link">Health</a>
@@ -156,19 +156,14 @@
         <div class="controls-row">
             <div class="control-group">
                 <label>Channel</label>
-                <select id="channelSelect" onchange="loadData()">
-                    <option value="CHU_7850">CHU 7.85 MHz</option>
-                    <option value="CHU_3330">CHU 3.33 MHz</option>
-                    <option value="CHU_14670">CHU 14.67 MHz</option>
-                    <option value="WWV_10000">WWV 10 MHz</option>
-                    <option value="WWV_5000">WWV 5 MHz</option>
-                    <option value="WWV_15000">WWV 15 MHz</option>
-                    <option value="WWV_20000">WWV 20 MHz</option>
-                    <option value="WWV_25000">WWV 25 MHz</option>
-                    <option value="WWVH_10000">WWVH 10 MHz</option>
-                    <option value="WWVH_5000">WWVH 5 MHz</option>
-                    <option value="BPM_10000">BPM 10 MHz</option>
-                    <option value="BPM_5000">BPM 5 MHz</option>
+                <select id="channelSelect" onchange="onChannelChange()">
+                    <option value="">Loading channels…</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Station</label>
+                <select id="stationSelect" onchange="loadData()">
+                    <option value="">All on channel</option>
                 </select>
             </div>
             <div class="control-group">
@@ -225,7 +220,7 @@
                     Dominant path (rank-0, filled circles) and secondary paths (rank≥1, open circles).
                     Analogous to Griffiths' "Time of Flight and WSPRDaemon Grape Signal+Noise Level".
                 </div>
-                <div id="tofPlot" style="height:320px"><div class="loading-msg">Select a channel and click Load</div></div>
+                <div id="tofPlot" style="height:320px"><div class="loading-msg">Loading…</div></div>
             </div>
             <div class="plot-container">
                 <div class="plot-title">Correlation S+N Level (dB)</div>
@@ -255,7 +250,7 @@
                     Cluster interpretation: high-ToF/high-SNR = 2F sidescatter; low-ToF/high-SNR = 1F direct;
                     low-ToF/low-SNR = forward scatter or artefact.
                 </div>
-                <div id="clusterPlot" style="height:520px"><div class="loading-msg">Select a channel and click Load</div></div>
+                <div id="clusterPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
             </div>
         </div>
 
@@ -296,7 +291,7 @@
                     Per-tick timing error vs carrier phase. KDE contours highlight propagation mode clusters.
                     Color = correlation SNR.
                 </div>
-                <div id="dopplerDelayPlot" style="height:520px"><div class="loading-msg">Select a channel and click Load</div></div>
+                <div id="dopplerDelayPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
             </div>
             <div class="plot-container">
                 <div class="plot-title">Per-Minute Doppler Shift (Hz)</div>
@@ -332,46 +327,80 @@ function showTab(name) {
 // TimePeriodSelector instance
 let tps = null;
 
+// Channels and the stations heard on each, from /api/ionogram/channels
+let _channels = [];
+
+function fillStations() {
+    const ch = _channels.find(c => c.channel === document.getElementById('channelSelect').value);
+    const sel = document.getElementById('stationSelect');
+    const stations = ch ? ch.stations : [];
+    sel.innerHTML = '';
+    if (stations.length !== 1) {
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = 'All on channel';
+        sel.appendChild(all);
+    }
+    stations.forEach(st => {
+        const opt = document.createElement('option');
+        opt.value = st;
+        opt.textContent = st;
+        sel.appendChild(opt);
+    });
+    // A SHARED channel mixes three stations; default to WWV when heard
+    if (stations.length > 1 && stations.includes('WWV')) sel.value = 'WWV';
+}
+
+function onChannelChange() {
+    fillStations();
+    loadData();
+}
+
+const PLOT_IDS = ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot', 'dopplerDelayPlot', 'dopplerTsPlot'];
+
 async function loadData() {
     const channel = document.getElementById('channelSelect').value;
+    const station = document.getElementById('stationSelect').value;
     const minSnr = document.getElementById('minSnr').value;
     const ds = document.getElementById('downsampleSelect').value;
 
-    const range = tps.getAPIParams();
-    const sp = encodeURIComponent(range.start);
-    const ep = encodeURIComponent(range.end);
-
     document.getElementById('errorMsg').style.display = 'none';
     document.getElementById('statsGrid').style.display = 'none';
-    setLoading('tofPlot');
-    setLoading('snrPlot');
-    setLoading('heightPlot');
-    setLoading('clusterPlot');
+    if (!channel) {
+        PLOT_IDS.forEach(id => showPlotMessage(id, 'No channel has rows in L1_all_arrivals'));
+        return;
+    }
+
+    const range = tps.getAPIParams();
+    const common = { channel, start: range.start, end: range.end };
+    if (station) common.station = station;
+    ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot'].forEach(setLoading);
 
     try {
-        const [tsResp, scatterResp, dopplerResp] = await Promise.all([
-            fetch(`/api/ionogram/arrivals/timeseries?channel=${channel}&start=${sp}&end=${ep}&min_snr_db=${minSnr}`),
-            fetch(`/api/ionogram/arrivals?channel=${channel}&start=${sp}&end=${ep}&min_snr_db=${minSnr}&downsample=${ds}&include_kde=true`),
-            fetch(`/api/ionogram/doppler-delay?channel=${channel}&start=${sp}&end=${ep}&min_snr_db=3&method=edge_tick&include_kde=true`)
+        const [ts, scatter, doppler] = await Promise.all([
+            api.get('/ionogram/arrivals/timeseries', { ...common, min_snr_db: minSnr }),
+            api.get('/ionogram/arrivals', { ...common, min_snr_db: minSnr, downsample: ds, include_kde: true }),
+            api.get('/ionogram/doppler-delay', { ...common, min_snr_db: 3, method: 'edge_tick', include_kde: true })
+                .catch(e => ({ status: 'no_data', reason: e.message })),
         ]);
+        _tsData = ts;
+        _scatterData = scatter;
+        _dopplerData = doppler;
 
-        if (!tsResp.ok || !scatterResp.ok) throw new Error('API error');
-        _tsData = await tsResp.json();
-        _scatterData = await scatterResp.json();
-        _dopplerData = dopplerResp.ok ? await dopplerResp.json() : null;
-
-        if (_tsData.status === 'no_data' && _scatterData.status === 'no_data') {
-            showError('No data available for this channel and time window.');
+        if (ts.status === 'no_data' && scatter.status === 'no_data') {
+            const why = noDataReason(ts, 'No data for this channel and window');
+            ['tofPlot', 'snrPlot', 'heightPlot', 'clusterPlot'].forEach(id => showPlotMessage(id, why));
+            renderDopplerDelay(_dopplerData);
             return;
         }
 
         updateStats(_tsData, _scatterData);
         renderTimeSeries(_tsData);
         renderCluster(_scatterData);
-        if (_dopplerData) renderDopplerDelay(_dopplerData);
+        renderDopplerDelay(_dopplerData);
 
     } catch (e) {
-        showError('Failed to load data: ' + e.message);
+        PLOT_IDS.forEach(id => showPlotMessage(id, 'Failed to load: ' + e.message, 'error'));
     }
 }
 
@@ -379,24 +408,18 @@ function setLoading(id) {
     document.getElementById(id).innerHTML = '<div class="loading-msg">Loading…</div>';
 }
 
-function showError(msg) {
-    const el = document.getElementById('errorMsg');
-    el.textContent = msg;
-    el.style.display = 'block';
-}
-
 function updateStats(ts, scatter) {
     document.getElementById('statsGrid').style.display = 'grid';
-    document.getElementById('statTotal').textContent = (scatter.n_points || 0).toLocaleString();
+    document.getElementById('statTotal').textContent = String(scatter.n_points || 0);
 
     const r0 = scatter.rank_stats && scatter.rank_stats['0'];
     const r1n = Object.entries(scatter.rank_stats || {})
         .filter(([k]) => parseInt(k) >= 1)
         .reduce((s, [, v]) => s + v.n, 0);
 
-    document.getElementById('statRank0').textContent = r0 ? r0.n.toLocaleString() : '—';
+    document.getElementById('statRank0').textContent = r0 ? String(r0.n) : '—';
     document.getElementById('statRank0Tof').textContent = r0 ? `ToF ${r0.tof_mean_ms.toFixed(1)} ± ${r0.tof_std_ms.toFixed(1)} ms` : '—';
-    document.getElementById('statRankN').textContent = r1n.toLocaleString();
+    document.getElementById('statRankN').textContent = String(r1n);
 
     const h = ts.f2_height;
     if (h && h.n > 0) {
@@ -415,10 +438,9 @@ function renderTimeSeries(data) {
     const solar = data.solar;
     const color = data.color || '#7B68EE';
 
-    if (!dom || dom.n === 0) {
-        document.getElementById('tofPlot').innerHTML = '<div class="loading-msg">No dominant arrivals in range</div>';
-        document.getElementById('snrPlot').innerHTML = '<div class="loading-msg">—</div>';
-        document.getElementById('heightPlot').innerHTML = '<div class="loading-msg">—</div>';
+    if (!dom || !dom.n) {
+        const why = data.status === 'no_data' ? noDataReason(data) : 'No plausible dominant arrivals in this window';
+        ['tofPlot', 'snrPlot', 'heightPlot'].forEach(id => showPlotMessage(id, why));
         return;
     }
 
@@ -555,15 +577,13 @@ function renderTimeSeries(data) {
             showlegend: false,
         }, { responsive: true, displayModeBar: false });
     } else {
-        document.getElementById('heightPlot').innerHTML =
-            '<div class="loading-msg">Insufficient rank-0/rank-1 pairs for height estimate</div>';
+        showPlotMessage('heightPlot', 'Insufficient rank-0/rank-1 pairs for a height estimate');
     }
 }
 
 function renderCluster(data) {
     if (!data || data.status === 'no_data' || !data.scatter) {
-        document.getElementById('clusterPlot').innerHTML =
-            '<div class="loading-msg">No data available</div>';
+        showPlotMessage('clusterPlot', noDataReason(data));
         return;
     }
 
@@ -642,7 +662,8 @@ function renderCluster(data) {
         yaxis: {
             gridcolor: '#334155',
             title: 'Propagation Delay (ms)',
-            range: [0, data.channel && data.channel.startsWith('BPM') ? 500 : 30],
+            // WWV paths sit inside 30 ms; WWVH, BPM or a mixed channel autoscale
+            ...(data.station === 'WWV' ? { range: [0, 30] } : { rangemode: 'tozero' }),
         },
         legend: { bgcolor: 'transparent', font: { size: 11 } },
         showlegend: true,
@@ -651,9 +672,8 @@ function renderCluster(data) {
 
 function renderDopplerDelay(data) {
     if (!data || data.status === 'no_data' || !data.scatter) {
-        document.getElementById('dopplerDelayPlot').innerHTML =
-            '<div class="loading-msg">No per-tick edge data available yet. Data starts accumulating after service restart with v2.0.0.</div>';
-        document.getElementById('dopplerTsPlot').innerHTML = '<div class="loading-msg">--</div>';
+        showPlotMessage('dopplerDelayPlot', noDataReason(data, 'No per-tick edge detections in this window'));
+        showPlotMessage('dopplerTsPlot', '—');
         document.getElementById('dopplerStatsGrid').style.display = 'none';
         return;
     }
@@ -674,8 +694,8 @@ function renderDopplerDelay(data) {
     document.getElementById('statDopplerMins').textContent = summary.n_minutes_with_doppler || 0;
 
     if (te.length === 0) {
-        document.getElementById('dopplerDelayPlot').innerHTML =
-            '<div class="loading-msg">No edge tick detections with carrier phase in this window.</div>';
+        showPlotMessage('dopplerDelayPlot', 'No edge tick detections with carrier phase in this window');
+        showPlotMessage('dopplerTsPlot', '—');
         return;
     }
 
@@ -757,30 +777,43 @@ function renderDopplerDelay(data) {
             showlegend: false,
         }, { responsive: true, displayModeBar: false });
     } else {
-        document.getElementById('dopplerTsPlot').innerHTML =
-            '<div class="loading-msg">Insufficient minutes with Doppler estimate</div>';
+        showPlotMessage('dopplerTsPlot', 'Insufficient minutes with a Doppler estimate');
     }
 }
 
-// Initialize TimePeriodSelector and auto-load
-window.addEventListener('load', () => {
+// Initialize TimePeriodSelector, discover channels, then load
+window.addEventListener('load', async () => {
     tps = new TimePeriodSelector('time-period-selector', loadData);
-    // Populate channel list from API
-    fetch('/api/ionogram/channels').then(r => r.json()).then(d => {
-        if (d.channels && d.channels.length > 0) {
-            const sel = document.getElementById('channelSelect');
-            sel.innerHTML = '';
-            d.channels.forEach(ch => {
-                const opt = document.createElement('option');
-                opt.value = ch.channel;
-                const freqKhz = parseInt(ch.channel.split('_')[1]);
-                const freqMhz = (freqKhz / 1000).toFixed(2).replace(/\.?0+$/, '');
-                opt.textContent = `${ch.station} ${freqMhz} MHz`;
-                if (ch.channel === 'CHU_7850') opt.selected = true;
-                sel.appendChild(opt);
-            });
-        }
-    }).catch(() => {});
+    const sel = document.getElementById('channelSelect');
+    try {
+        const d = await api.get('/ionogram/channels');
+        _channels = d.channels || [];
+    } catch (e) {
+        _channels = [];
+        console.error('ionogram channels unavailable:', e);
+    }
+    sel.innerHTML = '';
+    if (_channels.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No channels';
+        sel.appendChild(opt);
+    }
+    _channels.forEach(ch => {
+        const opt = document.createElement('option');
+        opt.value = ch.channel;
+        const freqKhz = parseInt(ch.channel.split('_').pop());
+        const freqMhz = (freqKhz / 1000).toFixed(2).replace(/\.?0+$/, '');
+        const label = ch.channel.startsWith('SHARED') ? 'Shared' : ch.stations.join('/');
+        opt.textContent = `${label} ${freqMhz} MHz`;
+        sel.appendChild(opt);
+    });
+    // Default: the channel with the newest row
+    if (_channels.length > 0) {
+        const newest = _channels.reduce((a, b) => ((b.latest || '') > (a.latest || '') ? b : a));
+        sel.value = newest.channel;
+    }
+    fillStations();
     loadData();
 });
 </script>
