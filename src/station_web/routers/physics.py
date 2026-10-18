@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/physics", tags=["physics"])
 
 
+def _event_service() -> EventService:
+    """EventService at THIS station: [station] latitude/longitude from the
+    config (it used to default to Boulder), or no location if unset."""
+    st = config.station
+    lat, lon = st.get("latitude"), st.get("longitude")
+    if lat is None or lon is None:
+        return EventService(data_root=config.data_root)
+    return EventService(data_root=config.data_root, station_lat=float(lat), station_lon=float(lon))
+
+
 def parse_time_param(time_str: str) -> datetime:
     """Parse a time parameter into an AWARE UTC datetime (see station_web.timeutil)."""
     return parse_utc(time_str)
@@ -32,9 +42,9 @@ def get_latest_physics():
     try:
         service = PhysicsService(data_root=config.data_root)
         result = service.get_latest()
-        
+
         return result
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -52,7 +62,7 @@ def get_physics_history(
 
         service = PhysicsService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt)
-    
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -67,7 +77,7 @@ def get_physics_history(
 def get_scintillation_by_path():
     """
     Get scintillation indices organized by propagation path.
-    
+
     Returns S4 (amplitude) and σ_φ (phase) scintillation indices
     for each broadcast station path.
     """
@@ -82,12 +92,12 @@ def get_scintillation_by_path():
 def get_scintillation_history(
     start: str = Query("-6h", description="Start time"),
     end: str = Query("now", description="End time"),
-    station: Optional[str] = Query(None, description="Station filter (WWV, WWVH, CHU, BPM)")
+    station: Optional[str] = Query(None, description="Station filter (WWV, WWVH, BPM)")
 ):
     """Get scintillation history."""
     try:
         start_dt, end_dt = parse_window(start, end)
-        
+
         service = ScintillationService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt, station=station)
     except ValueError as e:
@@ -104,7 +114,7 @@ def get_scintillation_history(
 def get_channel_characterization():
     """
     Get latest test signal analysis results.
-    
+
     Returns channel characterization from WWV/WWVH scientific test signals
     including delay spread, coherence time, and frequency selectivity.
     """
@@ -137,7 +147,7 @@ def get_channel_history(
     """Get test signal history with full metrics."""
     try:
         start_dt, end_dt = parse_window(start, end)
-        
+
         service = TestSignalService(data_root=config.data_root)
         return service.get_history(start=start_dt, end=end_dt, frequency_mhz=frequency_mhz, station=station)
     except ValueError as e:
@@ -153,12 +163,12 @@ def get_channel_daily_comparison(
 ):
     """
     Get test signal data organized for daily comparison.
-    
+
     Returns structured data for:
     - WWV vs WWVH comparison at same frequencies
-    - Same station across different frequencies  
+    - Same station across different frequencies
     - Evolution over the UTC day
-    
+
     If 'hours' is specified, returns that many hours of data ending at now,
     ignoring the 'date' parameter.
     """
@@ -166,7 +176,7 @@ def get_channel_daily_comparison(
         date_dt = None
         if date:
             date_dt = datetime.strptime(date, '%Y-%m-%d')
-        
+
         service = TestSignalService(data_root=config.data_root)
         return service.get_daily_comparison(date=date_dt, hours=hours)
     except ValueError as e:
@@ -185,7 +195,7 @@ def get_recent_events(
 ):
     """
     Get recent ionospheric events.
-    
+
     Returns detected events including:
     - Sunrise/sunset transitions
     - Signal loss/recovery events
@@ -193,8 +203,7 @@ def get_recent_events(
     - Anomalous conditions
     """
     try:
-        service = EventService(data_root=config.data_root)
-        return service.get_recent_events(hours=hours)
+        return _event_service().get_recent_events(hours=hours)
     except Exception as e:
         raise internal_error(logger, "get recent events", e)
 
@@ -203,11 +212,10 @@ def get_recent_events(
 def get_current_conditions():
     """
     Get current ionospheric conditions summary.
-    
+
     Returns day/night status, sun times, and recent event counts.
     """
     try:
-        service = EventService(data_root=config.data_root)
-        return service.get_current_conditions()
+        return _event_service().get_current_conditions()
     except Exception as e:
         raise internal_error(logger, "get current conditions", e)
