@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from s2d_fixture import s2d_products  # noqa: F401
 from timing_fixture import authority_files  # noqa: F401
 
 STATIC = Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
@@ -82,10 +83,11 @@ CONTRACT = [
       "decimation{}.latest_date", "decimation{}.completeness_pct",
       "decimation{}.valid_minutes", "pipeline", "uploads.packaged_dates"]),
     ("grape.html", "/api/grape/spectrograms/WWV_20000", ["dates"]),
-    ("ionogram.html", "/api/ionogram/channels",
+    # Propagation page: time of flight (js/tof-view.js, once ionogram.html)
+    ("js/tof-view.js", "/api/ionogram/channels",
      ["channels[].channel", "channels[].stations", "channels[].latest"]),
     # one combined call serves all three views (final review B1)
-    ("ionogram.html", "/api/ionogram/combined?channel=WWV_20000&start=-1h&end=now&min_snr_db=0",
+    ("js/tof-view.js", "/api/ionogram/combined?channel=WWV_20000&start=-1h&end=now&min_snr_db=0",
      ["timeseries.status", "timeseries.color", "timeseries.dominant.timestamps",
       "timeseries.dominant.tof_ms", "timeseries.dominant.snr_db", "timeseries.dominant.n",
       "timeseries.secondary.n", "timeseries.solar", "arrivals.status", "arrivals.n_points",
@@ -102,43 +104,80 @@ CONTRACT = [
       "doppler_delay.n_points", "doppler_delay.n_minutes_delay"]),
     # the ruler floor beside every Doppler chart reads the registration
     ("js/physics-views.js", "/api/timing/registration", ["available", "ruler.a_level"]),
-    ("station.html", "/api/stations/WWV",
-     ["info.name", "info.location", "info.coordinates", "info.frequencies", "status",
-      "fusion", "ionosphere"]),
-    ("dtec.html", "/api/tec/dtec?start=-1h&end=now&min_snr_db=0",
+    # Propagation page: signal, modes, hourly stats, the funnel, the path map
+    ("js/propagation.js", "/api/propagation/timeline?start=-6h&end=now",
+     ["timestamps", "modes", "stations", "frequencies", "snr_db", "d_clock_ms", "count"]),
+    ("js/propagation.js", "/api/dashboard/solar-zenith/24h?interval_minutes=10",
+     ["timestamps", "paths{}.station", "paths{}.elevation_deg"]),
+    ("js/propagation.js", "/api/stations/",
+     ["stations[].station_id", "stations[].coordinates", "stations[].location",
+      "stations[].distance_km", "stations[].azimuth_deg"]),
+    ("js/propagation.js", "/api/station/metadata",
+     ["latitude", "longitude", "callsign", "grid_square"]),
+    ("js/propagation.js", "/api/propagation/stats?start=-24h&end=now",
+     ["available", "modes_order", "stations{}.time", "stations{}.muf_mhz",
+      "stations{}.muf_confidence", "stations{}.n_observations", "stations{}.mode_probability"]),
+    ("js/propagation.js", "/api/propagation/detections?start=-6h&end=now",
+     ["available", "reasons_order", "broadcasts[].channel", "broadcasts[].station",
+      "broadcasts[].frequency_mhz", "broadcasts[].attempts", "broadcasts[].detected",
+      "broadcasts[].detection_rate", "broadcasts[].reasons"]),
+    # Ionosphere page: dTEC (js/dtec-view.js, once dtec.html)
+    ("js/dtec-view.js", "/api/tec/dtec?start=-1h&end=now&min_snr_db=0",
      ["status", "series", "n_series", "n_points_total", "time_range",
       "series{}.timestamps", "series{}.dtec_rate_tecu_per_s", "series{}.label",
       "series{}.composite", "series{}.stations_heard", "series{}.frequency_mhz",
       "series{}.is_anchored", "noise_floor.value", "noise_floor.unit", "noise_floor.reason",
       "noise_floor.n_series", "reference_comparison.available",
       "reference_comparison.keys", "reference_comparison.reason"]),
-    # pages the first pass skipped (final review N7)
-    ("phase.html", "/api/phase/combined?start=-1h&end=now",
+    ("js/dtec-view.js", "/api/stations/", ["stations[].station_id", "stations[].azimuth_deg"]),
+    ("js/dtec-view.js", "/api/space-weather/solar/elevation?start=-6h&end=now&interval_minutes=5",
+     ["timestamps", "elevations"]),
+    ("js/dtec-view.js", "/api/space-weather/xray?hours=24", []),   # no series product: nothing to read
+    ("js/dtec-view.js", "/api/tid/history?start=-6h&end=now",
+     ["events[].timestamp_utc", "events[].velocity_m_s", "events[].direction_deg"]),
+    # Ionosphere page: Doppler and phase (js/phase-view.js, once phase.html)
+    ("js/phase-view.js", "/api/phase/combined?start=-1h&end=now",
      ["phase.series[].timestamps", "phase.series[].phase_rad", "phase.series[].channel",
       "phase.series[].station", "phase.series[].label", "phase.series[].stations_heard",
       "phase.series[].color", "dc_phase.series",
       "doppler.series[].doppler_hz", "doppler.series[].channel", "doppler.series[].label",
       "scintillation.series[].sigma_phi_rad",
       "scintillation.series[].s4", "metadata.bucket_seconds"]),
-    ("phase.html", "/api/phase/summary",
+    ("js/phase-view.js", "/api/phase/summary",
      ["channels[].channel", "channels[].label", "channels[].color",
       "channels[].dc_meaningful", "channels[].doppler_hz", "channels[].sigma_phi_rad",
       "channels[].mean_snr_db", "channels[].n_points", "channels[].last_update",
       "window_minutes"]),
-    ("phase.html", "/api/phase/channels",
-     ["channels[].channel", "channels[].stations", "channels[].dc_meaningful"]),
-    ("ionosphere.html", "/api/propagation/timeline?start=-6h&end=now",
-     ["timestamps", "modes", "stations", "frequencies", "snr_db", "d_clock_ms"]),
-    # the Observatory's Doppler is the phase page's estimator
-    ("ionosphere.html", "/api/phase/doppler?start=-1h&end=now&smoothing=0",
-     ["series[].channel", "series[].label", "series[].station", "series[].stations_heard",
-      "series[].timestamps", "series[].doppler_raw_hz"]),
-    ("ionosphere.html", "/api/propagation/tec?start=-24h&end=now",
-     ["paths{}.timestamps", "paths{}.tec_tecu", "paths{}.residual_rms_ms"]),
-    ("ionosphere.html", "/api/dashboard/solar-zenith/24h?interval_minutes=10",
+    ("js/phase-view.js", "/api/phase/timeseries?start=-1h&end=now&unwrap=true",
+     ["series[].timestamps", "series[].phase_rad", "series[].channel", "series[].color",
+      "metadata.bucket_seconds"]),
+    ("js/phase-view.js", "/api/dashboard/solar-zenith/24h?interval_minutes=10",
      ["timestamps", "paths{}.station", "paths{}.elevation_deg"]),
-    ("ionosphere.html", "/api/stations/",
-     ["stations[].station_id", "stations[].coordinates"]),
+    ("js/phase-view.js", "/api/phase/channels",
+     ["channels[].channel", "channels[].stations", "channels[].dc_meaningful"]),
+    # Ionosphere page: space weather, events, TEC with GNSS VTEC as its reference
+    ("js/ionosphere.js", "/api/space-weather/current",
+     ["available", "kp", "kp_time", "kp_source", "f107", "f107_time", "f107_source",
+      "ap", "ap_time", "ap_source", "stale", "age_s"]),
+    ("js/ionosphere.js", "/api/space-weather/xray?hours=24", ["available"]),
+    ("js/ionosphere.js", "/api/space-weather/kp?hours=72", ["available"]),
+    ("js/ionosphere.js", "/api/physics/events/recent?hours=24",
+     ["events", "events[].timestamp", "events[].type", "events[].title"]),
+    ("js/ionosphere.js", "/api/propagation/timeline?start=-6h&end=now",
+     ["timestamps", "modes", "stations", "frequencies", "snr_db", "d_clock_ms"]),
+    ("js/ionosphere.js", "/api/propagation/tec?start=-24h&end=now",
+     ["paths{}.timestamps", "paths{}.tec_tecu", "paths{}.residual_rms_ms"]),
+    ("js/ionosphere.js", "/api/tec/gnss-vtec?start=-6h&end=now",
+     ["available", "label", "time", "vtec_tecu", "n_points", "n_rows", "bucket_s",
+      "n_excluded_bad"]),
+    # Timing page: WWVB, which minute it named
+    ("js/timing.js", "/api/timing/wwvb",
+     ["available", "file", "role", "age_s", "passes.n", "passes.with_frames",
+      "passes.last.snr_db", "passes.last.ts", "frames.n", "frames.plausible",
+      "frames.last_plausible.minute", "frames.last_plausible.vs_wallclock_s",
+      "recent_frames[].ts", "recent_frames[].minute", "recent_frames[].plausible",
+      "recent_frames[].vs_wallclock_s", "recent_frames[].parity_errors",
+      "recent_frames[].sync_errors"]),
     ("test_signal.html", "/api/physics/channels/daily",
      ["by_station", "frequencies", "solar.timestamps"]),
     ("test_signal.html", "/api/physics/channels/latest",
@@ -146,9 +185,6 @@ CONTRACT = [
       "latest_by_frequency{}.coherence_time_sec", "latest_by_frequency{}.channel_quality"]),
     ("test_signal.html", "/api/propagation/tec?start=-24h&end=now",
      ["paths{}.timestamps", "paths{}.tec_tecu"]),
-    ("station.html", "/api/stations/WWV/history?hours=24",
-     ["timeline.timestamps", "timeline.snr_db", "tec", "solar.timestamps",
-      "solar.elevation_deg"]),
     ("docs.html", "/api/living-docs/list",
      ["roots[].name", "roots[].present", "roots[].documents"]),
 ]
@@ -180,6 +216,8 @@ def _resolve(obj, path):
 
 #: endpoints that read the timing authority's files, not the product database
 TIMING_URLS = ("/api/timing/",)
+#: endpoints whose products only the S2D fixture writes
+S2D_URLS = ("/api/propagation/detections", "/api/tec/gnss-vtec", "/api/timing/wwvb")
 
 
 @pytest.mark.parametrize("page,url,fields", CONTRACT,
@@ -187,6 +225,8 @@ TIMING_URLS = ("/api/timing/",)
 def test_page_fields_exist_in_api(seeded_client, request, page, url, fields):
     if url.startswith(TIMING_URLS):
         request.getfixturevalue("authority_files")
+    if url.startswith(S2D_URLS):
+        request.getfixturevalue("s2d_products")
     text = (STATIC / page).read_text()
     r = seeded_client.get(url)
     assert r.status_code == 200, (url, r.text[:200])
@@ -199,3 +239,19 @@ def test_page_fields_exist_in_api(seeded_client, request, page, url, fields):
             _resolve(j, path)
         except KeyError as e:
             pytest.fail(f"{page} reads {path} but {url} lacks it ({e}): {json.dumps(j)[:300]}")
+
+
+#: The scripts the consolidated pages run (S2D): every endpoint each one
+#: reads must carry a contract entry above.
+CONSOLIDATED = ("js/propagation.js", "js/tof-view.js", "js/ionosphere.js", "js/phase-view.js",
+                "js/dtec-view.js", "js/timing.js")
+_CALL = re.compile(r"""(?:api\.get\(\s*['`](/[\w/\-]+)|getJSON\(`/api(/[\w/\-]+))""")
+
+
+@pytest.mark.parametrize("script", CONSOLIDATED)
+def test_every_endpoint_a_page_reads_has_a_contract_entry(script):
+    called = {a or b for a, b in _CALL.findall((STATIC / script).read_text())}
+    listed = {u.split("?")[0].removeprefix("/api") for p, u, _ in CONTRACT if p == script}
+    listed |= {u.split("?")[0].removeprefix("/api") for p, u, _ in CONTRACT if p == "js/common.js"}
+    assert called, script
+    assert called <= listed, sorted(called - listed)

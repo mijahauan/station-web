@@ -58,10 +58,12 @@ def test_title_names_station_web(page):
 
 
 def test_receiver_location_not_hard_coded():
-    iono = _text("ionosphere.html")
+    iono = (_text("ionosphere.html") + _text("propagation.html")
+            + (STATIC / "js" / "propagation.js").read_text()
+            + (STATIC / "js" / "ionosphere.js").read_text())
     for literal in ("Missouri", "EM38", "lat: 38.9", "lon: -92.1"):
         assert literal not in iono, literal
-    dtec = _text("dtec.html")
+    dtec = (STATIC / "js" / "dtec-view.js").read_text()
     assert "WWV (SW)" not in dtec and "BPM (W)" not in dtec
     assert "°E`" not in _text("station.html")
 
@@ -89,7 +91,7 @@ def test_index_counts_channel_names():
 def test_phase_summary_cards_escape_database_values():
     """N2: channel, label (the station, or the composite carrier) and colour
     come from the database; escape them like every other page does."""
-    text = _text("phase.html")
+    text = (STATIC / "js" / "phase-view.js").read_text()      # once phase.html
     for field in ("ch.channel", "ch.label", "ch.color"):
         assert f"${{{field}}}" not in text, field
         assert f"escapeHtml({field})" in text, field

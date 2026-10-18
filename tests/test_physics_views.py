@@ -29,8 +29,12 @@ from station_web.services import phase_service
 
 ROOT = Path(__file__).resolve().parents[1] / "src" / "station_web"
 STATIC = ROOT / "static"
-MINE = [STATIC / "ionogram.html", STATIC / "phase.html", STATIC / "dtec.html",
-        STATIC / "ionosphere.html", ROOT / "routers" / "ionogram.py",
+# S2D folded ionogram.html, phase.html and dtec.html into sections of the
+# Propagation and Ionosphere pages; their code lives in static/js/*-view.js
+JS = STATIC / "js"
+MINE = [STATIC / "propagation.html", JS / "tof-view.js", JS / "propagation.js",
+        STATIC / "ionosphere.html", JS / "phase-view.js", JS / "dtec-view.js",
+        JS / "ionosphere.js", ROOT / "routers" / "ionogram.py",
         ROOT / "routers" / "phase.py", ROOT / "routers" / "tec.py",
         ROOT / "services" / "phase_service.py", ROOT / "services" / "tec_service.py",
         ROOT / "services" / "propagation_service.py"]
@@ -55,9 +59,11 @@ def test_no_virtual_height_claim_left(path):
 
 
 def test_ionogram_page_is_called_time_of_flight():
-    text = (STATIC / "ionogram.html").read_text()
-    h1 = re.search(r"<h1>(.*?)</h1>", text, re.S).group(1)
-    assert h1.strip().startswith("Time of flight")
+    # once ionogram.html; now the Propagation page's #time-of-flight section
+    text = (STATIC / "propagation.html").read_text()
+    section = text[text.index('id="time-of-flight"'):]
+    h2 = re.search(r"<h2>(.*?)</h2>", section, re.S).group(1)
+    assert h2.strip().startswith("Time of flight")
     assert "Griffiths" not in text          # no real reference exists in the docs
 
 
@@ -404,22 +410,27 @@ def _page(name):
     return (STATIC / name).read_text()
 
 
-@pytest.mark.parametrize("name", ["phase.html", "ionogram.html", "ionosphere.html"])
-def test_doppler_pages_show_the_ruler_floor(name):
-    text = _page(name)
-    assert '<script src="/static/js/physics-views.js"></script>' in text
-    assert "loadRulerFloor(" in text
+def _js(name):
+    return (STATIC / "js" / name).read_text()
+
+
+@pytest.mark.parametrize("name,js", [("ionosphere.html", "phase-view.js"),
+                                     ("propagation.html", "tof-view.js")])
+def test_doppler_pages_show_the_ruler_floor(name, js):
+    assert '<script src="/static/js/physics-views.js"></script>' in _page(name)
+    assert "loadRulerFloor(" in _js(js)
 
 
 def test_ionogram_doppler_axis_is_hz_not_phase():
-    text = _page("ionogram.html")
+    text = _page("propagation.html") + _js("tof-view.js")
     assert "Carrier Phase (rad)" not in text and "carrier_phase_rad" not in text
     assert "Doppler (Hz)" in text and "doppler_hz" in text and "delay_ms" in text
     assert "doppler_method: 'edge_tick'" not in text
 
 
 def test_phase_page_variability_and_s4_panels():
-    text = _page("phase.html")
+    page = _page("ionosphere.html")
+    text = page[page.index('id="phase"'):page.index('id="dtec"')] + _js("phase-view.js")
     assert "phase variability (60 s detrend)" in text
     assert "Irregularity threshold" not in text and "0.3 rad" not in text
     assert 'id="s4-plot"' in text and "S4 (uncorrected for noise)" in text
@@ -429,13 +440,14 @@ def test_phase_page_variability_and_s4_panels():
 
 
 def test_phase_summary_cards_escape_the_label():
-    text = _page("phase.html")
+    text = _js("phase-view.js")
     assert "escapeHtml(ch.label)" in text
     assert "${ch.station}" not in text and "${ch.label}" not in text
 
 
 def test_dtec_page_labels_and_panels():
-    text = _page("dtec.html")
+    page = _page("ionosphere.html")
+    text = page[page.index('id="dtec"'):page.index('id="tec"')] + _js("dtec-view.js")
     assert "phase-rate dTEC (assumes no layer-height motion)" in text
     assert "mTECU/min" not in text and ">~6<" not in text
     assert "noise_floor" in text and "reference_comparison" in text
@@ -445,11 +457,16 @@ def test_dtec_page_labels_and_panels():
 
 
 def test_observatory_tec_and_residual_charts():
-    text = _page("ionosphere.html")
-    assert "range: [0, 100]" not in text
-    assert "plot-dclock-station" not in text and "D_clock by Station" not in text
-    assert "arrival residual vs model (ms)" in text
-    assert "Ionospheric Group Delay Residual" not in text
-    assert "latticeSuspect(" in text
-    assert "/phase/doppler" in text        # the phase page's estimator
-    assert "residual_rms_ms" in text
+    # the Observatory split: signal and residuals went to Propagation, TEC to Ionosphere
+    prop = _page("propagation.html") + _js("propagation.js")
+    iono = _page("ionosphere.html") + _js("ionosphere.js")
+    for text in (prop, iono):
+        assert "range: [0, 100]" not in text
+        assert "plot-dclock-station" not in text and "D_clock by Station" not in text
+        assert "Ionospheric Group Delay Residual" not in text
+    assert "Arrival residual against the model (ms)" in prop
+    assert "latticeSuspect(" in prop
+    assert "residual_rms_ms" in iono
+    # one Doppler estimator: the Ionosphere page draws phase-view's combined read
+    assert "/phase/combined" in _js("phase-view.js")
+    assert "doppler_hz" not in _js("propagation.js") and "doppler_hz" not in _js("ionosphere.js")

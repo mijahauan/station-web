@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from station_web.config import Settings
@@ -78,9 +78,10 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
     async def root():
         return page("index.html")
 
-    @app.get("/phase", response_class=HTMLResponse)
+    @app.get("/phase")
     async def phase_page():
-        return page("phase.html")
+        # phase.html folded into the Ionosphere page (stage 2 §6)
+        return RedirectResponse("/static/ionosphere.html#phase", status_code=307)
 
     @app.get("/grape", response_class=HTMLResponse)
     async def grape_page():

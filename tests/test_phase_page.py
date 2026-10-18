@@ -1,9 +1,10 @@
-"""phase.html: one combined fetch for the charts, and no CHU left behind."""
+"""The Doppler and phase section (js/phase-view.js, once phase.html): one
+combined fetch for the charts, and no CHU left behind."""
 import re
 from pathlib import Path
 
 PAGE = (Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
-        / "phase.html").read_text()
+        / "js" / "phase-view.js").read_text()
 
 
 def test_page_names_no_chu_channel():

@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Propagation - station-web</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/vendor/plotly-2.27.0.min.js"></script>
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/physics-views.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Propagation</h1>
+            <div class="header-subtitle">How each broadcast reaches this receiver: signal over the day, modes and MUF, detections, paths and time of flight</div>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
+        </div>
+
+        <div class="sticky-filter">
+            <div class="filter-bar" role="group" aria-label="Station filter">
+                <span class="filter-label">Station</span>
+                <button type="button" class="filter-btn prop-station-btn active" data-station="ALL" aria-pressed="true">All</button>
+                <button type="button" class="filter-btn prop-station-btn station-wwv" data-station="WWV" aria-pressed="false">WWV</button>
+                <button type="button" class="filter-btn prop-station-btn station-wwvh" data-station="WWVH" aria-pressed="false">WWVH</button>
+                <button type="button" class="filter-btn prop-station-btn station-bpm" data-station="BPM" aria-pressed="false">BPM</button>
+            </div>
+            <div id="time-period-selector"></div>
+        </div>
+
+        <div class="section-index" role="navigation" aria-label="On this page">
+            <a href="#snr">Signal over the day</a>
+            <a href="#modes">Modes</a>
+            <a href="#muf">MUF and mode shares</a>
+            <a href="#detections">Detections</a>
+            <a href="#map">Path map</a>
+            <a href="#time-of-flight">Time of flight</a>
+        </div>
+
+        <!-- ── Signal over the day ─────────────────────────────────── -->
+        <section class="page-section" id="snr">
+            <h2>Signal over the day</h2>
+            <div class="filter-bar">
+                <label class="filter-label" for="prop-freq">Frequency</label>
+                <select id="prop-freq" class="control-select" style="padding:5px 10px; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:var(--radius-md); color:var(--text-primary); font-size:13px;">
+                    <option value="ALL">All frequencies</option>
+                </select>
+                <label class="filter-label" for="prop-snr">Min SNR</label>
+                <input type="range" id="prop-snr" min="0" max="40" value="10" step="1" style="width:100px;">
+                <span id="prop-snr-label" style="font-size:13px; color:var(--text-primary);">10 dB</span>
+                <span class="muted" style="font-size:13px;">Measurements in window: <strong id="prop-count">0</strong></span>
+            </div>
+            <div class="plot-container">
+                <div class="plot-title">SNR against time</div>
+                <div class="plot-subtitle">One colour per frequency (L2_timing_measurements). With one station selected, the dotted gold line gives the solar elevation at that path's midpoint: low frequencies fade when the sun lights the D layer, high frequencies need a sunlit F layer.</div>
+                <div id="plot-snr" class="plot-frame" style="height: 360px;"></div>
+            </div>
+            <div class="plot-container">
+                <div class="plot-title">Arrival residual against the model (ms)</div>
+                <div class="plot-subtitle">Each broadcast's tick arrival minus the modelled propagation delay. A diagnostic, not ionospheric science: these residuals feed the T3 estimate of t&#8320;. Residuals within 0.5 ms of &plusmn;5, 10 or 15 ms sit on the tick lattice and suggest a lock on the wrong tick or mode; the chart draws them as grey crosses, marked suspect. Values railed at &plusmn;20 ms stay out. Doppler lives on the <a href="/static/ionosphere.html#phase">Ionosphere page</a>.</div>
+                <div id="plot-residual" class="plot-frame" style="height: 300px;"></div>
+            </div>
+        </section>
+
+        <!-- ── Modes ───────────────────────────────────────────────── -->
+        <section class="page-section" id="modes">
+            <h2>Modes</h2>
+            <div class="plot-container">
+                <div class="plot-title">Mode assigned to each measurement</div>
+                <div class="plot-subtitle">hf-timestd names a propagation mode (1F2, 2F2, 1E and so on) for each measurement; one row per station and frequency.</div>
+                <div id="plot-modes" class="plot-frame" style="height: 380px;"></div>
+            </div>
+        </section>
+
+        <!-- ── Hourly MUF and mode shares (L3C_propagation_stats) ──── -->
+        <section class="page-section" id="muf">
+            <h2>MUF and mode shares, hour by hour</h2>
+            <p class="plot-subtitle">hamsci-physics's reanalysis writes these each hour (L3C_propagation_stats). It estimates each path's MUF as the highest frequency whose F-layer probability tops 0.5; an hour with too few F-layer frequencies gets no MUF.</p>
+            <div class="grid-2">
+                <div class="plot-container">
+                    <div class="plot-title">Estimated MUF per path</div>
+                    <div class="plot-subtitle">One line per station path; hover shows the published confidence.</div>
+                    <div id="plot-muf" class="plot-frame" style="height: 300px;"></div>
+                </div>
+                <div class="plot-container">
+                    <div class="plot-title">Mode shares</div>
+                    <div class="plot-subtitle">Share of the hour's measurements in each mode: <span id="mode-prob-who">all stations</span>.</div>
+                    <div id="plot-mode-prob" class="plot-frame" style="height: 300px;"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Detection funnel (L2_detection_attempts) ────────────── -->
+        <section class="page-section" id="detections">
+            <h2>Detections per broadcast</h2>
+            <div class="plot-container">
+                <div class="plot-title">Attempts, detections and rejections</div>
+                <div class="plot-subtitle">hf-timestd tries to measure every expected tick and records each attempt (L2_detection_attempts). Green counts the attempts that passed every gate; the other colours count rejections by reason, for example <code>corr_snr_low</code> (correlation SNR under the gate) or <code>arrival_tolerance</code> (the tick arrived outside its window). The server counts them; no row leaves the database.</div>
+                <div id="plot-funnel" class="plot-frame" style="height: 220px;"></div>
+                <div id="funnel-table" style="margin-top: 12px;"></div>
+            </div>
+        </section>
+
+        <!-- ── Path map ────────────────────────────────────────────── -->
+        <section class="page-section" id="map">
+            <h2>Path map</h2>
+            <div class="plot-container">
+                <div class="plot-title">Great-circle paths from the receiver</div>
+                <div class="plot-subtitle">An azimuthal-equidistant map centred on the receiver: each path runs straight out from the centre along its bearing, and distance from the centre reads true. BPM's path crosses the Arctic, as the signal travels it. The receiver comes from /api/station/metadata, the transmitters from the broadcast registry.</div>
+                <div id="plot-map" class="plot-frame" style="height: 460px;"></div>
+            </div>
+        </section>
+
+        <!-- ── Time of flight (once ionogram.html) ─────────────────── -->
+        <section class="page-section" id="time-of-flight">
+            <h2>Time of flight</h2>
+            <p class="plot-subtitle">Propagation delay of each tick: detection time minus scheduled broadcast time, on the station's registered sample clock. Clusters suggest distinct propagation modes.</p>
+            <div class="note-box">
+                <strong>Reading the charts:</strong>
+                Rank-0 arrivals (dominant path) cluster near the model-predicted time of flight.
+                Rank-1+ arrivals (secondary paths) appear at longer delays; a separate cluster
+                suggests a distinct propagation mode (1F, 2F, sporadic-E, sidescatter).
+                The delay between two modes depends on ground range and on both hop geometries,
+                so this page derives no layer height from it.
+                SNR helps separate modes: each extra hop crosses the D layer twice more and arrives weaker.
+            </div>
+
+            <!-- Filters -->
+            <div class="controls-row">
+                <div class="control-group">
+                    <label>Channel</label>
+                    <select id="channelSelect">
+                        <option value="">Loading channels…</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Station</label>
+                    <select id="stationSelect">
+                        <option value="">All on channel</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>Min SNR (dB)</label>
+                    <input type="number" id="minSnr" value="15" min="0" max="40" step="1" style="width:80px">
+                </div>
+                <div class="control-group">
+                    <label>Downsample</label>
+                    <select id="downsampleSelect">
+                        <option value="1">All points</option>
+                        <option value="3" selected>Every 3rd</option>
+                        <option value="5">Every 5th</option>
+                        <option value="10">Every 10th</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Stats row -->
+            <div class="stats-grid" id="statsGrid" style="display:none">
+                <div class="stat-card">
+                    <div class="stat-label">Total arrivals</div>
+                    <div class="stat-value" id="statTotal">—</div>
+                    <div class="stat-sub">in time window</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Dominant (rank-0)</div>
+                    <div class="stat-value" id="statRank0">—</div>
+                    <div class="stat-sub" id="statRank0Tof">—</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Secondary (rank≥1)</div>
+                    <div class="stat-value" id="statRankN">—</div>
+                    <div class="stat-sub">multi-hop paths</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tof-tab-row">
+                <button type="button" class="tof-tab-btn active" data-tab="timeseries">Time series</button>
+                <button type="button" class="tof-tab-btn" data-tab="cluster">Delay against S+N</button>
+                <button type="button" class="tof-tab-btn" data-tab="doppler">Doppler against delay</button>
+            </div>
+
+            <!-- Time series panel -->
+            <div class="tof-tab-panel active" id="tof-tab-timeseries">
+                <div class="plot-container">
+                    <div class="plot-title">Time of Flight — All Arrivals</div>
+                    <div class="plot-subtitle">
+                        Dominant path (rank-0, filled circles) and secondary paths (rank≥1, open circles).
+                    </div>
+                    <div id="tofPlot" style="height:320px"><div class="loading-msg">Loading…</div></div>
+                </div>
+                <div class="plot-container">
+                    <div class="plot-title">Correlation S+N Level (dB)</div>
+                    <div class="plot-subtitle">
+                        Per-arrival correlation SNR. High SNR = strong signal; low SNR = marginal detection.
+                        D-layer absorption reduces SNR on lower frequencies during daytime.
+                    </div>
+                    <div id="snrPlot" style="height:220px"><div class="loading-msg">—</div></div>
+                </div>
+            </div>
+
+            <!-- Cluster panel -->
+            <div class="tof-tab-panel" id="tof-tab-cluster">
+                <div class="plot-container">
+                    <div class="plot-title">ToF vs S+N Level — Cluster Analysis</div>
+                    <div class="plot-subtitle">
+                        Each point is one arrival. KDE density contours outline candidate propagation-mode clusters.
+                        A rough reading: high-ToF/high-SNR suggests 2F or sidescatter; low-ToF/high-SNR, 1F direct;
+                        low-ToF/low-SNR, forward scatter or an artefact.
+                    </div>
+                    <div id="clusterPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
+                </div>
+            </div>
+
+            <!-- Doppler-Delay panel -->
+            <div class="tof-tab-panel" id="tof-tab-doppler">
+                <div class="note-box">
+                    <strong>Doppler against delay:</strong>
+                    One point per minute and station. X: the minute's median time of flight of the
+                    dominant arrivals (ms). Y: that minute's carrier Doppler (Hz), from the Ionosphere page's
+                    estimator, f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt over the
+                    1 Hz carrier phase. Modes that move differently could separate along the Doppler
+                    axis even where their delays overlap. On a SHARED channel the Doppler belongs to the
+                    composite carrier (WWV + WWVH + BPM), so every station's delay in a minute pairs
+                    with the same Doppler.
+                </div>
+                <div id="dopplerRuler"></div>
+                <div class="stats-grid" id="dopplerStatsGrid" style="display:none">
+                    <div class="stat-card">
+                        <div class="stat-label">Minutes paired</div>
+                        <div class="stat-value" id="statDopplerMins">--</div>
+                        <div class="stat-sub" id="statDopplerMinsSub">delay and Doppler</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Delay spread</div>
+                        <div class="stat-value" id="statDelaySpread">--</div>
+                        <div class="stat-sub">ms (std dev)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Doppler spread</div>
+                        <div class="stat-value" id="statDopplerSpread">--</div>
+                        <div class="stat-sub">Hz (std dev)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Median Doppler</div>
+                        <div class="stat-value" id="statDopplerMedian">--</div>
+                        <div class="stat-sub">Hz</div>
+                    </div>
+                </div>
+                <div class="plot-container">
+                    <div class="plot-title">Doppler vs delay</div>
+                    <div class="plot-subtitle" id="dopplerDelaySub">
+                        Per-minute Doppler (Hz) against per-minute delay (ms). KDE contours outline clusters.
+                    </div>
+                    <div id="dopplerDelayPlot" style="height:520px"><div class="loading-msg">Loading…</div></div>
+                </div>
+                <div class="plot-container">
+                    <div class="plot-title">Per-minute Doppler (Hz)</div>
+                    <div class="plot-subtitle">
+                        The same estimator as the Ionosphere page's Doppler chart. Diurnal variation tracks bulk ionospheric motion.
+                    </div>
+                    <div id="dopplerTsPlot" style="height:240px"><div class="loading-msg">--</div></div>
+                </div>
+            </div>
+
+            <div id="errorMsg" class="error-msg" style="display:none"></div>
+        </section>
+    </div>
+
+    <script src="/static/js/tof-view.js"></script>
+    <script src="/static/js/propagation.js"></script>
+</body>
+
+</html>

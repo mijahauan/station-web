@@ -592,3 +592,103 @@ body {
 
 /* ── Ruler floor beside a Doppler chart (js/physics-views.js) ────────── */
 .ruler-floor { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
+
+/* Site footer (common.js renderSiteFooter): Docs and other secondary links */
+.site-footer {
+    margin-top: var(--spacing-xl, 32px);
+    padding: var(--spacing-md, 16px) 0;
+    border-top: 1px solid var(--border-color);
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+.site-footer .footer-link { color: #56B4E9; text-decoration: none; }
+.site-footer .footer-link:hover { text-decoration: underline; }
+
+/* ── Consolidated pages (propagation.html, ionosphere.html) ─────────── */
+.page-section { scroll-margin-top: 12px; }
+.page-section > h2 {
+    font-size: 20px; color: var(--text-primary);
+    margin: var(--spacing-xl) 0 var(--spacing-sm);
+    padding-bottom: 6px; border-bottom: 1px solid var(--border-color);
+}
+.section-index {
+    display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px;
+    margin-bottom: var(--spacing-md); color: var(--text-secondary);
+}
+.section-index a { color: #56B4E9; text-decoration: none; }
+.section-index a:hover { text-decoration: underline; }
+.plot-container {
+    background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); padding: 16px; margin-bottom: 16px;
+    min-width: 0;
+}
+.plot-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+.plot-subtitle { font-size: 13px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.5; }
+.plot-frame { width: 100%; min-width: 0; }
+.controls-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.control-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.control-group label { font-size: 12px; color: var(--text-secondary); font-weight: 500; }
+.control-group select, .control-group input {
+    padding: 6px 10px; background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm); color: var(--text-primary); font-size: 13px; max-width: 100%;
+}
+.filter-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+.filter-bar .filter-label {
+    font-size: 12px; color: var(--text-secondary); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-right: 4px;
+}
+.filter-btn {
+    padding: 5px 14px; background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-md); color: var(--text-secondary); cursor: pointer; font-size: 13px;
+}
+.filter-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+.filter-btn.active { background: #1e3a8a; border-color: #3b82f6; color: #fff; }
+.filter-btn.station-wwv.active  { background: color-mix(in srgb, var(--station-wwv) 30%, transparent); border-color: var(--station-wwv); }
+.filter-btn.station-wwvh.active { background: color-mix(in srgb, var(--station-wwvh) 30%, transparent); border-color: var(--station-wwvh); }
+.filter-btn.station-bpm.active  { background: color-mix(in srgb, var(--station-bpm) 30%, transparent); border-color: var(--station-bpm); }
+.sticky-filter {
+    position: sticky; top: 0; z-index: 5; background: var(--bg-primary, #0f172a);
+    padding: 8px 0; border-bottom: 1px solid var(--border-color);
+}
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stat-card { background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; }
+.stat-label { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+.stat-value { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.stat-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.loading-msg { text-align: center; padding: 40px; color: var(--text-secondary); font-size: 14px; }
+.error-msg { text-align: center; padding: 20px; color: #f87171; font-size: 13px; }
+.note-box {
+    background: #1e293b; border: 1px solid #334155; border-radius: var(--radius-md);
+    padding: 12px 16px; font-size: 13px; color: #94a3b8; margin-bottom: 16px; line-height: 1.6;
+}
+.note-box strong { color: #cbd5e1; }
+.tof-tab-row { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+.tof-tab-btn {
+    padding: 8px 16px; background: var(--bg-surface); border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; font-size: 13px;
+}
+.tof-tab-btn.active { background: #1e3a8a; border-color: #3b82f6; color: #fff; }
+.tof-tab-panel { display: none; }
+.tof-tab-panel.active { display: block; }
+.freq-filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.freq-chip {
+    padding: 4px 10px; border-radius: 12px; font-size: 12px; cursor: pointer;
+    background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--text-secondary);
+}
+.freq-chip.active { background: #1e3a8a; border-color: #3b82f6; color: #fff; }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.iono-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.iono-tile { background: var(--bg-primary, #0f172a); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 12px 14px; }
+.iono-tile-label { font-size: 12px; color: var(--text-secondary); }
+.iono-tile-value { font-size: 28px; font-weight: 700; color: var(--text-primary); font-family: 'Courier New', monospace; }
+.iono-tile-value.muted { font-size: 14px; font-weight: 400; color: var(--text-secondary); font-family: inherit; }
+.iono-tile-meta { font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.prop-table-wrap { overflow-x: auto; }
+.prop-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.prop-table th, .prop-table td { padding: 5px 8px; border-bottom: 1px solid var(--border-color); text-align: left; white-space: nowrap; }
+.prop-table th { color: var(--text-secondary); font-weight: 600; }
+.prop-table td.num { text-align: right; font-family: monospace; }
+@media (max-width: 900px) {
+    .grid-2 { grid-template-columns: minmax(0, 1fr); }
+}

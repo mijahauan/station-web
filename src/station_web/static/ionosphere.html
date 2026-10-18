@@ -5,1136 +5,257 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <title>Ionospheric Observatory - station-web</title>
+    <title>Ionosphere - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
     <script src="/static/js/physics-views.js"></script>
-    <style>
-        .display-tabs {
-            display: flex;
-            gap: 4px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        .display-tab {
-            padding: 10px 18px;
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s;
-        }
-        .display-tab:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
-        .display-tab.active {
-            background: #1e3a8a;
-            border-color: #3b82f6;
-            color: #fff;
-        }
-        .display-content { display: none; }
-        .display-content.active { display: block; }
-        .plot-container {
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .plot-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 4px;
-        }
-        .plot-subtitle {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
-        .status-bar {
-            display: flex;
-            gap: 24px;
-            flex-wrap: wrap;
-            padding: 12px 16px;
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            margin-bottom: 16px;
-            font-size: 13px;
-        }
-        .status-item { color: var(--text-secondary); }
-        .status-item strong { color: var(--text-primary); margin-left: 4px; }
-        .freq-legend {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 8px;
-            font-size: 12px;
-        }
-        .freq-legend-item {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            color: var(--text-secondary);
-        }
-        .freq-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-        .map-container {
-            position: relative;
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .info-card {
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-        .info-card h3 {
-            font-size: 15px;
-            color: var(--text-primary);
-            margin-bottom: 8px;
-        }
-        .info-card p {
-            font-size: 13px;
-            color: var(--text-secondary);
-            line-height: 1.5;
-        }
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-        }
-        .filter-bar {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-        }
-        .filter-bar label {
-            font-size: 12px;
-            color: var(--text-secondary);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-right: 4px;
-        }
-        .filter-btn {
-            padding: 5px 14px;
-            background: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            color: var(--text-secondary);
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.15s;
-        }
-        .filter-btn:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
-        .filter-btn.active {
-            background: #1e3a8a;
-            border-color: #3b82f6;
-            color: #fff;
-        }
-        .filter-btn.station-wwv.active  { background: color-mix(in srgb, var(--station-wwv) 30%, transparent); border-color: var(--station-wwv); }
-        .filter-btn.station-wwvh.active { background: color-mix(in srgb, var(--station-wwvh) 30%, transparent); border-color: var(--station-wwvh); }
-        .filter-btn.station-bpm.active  { background: color-mix(in srgb, var(--station-bpm) 30%, transparent); border-color: var(--station-bpm); }
-        @media (max-width: 900px) {
-            .grid-2 { grid-template-columns: 1fr; }
-        }
-    </style>
 </head>
 
 <body>
     <div class="container">
         <div class="header">
-            <h1>Ionospheric Observatory</h1>
-            <div class="header-subtitle">Multi-frequency oblique ionosonde &mdash; <span id="hdr-stations">WWV, WWVH, BPM</span></div>
+            <h1>Ionosphere</h1>
+            <div class="header-subtitle">What the HF paths say about the ionosphere: Doppler, phase variability, S4, dTEC and TEC, beside space weather and GNSS VTEC</div>
             <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
-        <div id="error-container" style="display: none; background: #7f1d1d; border: 1px solid #ef4444; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: #fca5a5; font-size: 13px;"></div>
-
-        <!-- Time Period Selector + Status Bar -->
-        <div class="status-bar" id="status-bar">
-            <div class="status-item" style="display:flex; align-items:center; gap:6px;">
-                <div id="time-period-selector"></div>
-            </div>
-            <div class="status-item">Measurements: <strong id="stat-count">...</strong></div>
-            <div class="status-item">Stations: <strong id="stat-stations">...</strong></div>
-        </div>
-        <div class="status-bar" style="margin-top:-12px;">
-            <div class="status-item">Frequencies: <strong id="stat-freqs">...</strong></div>
-            <div class="status-item">Last Update: <strong id="stat-time">...</strong></div>
+        <div class="sticky-filter">
+            <div id="time-period-selector"></div>
         </div>
 
-        <!-- Display Tabs -->
-        <div class="display-tabs">
-            <button class="display-tab active" data-display="diurnal">1. Solar Diurnal Cycle</button>
-            <button class="display-tab" data-display="geometry">2. Propagation Geometry</button>
-            <button class="display-tab" data-display="tec">3. Frequency Dispersion / TEC</button>
-            <button class="display-tab" data-display="events">4. Events &amp; Space Weather</button>
+        <div class="section-index" role="navigation" aria-label="On this page">
+            <a href="#space-weather">Space weather</a>
+            <a href="#phase">Doppler and phase</a>
+            <a href="#dtec">dTEC</a>
+            <a href="#tec">TEC and GNSS VTEC</a>
         </div>
 
-        <!-- ================================================================ -->
-        <!-- DISPLAY 1: Solar Diurnal Cycle -->
-        <!-- ================================================================ -->
-        <div id="display-diurnal" class="display-content active">
-            <div class="info-card">
-                <h3>Solar Diurnal Cycle &mdash; One Path at a Time</h3>
-                <p>Select a station to see how its signal strengths vary with solar illumination. The gold curve shows solar elevation at the path midpoint. Low frequencies (2.5, 5 MHz) are absorbed by the D-layer during daytime &mdash; SNR drops when the sun is up. High frequencies (15, 20, 25 MHz) propagate only when the F-layer is ionised &mdash; SNR rises with the sun. The crossover frequency depends on path geometry and season.</p>
+        <!-- ── Space weather ───────────────────────────────────────── -->
+        <section class="page-section" id="space-weather">
+            <h2>Space weather</h2>
+            <div class="plot-container">
+                <div class="plot-title">Latest snapshot</div>
+                <div class="plot-subtitle">Kp, F10.7 and Ap as hamsci-physics last cached them (/api/space-weather/current). station-web fetches nothing from outside the station.</div>
+                <div id="sw-tiles"></div>
+            </div>
+            <p class="plot-subtitle" id="sw-series-note"></p>
+            <div class="plot-container" id="sw-series-box" hidden>
+                <div class="plot-title">X-ray flux and Kp</div>
+                <div class="plot-subtitle">GOES X-ray (log, left) and Kp (bars, right).</div>
+                <div id="plot-space-weather" class="plot-frame" style="height: 250px;"></div>
+            </div>
+            <div class="plot-container">
+                <div class="plot-title">SNR with ionospheric events</div>
+                <div class="plot-subtitle">Every station's SNR, with hamsci-physics's detected events (sudden ionospheric disturbances, absorption) as dotted lines. Mode changes stay off this chart; the Propagation page draws modes.</div>
+                <div id="plot-events-snr" class="plot-frame" style="height: 320px;"></div>
+            </div>
+        </section>
+
+        <!-- ── Doppler and phase (once phase.html) ─────────────────── -->
+        <section class="page-section" id="phase">
+            <h2>Doppler and phase</h2>
+            <div class="controls-row">
+                <div class="control-group">
+                    <label for="channel-select">Channel</label>
+                    <select id="channel-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); max-width: 100%;">
+                        <option value="">All channels</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="station-select">Station</label>
+                    <select id="station-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); max-width: 100%;">
+                        <option value="">All stations</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="phase-type-select">Phase type (phase chart)</label>
+                    <select id="phase-type-select" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-surface); color: var(--text-primary); max-width: 100%;">
+                        <option value="carrier_phase_rad" selected>Carrier phase (IQ mix-down)</option>
+                        <option value="dc_carrier_phase_rad">DC carrier phase (unambiguous only)</option>
+                        <option value="phase_rad">Audio modulation phase</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="filter-bar">
-                <label>Station:</label>
-                <button class="filter-btn station-wwv active" data-station="WWV" onclick="setStationFilter('WWV')">WWV</button>
-                <button class="filter-btn station-wwvh" data-station="WWVH" onclick="setStationFilter('WWVH')">WWVH</button>
-                <button class="filter-btn station-bpm" data-station="BPM" onclick="setStationFilter('BPM')">BPM</button>
-                <button class="filter-btn" data-station="ALL" onclick="setStationFilter('ALL')">All</button>
-                <span style="width:16px"></span>
-                <label>Frequency:</label>
-                <select id="freq-filter" onchange="setFreqFilter(this.value)" style="padding:5px 10px; background:var(--bg-surface); border:1px solid var(--border-color); border-radius:var(--radius-md); color:var(--text-primary); font-size:13px;">
-                    <option value="ALL">All frequencies</option>
-                </select>
-                <span style="width:16px"></span>
-                <label>Min SNR:</label>
-                <input type="range" id="snr-threshold" min="0" max="40" value="10" step="1" oninput="setSnrThreshold(this.value)" style="width:100px; vertical-align:middle;">
-                <span id="snr-threshold-label" style="font-size:13px; color:var(--text-primary); min-width:40px;">10 dB</span>
-            </div>
+            <div id="summary-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--spacing-md); margin-bottom: var(--spacing-lg);"></div>
 
             <div class="plot-container">
-                <div class="plot-title">Signal-to-Noise Ratio vs Time</div>
-                <div class="plot-subtitle">Gold curve = solar elevation at path midpoint &mdash; low-freq SNR anti-correlates (D-layer absorption), high-freq correlates (F-layer support)</div>
-                <div id="plot-snr" style="height: 380px;"></div>
-            </div>
-
-            <div class="plot-container">
-                <div class="plot-title">arrival residual vs model (ms)</div>
-                <div class="plot-subtitle">Each broadcast's tick arrival minus the modelled propagation delay. A diagnostic, not ionospheric science: these per-broadcast residuals feed the T3 estimate of t&#8320;. Residuals within 0.5 ms of &plusmn;5, 10 or 15 ms sit on the tick lattice and suggest a lock on the wrong tick or mode; the chart draws them as grey crosses, marked suspect. Values railed at &plusmn;20 ms are left out.</div>
-                <div id="plot-dclock" style="height: 300px;"></div>
-            </div>
-
-            <div class="plot-container">
-                <div class="plot-title">Doppler Shift vs Time</div>
-                <div class="plot-subtitle">Per-minute carrier Doppler from the Phase page's estimator, f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt over the 1 Hz carrier phase: one Doppler site-wide. A SHARED channel shows one trace, the composite carrier (WWV + WWVH + BPM).</div>
+                <div class="plot-title">Doppler shift</div>
+                <div class="plot-subtitle">
+                    f<sub>D</sub> = &minus;(1/2&pi;)&middot;&Sigma;d&phi;/&Sigma;dt, pooled over the 1 Hz carrier-phase steps in each point:
+                    the one Doppler estimator on this site (the time-of-flight section of the Propagation page draws the same numbers).
+                    Relative to the station's GPSDO-disciplined sample clock, whose floor shows below. A SHARED channel shows one trace, the composite carrier.
+                </div>
                 <div id="doppler-ruler"></div>
-                <div id="plot-doppler" style="height: 300px;"></div>
-            </div>
-        </div>
-
-        <!-- ================================================================ -->
-        <!-- DISPLAY 2: Propagation Geometry -->
-        <!-- ================================================================ -->
-        <div id="display-geometry" class="display-content">
-            <div class="info-card">
-                <h3>Propagation Geometry &mdash; Simultaneous Sounding Paths</h3>
-                <p>The receiver at <span id="geo-rx">this station</span> monitors <span id="geo-tx">the WWV, WWVH and BPM transmitters</span>. Each path samples a different region of the ionosphere at a different elevation angle. Propagation mode assignments (1F2, 2F2, 1E, etc.) track the Maximum Usable Frequency diurnal cycle.</p>
+                <div id="doppler-plot" class="plot-frame" style="height: 340px;"></div>
             </div>
 
             <div class="plot-container">
-                <div class="plot-title">Propagation Path Map</div>
-                <div class="plot-subtitle">Great-circle paths from the receiver to each monitored transmitter</div>
-                <div id="plot-map" style="height: 500px;"></div>
-            </div>
-
-            <div class="plot-container">
-                <div class="plot-title">Propagation Mode Timeline</div>
-                <div class="plot-subtitle">Mode assignments over 24h &mdash; highest active F-layer frequency = empirical MUF</div>
-                <div id="plot-modes" style="height: 400px;"></div>
-            </div>
-        </div>
-
-        <!-- ================================================================ -->
-        <!-- DISPLAY 3: TEC Inversion -->
-        <!-- ================================================================ -->
-        <div id="display-tec" class="display-content">
-            <div class="info-card">
-                <h3>Frequency Dispersion &mdash; Experimental Group-Delay TEC</h3>
-                <p>D_clock(f) = D_common + 1.344 &times; TEC / f&sup2;. Plotting D_clock vs 1/f&sup2; for multiple frequencies <em>with the same propagation mode</em>, the slope gives <strong>slant TEC</strong> along the oblique HF ray path. The fit is filtered to same-mode points only &mdash; mixing 1F2 and 2F2 hops would conflate geometry differences with dispersion.</p>
-                <p style="margin-top:8px;"><strong>Limitations:</strong> Group-delay TEC is a <em>noise-dominated validation product</em>. D_clock uncertainty (~1&ndash;2 ms) is comparable to the TEC-induced dispersion between adjacent frequencies. R&sup2; &lt; 0.7 or RMS &gt; 2 ms indicates the estimate is unreliable. Negative TEC is unphysical (mode misassignment or multipath). <strong>The primary ionospheric TEC product is carrier-phase dTEC</strong> on the <a href="/static/dtec.html" style="color:#3b82f6;">dTEC page</a>. Typical slant TEC: 5&ndash;20 TECU night, 20&ndash;80 TECU day. Compare with <a href="https://www.swpc.noaa.gov/products/us-total-electron-content" style="color:#3b82f6;">SWPC US-TEC</a>.</p>
-            </div>
-
-            <div class="grid-2">
-                <div class="plot-container">
-                    <div class="plot-title">D_clock vs 1/f&sup2; &mdash; Live TEC Fit</div>
-                    <div class="plot-subtitle">Last hour of data, same-mode points only &mdash; slope = 1.344 &times; TEC. Badge shows R&sup2; and residual RMS.</div>
-                    <div id="plot-tec-fit" style="height: 400px;"></div>
+                <div class="plot-title">Phase variability (60 s detrend)</div>
+                <div class="plot-subtitle">
+                    Standard deviation of the 1 Hz carrier phase about a straight line fitted over each 60 s window.
+                    At HF, multipath and mode mixing raise it as much as irregularities do, and no calibrated HF threshold exists,
+                    so the chart draws none. (The GNSS scintillation index uses a 0.1 Hz high-pass on 50 Hz phase; this measures something else.)
                 </div>
-                <div class="plot-container">
-                    <div class="plot-title">TEC Time Series (24h)</div>
-                    <div class="plot-subtitle">Slant TEC from the multi-frequency 1/f&sup2; fit (L3_tec). Autoscaled, so negative (unphysical) fits stay visible. L3_tec publishes no TEC uncertainty in TECU; the hover shows the fit's RMS residual in ms.</div>
-                    <div id="plot-tec-ts" style="height: 400px;"></div>
+                <div id="scintillation-plot" class="plot-frame" style="height: 300px;"></div>
+            </div>
+
+            <div class="plot-container">
+                <div class="plot-title">S4 (uncorrected for noise)</div>
+                <div class="plot-subtitle">
+                    Normalised standard deviation of the tick SNR, as intensity, over each 60 s window. No noise correction:
+                    at low SNR the receiver noise alone lifts S4.
+                </div>
+                <div id="s4-plot" class="plot-frame" style="height: 260px;"></div>
+            </div>
+
+            <div class="plot-container">
+                <div class="plot-title">Carrier phase</div>
+                <div class="plot-subtitle">
+                    Unwrapped phase tracks the path length. Ramps mean Doppler drift; jumps mean mode changes.
+                    <span id="bucket-note"></span>
+                </div>
+                <div id="phase-plot" class="plot-frame" style="height: 380px;"></div>
+            </div>
+
+            <div class="plot-container">
+                <div class="plot-title">DC carrier phase (single-station channels)</div>
+                <div class="plot-subtitle">
+                    Channels that hear one station (WWV 20 and 25 MHz): bare carrier phase, independent of tone detection.
+                </div>
+                <div id="dc-phase-plot" class="plot-frame" style="height: 340px;"></div>
+            </div>
+        </section>
+
+        <!-- ── dTEC (once dtec.html) ───────────────────────────────── -->
+        <section class="page-section" id="dtec">
+            <h2>phase-rate dTEC (assumes no layer-height motion)</h2>
+            <div class="science-note">
+                <strong>What the rate measures:</strong>
+                A single-frequency carrier phase changes when the TEC along the path changes and when the
+                reflecting layer moves up or down. This page converts the whole phase rate to a TEC rate,
+                which assumes the layer height holds still. Read it as phase-rate dTEC, not as a TEC
+                measurement.
+                <br><br>
+                <strong>Noise floor:</strong> computed from this window's data (see the tile below), in the
+                chart's unit, TECU/s. Signatures across the <span id="dtecPathBearings">WWV, WWVH and BPM</span>
+                paths can constrain a disturbance's direction and speed when they appear on distinct frequencies.
+            </div>
+
+            <!-- Filters -->
+            <div class="controls-row">
+                <div class="control-group">
+                    <label for="dtecStationFilter">Station filter</label>
+                    <select id="dtecStationFilter">
+                        <option value="">All stations</option>
+                        <option value="WWV">WWV only</option>
+                        <option value="WWVH">WWVH only</option>
+                        <option value="BPM">BPM only</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="dtecMinSnr">Min SNR (dB)</label>
+                    <input type="number" id="dtecMinSnr" value="6" min="0" max="30" step="1" style="width:70px">
+                </div>
+                <div class="control-group">
+                    <label for="dtecDownsample">Downsample</label>
+                    <select id="dtecDownsample">
+                        <option value="1">All points</option>
+                        <option value="2" selected>Every 2nd</option>
+                        <option value="5">Every 5th</option>
+                    </select>
                 </div>
             </div>
 
-        </div>
-
-        <!-- ================================================================ -->
-        <!-- DISPLAY 4: Events & Space Weather -->
-        <!-- ================================================================ -->
-        <div id="display-events" class="display-content">
-            <div class="info-card">
-                <h3>Events &amp; Space Weather</h3>
-                <p>Solar flares cause Sudden Ionospheric Disturbances (SIDs) &mdash; increased D-layer absorption drops SNR on lower frequencies within minutes. Geomagnetic storms (high Kp) disrupt F-layer propagation. Mode transitions mark ionospheric state changes.</p>
+            <!-- Frequency filter chips -->
+            <div style="margin-bottom:8px; font-size:12px; color:var(--text-secondary)">Frequency filter:</div>
+            <div class="freq-filter-row" id="freqChips">
+                <span class="freq-chip active" data-freq="all">All</span>
+                <span class="freq-chip" data-freq="2.5">2.5 MHz</span>
+                <span class="freq-chip" data-freq="5.0">5 MHz</span>
+                <span class="freq-chip" data-freq="10.0">10 MHz</span>
+                <span class="freq-chip" data-freq="15.0">15 MHz</span>
+                <span class="freq-chip" data-freq="20.0">20 MHz</span>
+                <span class="freq-chip" data-freq="25.0">25 MHz</span>
             </div>
 
+            <!-- Stats -->
+            <div class="stats-grid" id="dtecStatsGrid" style="display:none">
+                <div class="stat-card">
+                    <div class="stat-label">Active paths</div>
+                    <div class="stat-value" id="dtecStatPaths">—</div>
+                    <div class="stat-sub">station/frequency pairs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total records</div>
+                    <div class="stat-value" id="dtecStatRecords">—</div>
+                    <div class="stat-sub">in time window</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Anchored fraction</div>
+                    <div class="stat-value" id="dtecStatAnchored">—</div>
+                    <div class="stat-sub">dTEC anchored to group-delay TEC</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Noise floor (1σ)</div>
+                    <div class="stat-value" id="dtecStatNoise">—</div>
+                    <div class="stat-sub" id="dtecStatNoiseSub">TECU/s</div>
+                </div>
+            </div>
+
+            <!-- Main dTEC rate plot -->
             <div class="plot-container">
-                <div class="plot-title">Space Weather &mdash; X-ray Flux + Kp Index</div>
-                <div class="plot-subtitle">GOES X-ray (red, left axis, log) &mdash; M/X flares cause SIDs. Kp index (bars, right axis) &mdash; Kp &ge; 5 = storm.</div>
-                <div id="plot-space-weather" style="height: 250px;"></div>
+                <div class="plot-title">phase-rate dTEC (assumes no layer-height motion)</div>
+                <div class="plot-subtitle">
+                    Top: dTEC/dt in TECU/s, one trace per path (a SHARED frequency: the composite carrier, in neutral grey).
+                    Middle, when a product backs it: GOES X-ray flux (log). Bottom: solar elevation at each path's midpoint. The panels share the time axis.
+                    <span id="dtecXrayNote"></span>
+                    Click legend entries to show or hide a path.
+                </div>
+                <div id="dtecRatePlot" style="height:560px">
+                    <div class="loading-msg">Select parameters and click Load</div>
+                </div>
             </div>
 
+
+            <!-- Distinct-frequency comparison -->
             <div class="plot-container">
-                <div class="plot-title">SNR with Event Markers</div>
-                <div class="plot-subtitle">All-station SNR overlaid with significant ionospheric events (SIDs, absorption). Mode changes shown as vertical lines (max 30).</div>
-                <div id="plot-events-snr" style="height: 350px;"></div>
+                <div class="plot-title">Distinct-frequency comparison</div>
+                <div class="plot-subtitle" id="refSub">
+                    The composite carrier near 10 MHz against the single-station paths (WWV 20 and 25 MHz).
+                    WWV, WWVH and BPM at 10 MHz share one carrier, so comparing them proves nothing; independent
+                    carriers on distinct frequencies that move together point to the ionosphere.
+                </div>
+                <div id="refPlot" style="height:300px">
+                    <div class="loading-msg">—</div>
+                </div>
             </div>
-        </div>
+
+            <div id="dtecErrorMsg" class="error-msg" style="display:none"></div>
+        </section>
+
+        <!-- ── TEC with GNSS VTEC as its reference ─────────────────── -->
+        <section class="page-section" id="tec">
+            <h2>TEC, with GNSS VTEC as the reference</h2>
+            <div class="plot-container">
+                <div class="plot-title">HF slant TEC against GNSS vertical TEC</div>
+                <div class="plot-subtitle">Points: slant TEC along each HF path from the multi-frequency 1/f&sup2; fit (L3_tec); L3_tec publishes no uncertainty in TECU, so the hover shows the fit's RMS residual in ms.
+                    Dashed white line: GNSS VTEC over the receiver (L3_gnss_vtec), the reference. The two measure different things, slant along an oblique path against vertical over the receiver, so read the reference for its shape and level, not for point-by-point agreement.</div>
+                <p class="plot-subtitle" id="vtec-note"></p>
+                <div id="plot-tec-ts" class="plot-frame" style="height: 360px;"></div>
+            </div>
+            <div class="plot-container">
+                <div class="plot-title">Arrival residual against 1/f&sup2;: live group-delay fit</div>
+                <div class="plot-subtitle">The window's last hour, same-mode points only: the slope gives 1.344 &times; TEC. A noisy validation product: the residuals' spread (1 to 2 ms) rivals the dispersion between adjacent frequencies, and R&sup2; under 0.7 or RMS over 2 ms marks an unreliable fit. Negative TEC means a mode misassignment or multipath.</div>
+                <div id="plot-tec-fit" class="plot-frame" style="height: 360px;"></div>
+            </div>
+        </section>
     </div>
 
-    <script>
-    // ====================================================================
-    // CONFIGURATION
-    // ====================================================================
-    // Transmitters and receiver come from the API, never from this page:
-    // /api/stations/ (broadcast registry) and /api/station/metadata.
-    let STATION_COORDS = {};
-    let RX_COORDS = null;
-
-    async function loadGeometrySources() {
-        const [meta, reg] = await Promise.all([
-            loadStationMeta(),
-            api.get('/stations/').catch(e => { console.error('stations unavailable:', e); return null; }),
-        ]);
-        if (meta && meta.latitude !== undefined && meta.longitude !== undefined) {
-            RX_COORDS = { lat: meta.latitude, lon: meta.longitude,
-                          label: `Receiver ${meta.callsign || ''} (${meta.grid_square || formatLatLon(meta.latitude, meta.longitude)})`,
-                          short: meta.callsign || 'RX' };
-            document.getElementById('geo-rx').textContent =
-                `${meta.callsign || 'this station'} (${formatLatLon(meta.latitude, meta.longitude)})`;
-        }
-        STATION_COORDS = {};
-        for (const st of (reg && reg.stations) || []) {
-            STATION_COORDS[st.station_id] = { lat: st.coordinates.lat, lon: st.coordinates.lon,
-                                              label: `${st.station_id} (${st.location || ''})` };
-        }
-        const names = Object.keys(STATION_COORDS);
-        if (names.length > 0) {
-            document.getElementById('hdr-stations').textContent = names.join(', ');
-            document.getElementById('geo-tx').textContent =
-                `${names.length} transmitters (${names.join(', ')})`;
-        }
-    }
-    const PLOTLY_LAYOUT_BASE = {
-        paper_bgcolor: '#1e293b',
-        plot_bgcolor: '#0f172a',
-        font: { color: '#94a3b8', size: 12 },
-        margin: PLOT_MARGINS,
-        xaxis: { gridcolor: '#334155', zerolinecolor: '#475569' },
-        yaxis: { gridcolor: '#334155', zerolinecolor: '#475569' },
-        legend: { bgcolor: 'rgba(30,41,59,0.8)', bordercolor: '#475569', borderwidth: 1, font: { size: 11 } },
-    };
-
-    // ====================================================================
-    // TAB SWITCHING
-    // ====================================================================
-    document.querySelectorAll('.display-tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.display-tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.display-content').forEach(c => c.classList.remove('active'));
-            tab.classList.add('active');
-            document.getElementById('display-' + tab.dataset.display).classList.add('active');
-            // Trigger resize for Plotly
-            window.dispatchEvent(new Event('resize'));
-        });
-    });
-
-    // ====================================================================
-    // DATA FETCHING
-    // ====================================================================
-    let timelineData = null;
-    let dopplerData = null;
-    let tecData = null;
-    let solarData = null;
-    let currentStation = 'WWV';
-    let currentFreq = 'ALL';
-
-    // TimePeriodSelector drives the date; selectedDate derived from it
-    let tps = null;
-    function getSelectedDate() {
-        const r = tps.getRange();
-        return r.start.slice(0, 10);  // YYYY-MM-DD
-    }
-    // Legacy alias used throughout render functions
-    let selectedDate = new Date().toISOString().slice(0, 10);
-
-    // Through api.get, so a failure carries the server's detail
-    async function fetchJSON(url) {
-        return api.get(url.replace(/^\/api/, ''));
-    }
-
-    function showError(msg) {
-        const el = document.getElementById('error-container');
-        el.textContent = msg;
-        el.style.display = 'block';
-    }
-
-    function freqKey(f) {
-        const known = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0];
-        let best = known[0];
-        for (const k of known) {
-            if (Math.abs(f - k) < Math.abs(f - best)) best = k;
-        }
-        return best;
-    }
-
-    // ====================================================================
-    // DISPLAY 1: Filters + Solar Zenith
-    // ====================================================================
-    function setStationFilter(station) {
-        currentStation = station;
-        // Update button states
-        document.querySelectorAll('.filter-bar .filter-btn[data-station]').forEach(b => {
-            b.classList.toggle('active', b.dataset.station === station);
-        });
-        // Rebuild frequency dropdown for this station
-        rebuildFreqDropdown();
-        currentFreq = 'ALL';
-        document.getElementById('freq-filter').value = 'ALL';
-        renderDiurnal(timelineData);
-    }
-
-    let currentSnrThreshold = 10;
-
-    function setFreqFilter(freq) {
-        currentFreq = freq;
-        renderDiurnal(timelineData);
-    }
-
-    function setSnrThreshold(val) {
-        currentSnrThreshold = parseFloat(val);
-        document.getElementById('snr-threshold-label').textContent = val + ' dB';
-        renderDiurnal(timelineData);
-    }
-
-    function rebuildFreqDropdown() {
-        const sel = document.getElementById('freq-filter');
-        const oldVal = sel.value;
-        sel.innerHTML = '<option value="ALL">All frequencies</option>';
-        if (!timelineData) return;
-        const freqSet = new Set();
-        for (let i = 0; i < timelineData.timestamps.length; i++) {
-            if (currentStation !== 'ALL' && timelineData.stations[i] !== currentStation) continue;
-            freqSet.add(freqKey(timelineData.frequencies[i]));
-        }
-        [...freqSet].sort((a,b) => a - b).forEach(f => {
-            const opt = document.createElement('option');
-            opt.value = f;
-            opt.textContent = f + ' MHz';
-            sel.appendChild(opt);
-        });
-    }
-
-    function getSolarTrace(station) {
-        // Get SZA curve for this station from the solar-zenith API data
-        if (!solarData || !solarData.paths || !solarData.timestamps) return null;
-        // Find any path for this station (all share same midpoint)
-        for (const [pid, pdata] of Object.entries(solarData.paths)) {
-            if (pdata.station === station) {
-                return {
-                    x: solarData.timestamps,
-                    y: pdata.elevation_deg,
-                    mode: 'lines',
-                    line: { color: '#eab308', width: 2.5, shape: 'spline' },
-                    name: `Solar elev. (${station} path)`,
-                    yaxis: 'y2',
-                    hovertemplate: '%{x}<br>Solar elevation: %{y:.1f}°<extra></extra>',
-                };
-            }
-        }
-        return null;
-    }
-
-    function renderDiurnal(data) {
-        if (!data || !data.timestamps || data.count === 0) {
-            document.getElementById('plot-snr').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No data available</p>';
-            return;
-        }
-
-        const ts = data.timestamps;
-        const stations = data.stations;
-        const freqs = data.frequencies;
-        const snrs = data.snr_db;
-        const dclocks = data.d_clock_ms;
-
-        // X-axis range: selected date 00:00 – 23:59 UTC
-        const xRange = [selectedDate + 'T00:00:00Z', selectedDate + 'T23:59:59Z'];
-
-        // SZA layout fragment (reused on all panels)
-        const szaY2 = {
-            title: 'Solar Elev. (°)',
-            titlefont: { color: '#eab308', size: 11 },
-            tickfont: { color: '#eab308' },
-            overlaying: 'y',
-            side: 'right',
-            gridcolor: 'rgba(234,179,8,0.08)',
-            zerolinecolor: 'rgba(234,179,8,0.3)',
-            range: [-90, 90],
-            showgrid: false,
-        };
-
-        // Group by station+frequency, respecting filters
-        const groups = {};
-        for (let i = 0; i < ts.length; i++) {
-            const st = stations[i];
-            const fk = freqKey(freqs[i]);
-            if (currentStation !== 'ALL' && st !== currentStation) continue;
-            if (currentFreq !== 'ALL' && fk !== parseFloat(currentFreq)) continue;
-            if (currentSnrThreshold > 0 && (snrs[i] === null || snrs[i] < currentSnrThreshold)) continue;
-            const key = `${st} ${fk} MHz`;
-            if (!groups[key]) groups[key] = { ts: [], dc: [], snr: [], station: st, freq: fk };
-            // Filter railed D_clock values (±20ms search window ceiling)
-            const dc_raw = dclocks ? dclocks[i] : null;
-            const dc_valid = (dc_raw !== null && Math.abs(dc_raw) < 19.5) ? dc_raw : null;
-            groups[key].ts.push(ts[i]);
-            groups[key].dc.push(dc_valid);
-            groups[key].snr.push(snrs[i]);
-        }
-
-        // ---- SNR plot (primary) + SZA ----
-        const snrTraces = [];
-        for (const [key, g] of Object.entries(groups)) {
-            if (g.snr.every(v => v === null)) continue;
-            snrTraces.push({
-                x: g.ts, y: g.snr,
-                mode: 'markers',
-                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
-                name: key,
-                hovertemplate: '%{x}<br>SNR: %{y:.1f} dB<extra>' + key + '</extra>',
-            });
-        }
-        if (currentStation !== 'ALL') {
-            const szaSnr = getSolarTrace(currentStation);
-            if (szaSnr) snrTraces.push(szaSnr);
-        } else {
-            for (const st of ['WWV', 'WWVH', 'BPM']) {
-                const sza = getSolarTrace(st);
-                if (sza) {
-                    sza.line = { ...sza.line, color: stationColor(st), dash: 'dot', width: 1.5 };
-                    sza.name = `SZA ${st}`;
-                    snrTraces.push(sza);
-                }
-            }
-        }
-        Plotly.newPlot('plot-snr', snrTraces, {
-            ...PLOTLY_LAYOUT_BASE,
-            xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
-            yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'SNR (dB)' },
-            yaxis2: szaY2,
-            showlegend: true,
-            legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
-        }, PLOTLY_CONFIG);
-
-        // ---- arrival residual plot + SZA; lattice-aligned points apart ----
-        const dcTraces = [];
-        const susX = [], susY = [], susName = [];
-        for (const [key, g] of Object.entries(groups)) {
-            if (!g.dc || g.dc.every(v => v === null)) continue;
-            const ys = g.dc.map(v => latticeSuspect(v) ? null : v);
-            g.dc.forEach((v, i) => {
-                if (latticeSuspect(v)) { susX.push(g.ts[i]); susY.push(v); susName.push(key); }
-            });
-            dcTraces.push({
-                x: g.ts, y: ys,
-                mode: 'markers',
-                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
-                name: key,
-                hovertemplate: '%{x}<br>residual: %{y:.2f} ms<extra>' + escapeHtml(key) + '</extra>',
-            });
-        }
-        if (susX.length > 0) {
-            dcTraces.push({
-                x: susX, y: susY,
-                mode: 'markers',
-                marker: { size: 5, symbol: 'x-thin-open', color: '#94a3b8', line: { width: 1 } },
-                name: 'lattice-aligned (suspect)',
-                text: susName,
-                hovertemplate: '%{x}<br>residual: %{y:.2f} ms (on the tick lattice: suspect)<extra>%{text}</extra>',
-            });
-        }
-        if (dcTraces.length > 0) {
-            if (currentStation !== 'ALL') {
-                const szaDc = getSolarTrace(currentStation);
-                if (szaDc) dcTraces.push(szaDc);
-            }
-            Plotly.newPlot('plot-dclock', dcTraces, {
-                ...PLOTLY_LAYOUT_BASE,
-                xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
-                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'arrival residual (ms)' },
-                yaxis2: szaY2,
-                showlegend: true,
-                legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
-            }, PLOTLY_CONFIG);
-        } else {
-            document.getElementById('plot-dclock').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No arrival residuals for this station (too few tick detections)</p>';
-        }
-
-        renderDoppler(xRange, szaY2);
-    }
-
-    // ---- Doppler: the phase page's estimator (/api/phase/doppler) ----
-    function renderDoppler(xRange, szaY2) {
-        const el = document.getElementById('plot-doppler');
-        if (!dopplerData || dopplerData.error) {
-            loadRulerFloor('doppler-ruler', []);
-            el.innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">' +
-                escapeHtml((dopplerData && dopplerData.error) || 'Doppler unavailable') + '</p>';
-            return;
-        }
-        const series = (dopplerData.series || []).filter(s => {
-            const heard = (s.stations_heard && s.stations_heard.length) ? s.stations_heard : [s.station];
-            if (currentStation !== 'ALL' && !heard.includes(currentStation)) return false;
-            const f = channelFreqMHz(s.channel);
-            return currentFreq === 'ALL' || (f !== null && freqKey(f) === parseFloat(currentFreq));
-        });
-        loadRulerFloor('doppler-ruler', series.map(s => channelFreqMHz(s.channel)));
-        if (series.length === 0) {
-            el.innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No Doppler for this selection (no L2_tick_phase rows)</p>';
-            return;
-        }
-        const dopTraces = series.map(s => {
-            const f = channelFreqMHz(s.channel);
-            const name = `${f} MHz ${s.label || s.station}`;
-            return {
-                x: s.timestamps, y: s.doppler_raw_hz,
-                mode: 'markers',
-                marker: { size: 3, color: freqColor(f), opacity: 0.8 },
-                name,
-                hovertemplate: '%{x}<br>Doppler: %{y:.4f} Hz<extra>' + escapeHtml(name) + '</extra>',
-            };
-        });
-        if (currentStation !== 'ALL') {
-            const szaDop = getSolarTrace(currentStation);
-            if (szaDop) dopTraces.push(szaDop);
-        }
-        Plotly.newPlot('plot-doppler', dopTraces, {
-            ...PLOTLY_LAYOUT_BASE,
-            xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: xRange },
-            yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Doppler (Hz)', zeroline: true },
-            yaxis2: szaY2,
-            showlegend: true,
-            legend: { ...PLOTLY_LAYOUT_BASE.legend, x: 1.12, y: 1 },
-        }, PLOTLY_CONFIG);
-    }
-
-    // ====================================================================
-    // DISPLAY 2: Propagation Geometry
-    // ====================================================================
-    function renderGeometry(data) {
-        // Map
-        const mapTraces = [];
-        if (!RX_COORDS) {
-            showPlotMessage('plot-map', 'Receiver location unavailable (/api/station/metadata)');
-        } else {
-
-        // Receiver marker
-        mapTraces.push({
-            type: 'scattergeo',
-            lat: [RX_COORDS.lat], lon: [RX_COORDS.lon],
-            mode: 'markers+text',
-            marker: { size: 12, color: '#10b981', symbol: 'diamond' },
-            text: [RX_COORDS.short], textposition: 'top center',
-            textfont: { color: '#10b981', size: 11 },
-            name: 'Receiver',
-            hoverinfo: 'text',
-            hovertext: [RX_COORDS.label],
-        });
-
-        // Station markers and paths
-        for (const [station, coords] of Object.entries(STATION_COORDS)) {
-            const color = stationColor(station);
-            // Path line
-            mapTraces.push({
-                type: 'scattergeo',
-                lat: [RX_COORDS.lat, coords.lat],
-                lon: [RX_COORDS.lon, coords.lon],
-                mode: 'lines',
-                line: { width: 2, color: color, dash: 'dot' },
-                name: station + ' path',
-                hoverinfo: 'none',
-                showlegend: false,
-            });
-            // Station marker
-            mapTraces.push({
-                type: 'scattergeo',
-                lat: [coords.lat], lon: [coords.lon],
-                mode: 'markers+text',
-                marker: { size: 10, color: color, symbol: 'star' },
-                text: [station], textposition: 'top center',
-                textfont: { color: color, size: 12, family: 'monospace' },
-                name: station,
-                hoverinfo: 'text',
-                hovertext: [coords.label],
-            });
-        }
-
-        Plotly.newPlot('plot-map', mapTraces, {
-            geo: {
-                scope: 'world',
-                projection: { type: 'natural earth' },
-                showland: true,
-                landcolor: '#1e293b',
-                showocean: true,
-                oceancolor: '#0f172a',
-                showcoastlines: true,
-                coastlinecolor: '#475569',
-                showlakes: false,
-                showcountries: true,
-                countrycolor: '#334155',
-                bgcolor: '#0f172a',
-                lonaxis: { range: [-180, 130] },
-                lataxis: { range: [0, 80] },   // the BPM great circle runs far north
-            },
-            paper_bgcolor: '#1e293b',
-            font: { color: '#94a3b8' },
-            margin: { l: 0, r: 0, t: 0, b: 0 },
-            showlegend: false,
-        }, PLOTLY_CONFIG);
-        }
-
-        // Mode timeline
-        if (!data || !data.timestamps || data.count === 0) {
-            document.getElementById('plot-modes').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No mode data</p>';
-            return;
-        }
-
-        // Build mode timeline: y-axis = station+freq, x-axis = time, color = mode
-        const MODE_COLORS = {
-            '1F2': '#3b82f6', '2F2': '#22c55e', '3F2': '#eab308', '4F2': '#f97316',
-            '1E': '#06b6d4', '2E': '#14b8a6', 'GW': '#64748b',
-            'UNKNOWN': '#475569',
-        };
-
-        const modeGroups = {};
-        for (let i = 0; i < data.timestamps.length; i++) {
-            const mode = data.modes[i] || 'UNKNOWN';
-            if (!modeGroups[mode]) modeGroups[mode] = { ts: [], labels: [], freqs: [] };
-            modeGroups[mode].ts.push(data.timestamps[i]);
-            modeGroups[mode].labels.push(`${data.stations[i]} ${freqKey(data.frequencies[i])} MHz`);
-            modeGroups[mode].freqs.push(freqKey(data.frequencies[i]));
-        }
-
-        const modeTraces = [];
-        for (const [mode, g] of Object.entries(modeGroups)) {
-            modeTraces.push({
-                x: g.ts,
-                y: g.labels,
-                mode: 'markers',
-                marker: { size: 4, color: MODE_COLORS[mode] || '#888', opacity: 0.8 },
-                name: mode,
-                hovertemplate: '%{x}<br>%{y}<br>Mode: ' + mode + '<extra></extra>',
-            });
-        }
-
-        Plotly.newPlot('plot-modes', modeTraces, {
-            ...PLOTLY_LAYOUT_BASE,
-            xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time' },
-            yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: '', automargin: true, categoryorder: 'category ascending' },
-            legend: { ...PLOTLY_LAYOUT_BASE.legend, orientation: 'h', y: -0.15 },
-            height: 400,
-        }, PLOTLY_CONFIG);
-    }
-
-    // ====================================================================
-    // DISPLAY 3: Frequency Dispersion / TEC
-    // ====================================================================
-
-    // Helper: linear regression returning {slope, intercept, r2, rmsResidual}
-    function linRegStats(xs, ys) {
-        const n = xs.length;
-        const sx  = xs.reduce((a,b) => a+b, 0);
-        const sy  = ys.reduce((a,b) => a+b, 0);
-        const sxy = xs.reduce((a,b,i) => a + b*ys[i], 0);
-        const sx2 = xs.reduce((a,b) => a + b*b, 0);
-        const sy2 = ys.reduce((a,b) => a + b*b, 0);
-        const denom = n*sx2 - sx*sx;
-        if (denom === 0) return null;
-        const slope     = (n*sxy - sx*sy) / denom;
-        const intercept = (sy - slope*sx) / n;
-        // R²
-        const yMean  = sy / n;
-        const ssTot  = ys.reduce((a,b) => a + (b-yMean)**2, 0);
-        const ssRes  = xs.reduce((a,b,i) => a + (ys[i] - (slope*b + intercept))**2, 0);
-        const r2     = ssTot > 0 ? 1 - ssRes/ssTot : 0;
-        const rmsRes = Math.sqrt(ssRes / n);
-        return { slope, intercept, r2, rmsRes };
-    }
-
-    function renderTEC(timelineData, tecData) {
-        // 1/f² scatter from last hour of data on selected date
-        if (timelineData && timelineData.timestamps && timelineData.count > 0) {
-            // Find the last timestamp and go back 1 hour from there
-            const lastTs = new Date(timelineData.timestamps[timelineData.timestamps.length - 1]);
-            const oneHourBefore = new Date(lastTs - 3600000);
-
-            // Group by station+dominantMode, collect (1/f², D_clock, mode, n) per freq
-            // stationData[station][mode][freq] = [dc, ...]
-            const stationData = {};
-            for (let i = 0; i < timelineData.timestamps.length; i++) {
-                const t = new Date(timelineData.timestamps[i]);
-                if (t < oneHourBefore) continue;
-                const dc = timelineData.d_clock_ms ? timelineData.d_clock_ms[i] : null;
-                if (dc === null || Math.abs(dc) >= 19.5) continue;
-                const station = timelineData.stations[i];
-                const freq    = freqKey(timelineData.frequencies[i]);
-                const mode    = (timelineData.modes && timelineData.modes[i]) || 'UNKNOWN';
-                if (!stationData[station]) stationData[station] = {};
-                if (!stationData[station][mode]) stationData[station][mode] = {};
-                if (!stationData[station][mode][freq]) stationData[station][mode][freq] = [];
-                stationData[station][mode][freq].push(dc);
-            }
-
-            const fitTraces = [];
-            const fitAnnotations = [];
-
-            for (const [station, modeMap] of Object.entries(stationData)) {
-                // Pick the mode with the most frequency coverage for this station
-                let bestMode = null, bestModeFreqCount = 0;
-                for (const [mode, freqMap] of Object.entries(modeMap)) {
-                    if (mode === 'UNKNOWN') continue;
-                    const cnt = Object.keys(freqMap).length;
-                    if (cnt > bestModeFreqCount) { bestModeFreqCount = cnt; bestMode = mode; }
-                }
-                // Fall back to UNKNOWN if nothing else has ≥2 freqs
-                if (!bestMode) bestMode = 'UNKNOWN';
-                const freqMap = modeMap[bestMode];
-                if (!freqMap || Object.keys(freqMap).length < 2) continue;
-
-                const xs = [], ys = [], labels = [];
-                for (const [freq, dcs] of Object.entries(freqMap)) {
-                    const f = parseFloat(freq);
-                    const sorted = [...dcs].sort((a,b) => a-b);
-                    const medianDc = sorted[Math.floor(sorted.length/2)];
-                    xs.push(1.0 / (f * f));
-                    ys.push(medianDc);
-                    labels.push(`${f} MHz (n=${dcs.length})`);
-                }
-                if (xs.length < 2) continue;
-
-                const stats = linRegStats(xs, ys);
-                if (!stats) continue;
-                const { slope, intercept, r2, rmsRes } = stats;
-                const tec = slope / 1.344;
-
-                // Quality badge: LOW / OK / GOOD
-                const quality = (r2 >= 0.85 && rmsRes < 1.5) ? 'GOOD'
-                              : (r2 >= 0.70 && rmsRes < 2.5) ? 'OK' : 'LOW';
-                const badgeColor = quality === 'GOOD' ? '#22c55e'
-                                 : quality === 'OK'   ? '#f59e0b' : '#ef4444';
-                const badgeText = `R²=${r2.toFixed(2)}  RMS=${rmsRes.toFixed(2)} ms  [${quality}]`;
-                const tecLabel  = tec < 0 ? `${tec.toFixed(1)} TECU ⚠ unphysical` : `${tec.toFixed(1)} TECU`;
-
-                fitTraces.push({
-                    x: xs, y: ys,
-                    mode: 'markers+text',
-                    marker: { size: 10, color: stationColor(station) },
-                    text: labels,
-                    textposition: 'top center',
-                    textfont: { size: 10, color: stationColor(station) },
-                    name: `${station} (mode=${bestMode}, N=${xs.length})`,
-                    hovertemplate: '1/f²=%{x:.4f}<br>D_clock=%{y:.2f} ms<extra>' + station + '</extra>',
-                });
-
-                const xMin = Math.min(...xs) * 0.8;
-                const xMax = Math.max(...xs) * 1.2;
-                fitTraces.push({
-                    x: [xMin, xMax],
-                    y: [slope*xMin + intercept, slope*xMax + intercept],
-                    mode: 'lines',
-                    line: { color: stationColor(station), dash: 'dash', width: 1.5 },
-                    name: `${station}: ${tecLabel}`,
-                    showlegend: true,
-                });
-
-                // Quality badge as annotation near the fit line midpoint
-                const xMid = (xMin + xMax) / 2;
-                fitAnnotations.push({
-                    x: xMid,
-                    y: slope*xMid + intercept,
-                    text: badgeText,
-                    showarrow: false,
-                    font: { color: badgeColor, size: 10 },
-                    bgcolor: 'rgba(15,23,42,0.85)',
-                    bordercolor: badgeColor,
-                    borderwidth: 1,
-                    borderpad: 3,
-                    yshift: 18,
-                });
-            }
-
-            if (fitTraces.length > 0) {
-                Plotly.newPlot('plot-tec-fit', fitTraces, {
-                    ...PLOTLY_LAYOUT_BASE,
-                    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: '1/f² (MHz⁻²)' },
-                    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'D_clock (ms)' },
-                    legend: { ...PLOTLY_LAYOUT_BASE.legend },
-                    annotations: fitAnnotations,
-                }, PLOTLY_CONFIG);
-            } else {
-                document.getElementById('plot-tec-fit').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">Insufficient same-mode multi-frequency data in last hour</p>';
-            }
-        }
-
-        // TEC time series from L3 data
-        if (tecData && tecData.paths) {
-            const tecTraces = [];
-            for (const [station, pdata] of Object.entries(tecData.paths)) {
-                if (!pdata.timestamps || pdata.timestamps.length === 0) continue;
-                tecTraces.push({
-                    x: pdata.timestamps,
-                    y: pdata.tec_tecu,
-                    customdata: (pdata.residual_rms_ms || []).map(v => (v === null || v === undefined) ? 'n/a' : Number(v).toFixed(2) + ' ms'),
-                    mode: 'markers',
-                    marker: { size: 3, color: stationColor(station), opacity: 0.7 },
-                    name: station,
-                    hovertemplate: '%{x}<br>TEC: %{y:.1f} TECU<br>fit RMS residual: %{customdata}<extra>' + escapeHtml(station) + '</extra>',
-                });
-            }
-            if (tecTraces.length > 0) {
-                Plotly.newPlot('plot-tec-ts', tecTraces, {
-                    ...PLOTLY_LAYOUT_BASE,
-                    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time' },
-                    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'TEC (TECU)', autorange: true, zeroline: true },
-                }, PLOTLY_CONFIG);
-            } else {
-                document.getElementById('plot-tec-ts').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">No TEC time series data</p>';
-            }
-        } else {
-            document.getElementById('plot-tec-ts').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">TEC data unavailable</p>';
-        }
-    }
-
-    // ====================================================================
-    // DISPLAY 4: Events & Space Weather
-    // ====================================================================
-    async function renderEvents(timelineData) {
-        // Shared time range aligned to selected date
-        const evXRange = [selectedDate + 'T00:00:00Z', selectedDate + 'T23:59:59Z'];
-
-        // Combined space weather: X-ray (y1, log) + Kp (y2, linear bars)
-        try {
-            const [xray, kp] = await Promise.all([
-                fetchJSON('/api/space-weather/xray?hours=24').catch(e => ({ reason: e.message })),
-                fetchJSON('/api/space-weather/kp?hours=72').catch(e => ({ reason: e.message })),
-            ]);
-
-            const swTraces = [];
-            const swShapes = [];
-            const swAnnotations = [];
-
-            // X-ray on y1 (left, log)
-            if (xray && xray.timestamps && xray.timestamps.length > 0) {
-                swTraces.push({
-                    x: xray.timestamps,
-                    y: xray.flux,
-                    mode: 'lines',
-                    line: { color: '#ef4444', width: 1.5 },
-                    name: 'X-ray',
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(239,68,68,0.08)',
-                    yaxis: 'y',
-                });
-                swShapes.push(
-                    { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 1e-5, y1: 1e-5, yref: 'y', line: { color: '#f59e0b', width: 1, dash: 'dot' } },
-                    { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 1e-4, y1: 1e-4, yref: 'y', line: { color: '#ef4444', width: 1, dash: 'dot' } },
-                );
-                swAnnotations.push(
-                    { x: -0.01, xref: 'paper', y: Math.log10(1e-5), yref: 'y', text: 'M', showarrow: false, font: { color: '#f59e0b', size: 9 }, xanchor: 'right' },
-                    { x: -0.01, xref: 'paper', y: Math.log10(1e-4), yref: 'y', text: 'X', showarrow: false, font: { color: '#ef4444', size: 9 }, xanchor: 'right' },
-                );
-            }
-
-            // Kp on y2 (right, linear bars)
-            if (kp && kp.timestamps && kp.timestamps.length > 0) {
-                const colors = kp.kp.map(v => v >= 5 ? '#ef4444' : v >= 4 ? '#f59e0b' : '#22c55e');
-                swTraces.push({
-                    x: kp.timestamps,
-                    y: kp.kp,
-                    type: 'bar',
-                    marker: { color: colors, opacity: 0.4 },
-                    name: 'Kp',
-                    yaxis: 'y2',
-                    width: 3 * 3600000,  // Kp is a 3-hour index
-                });
-                swShapes.push(
-                    { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 5, y1: 5, yref: 'y2', line: { color: '#ef4444', width: 1, dash: 'dot' } },
-                );
-                swAnnotations.push(
-                    { x: 1.01, xref: 'paper', y: 5, yref: 'y2', text: 'Storm', showarrow: false, font: { color: '#ef4444', size: 9 }, xanchor: 'left' },
-                );
-            }
-
-            if (swTraces.length > 0) {
-                Plotly.newPlot('plot-space-weather', swTraces, {
-                    ...PLOTLY_LAYOUT_BASE,
-                    xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: '', range: evXRange },
-                    yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'X-ray (W/m²)', type: 'log', side: 'left', titlefont: { color: '#ef4444', size: 12 }, tickfont: { color: '#ef4444' } },
-                    yaxis2: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'Kp Index', range: [0, 9], side: 'right', overlaying: 'y', titlefont: { color: '#22c55e', size: 12 }, tickfont: { color: '#22c55e' }, showgrid: false },
-                    margin: { ...PLOTLY_LAYOUT_BASE.margin, t: 5, b: 30, r: 120 },
-                    legend: { ...PLOTLY_LAYOUT_BASE.legend, orientation: 'h', x: 0.5, xanchor: 'center', y: 1.05 },
-                    showlegend: true,
-                    shapes: swShapes,
-                    annotations: swAnnotations,
-                    bargap: 0,
-                }, PLOTLY_CONFIG);
-            } else {
-                showPlotMessage('plot-space-weather', noDataReason(xray || kp, 'Space weather series unavailable'));
-            }
-        } catch (e) {
-            showPlotMessage('plot-space-weather', 'Space weather series unavailable: ' + e.message, 'error');
-        }
-
-        // SNR with events overlay — all stations, grouped by station
-        if (timelineData && timelineData.timestamps) {
-            const stationSnr = {};
-            for (let i = 0; i < timelineData.timestamps.length; i++) {
-                const st = timelineData.stations[i];
-                const snr = timelineData.snr_db[i];
-                if (snr === null) continue;
-                if (!stationSnr[st]) stationSnr[st] = { ts: [], snr: [] };
-                stationSnr[st].ts.push(timelineData.timestamps[i]);
-                stationSnr[st].snr.push(snr);
-            }
-
-            const evTraces = [];
-            for (const [st, g] of Object.entries(stationSnr)) {
-                evTraces.push({
-                    x: g.ts, y: g.snr,
-                    mode: 'markers',
-                    marker: { size: 2.5, color: stationColor(st), opacity: 0.5 },
-                    name: st + ' SNR',
-                });
-            }
-
-            // Overlay events — separate significant events from mode changes
-            const evShapes = [];
-            try {
-                const events = await fetchJSON('/api/physics/events/recent?hours=24');
-                if (events && events.events) {
-                    const significant = events.events.filter(e => e.type !== 'mode_change');
-                    const modeChanges = events.events.filter(e => e.type === 'mode_change');
-
-                    // Significant events as prominent markers
-                    if (significant.length > 0) {
-                        evTraces.push({
-                            x: significant.map(e => e.timestamp),
-                            y: significant.map(() => null),  // no y — use y2 or just mark x
-                            mode: 'markers+text',
-                            marker: { size: 10, color: '#ef4444', symbol: 'triangle-down' },
-                            text: significant.map(e => e.title || e.type),
-                            textposition: 'top center',
-                            textfont: { size: 9, color: '#ef4444' },
-                            name: 'Ionospheric Events',
-                            yaxis: 'y',
-                        });
-                    }
-
-                    // Mode changes as subtle vertical lines (limit to 30 evenly spaced)
-                    const step = Math.max(1, Math.floor(modeChanges.length / 30));
-                    for (let i = 0; i < modeChanges.length; i += step) {
-                        evShapes.push({
-                            type: 'line',
-                            x0: modeChanges[i].timestamp, x1: modeChanges[i].timestamp,
-                            y0: 0, y1: 1, yref: 'paper',
-                            line: { color: 'rgba(249,115,22,0.15)', width: 1 },
-                        });
-                    }
-                }
-            } catch (e) { /* events optional */ }
-
-            Plotly.newPlot('plot-events-snr', evTraces, {
-                ...PLOTLY_LAYOUT_BASE,
-                xaxis: { ...PLOTLY_LAYOUT_BASE.xaxis, title: 'UTC Time', range: evXRange },
-                yaxis: { ...PLOTLY_LAYOUT_BASE.yaxis, title: 'SNR (dB)' },
-                margin: { ...PLOTLY_LAYOUT_BASE.margin, r: 120 },
-                shapes: evShapes,
-            }, PLOTLY_CONFIG);
-        }
-    }
-
-    // ====================================================================
-    // MAIN
-    // ====================================================================
-    async function loadAll() {
-        try {
-            // Sync selectedDate from TimePeriodSelector
-            selectedDate = getSelectedDate();
-            // Build date range from selected date: 00:00 - 23:59:59 UTC
-            const dayStart = selectedDate + 'T00:00:00Z';
-            const dayEnd = selectedDate + 'T23:59:59Z';
-            const yyyymmdd = selectedDate.replace(/-/g, '');
-
-            // Fetch timeline, TEC, and solar zenith for selected date in parallel
-            const [tl, tec, solar, dop] = await Promise.all([
-                fetchJSON(`/api/propagation/timeline?start=${dayStart}&end=${dayEnd}`),
-                fetchJSON(`/api/propagation/tec?start=${dayStart}&end=${dayEnd}`).catch(() => null),
-                fetchJSON(`/api/dashboard/solar-zenith/24h?date=${yyyymmdd}&interval_minutes=10`).catch(() => null),
-                // one Doppler estimator site-wide: the phase page's, per minute
-                api.get('/phase/doppler', { start: dayStart, end: dayEnd, smoothing: 0 })
-                    .catch(e => ({ error: 'Doppler unavailable: ' + e.message })),
-            ]);
-
-            dopplerData = dop;
-            timelineData = tl;
-            tecData = tec;
-            solarData = solar;
-
-            // Update status bar
-            if (tl) {
-                document.getElementById('stat-count').textContent = tl.count || 0;
-                const uniqueStations = [...new Set(tl.stations || [])];
-                document.getElementById('stat-stations').textContent = uniqueStations.join(', ') || '-';
-                const uniqueFreqs = [...new Set((tl.frequencies || []).map(f => freqKey(f)))].sort((a,b) => a-b);
-                document.getElementById('stat-freqs').textContent = uniqueFreqs.map(f => f + ' MHz').join(', ') || '-';
-                if (tl.timestamps && tl.timestamps.length > 0) {
-                    document.getElementById('stat-time').textContent = formatTimestamp(tl.timestamps[tl.timestamps.length - 1]);
-                }
-            }
-
-            // Build frequency dropdown for default station
-            rebuildFreqDropdown();
-
-            // Render all displays
-            renderDiurnal(timelineData);
-            renderGeometry(timelineData);
-            renderTEC(timelineData, tecData);
-            renderEvents(timelineData);
-
-        } catch (e) {
-            showError('Failed to load data: ' + e.message);
-            console.error(e);
-        }
-    }
-
-    // Initialize TimePeriodSelector and load
-    tps = new TimePeriodSelector('time-period-selector', loadAll);
-    loadGeometrySources().finally(loadAll);
-    // Auto-refresh every 5 minutes, but only if viewing today
-    setInterval(() => {
-        const today = new Date().toISOString().slice(0, 10);
-        if (getSelectedDate() === today) loadAll();
-    }, 300000);
-    </script>
+    <script src="/static/js/phase-view.js"></script>
+    <script src="/static/js/dtec-view.js"></script>
+    <script src="/static/js/ionosphere.js"></script>
 </body>
+
 </html>

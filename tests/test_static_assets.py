@@ -15,7 +15,7 @@ def test_no_remote_scripts_or_styles():
 
 def test_vendor_hashes_match_manifest():
     manifest = (STATIC / "vendor" / "VENDOR.md").read_text()
-    for name in ("plotly-2.27.0.min.js", "marked.min.js"):
+    for name in ("plotly-2.27.0.min.js", "marked.min.js", "topojson/world_110m.json"):
         p = STATIC / "vendor" / name
         assert p.exists(), name
         digest = hashlib.sha256(p.read_bytes()).hexdigest()

@@ -523,12 +523,16 @@ function statusBadge(kind, text) {
 const NAV_ITEMS = [
     { href: '/', label: 'Status', also: ['/index.html', '/static/index.html', '/static/health.html'] },
     { href: '/static/metrology.html', label: 'Timing', also: ['/static/chrony.html'] },
-    { href: '/static/phase.html', label: 'Phase', also: ['/phase'] },
-    { href: '/static/ionosphere.html', label: 'Observatory', also: ['/static/station.html'] },
-    { href: '/static/ionogram.html', label: 'Ionogram' },
-    { href: '/static/dtec.html', label: 'dTEC' },
+    { href: '/static/propagation.html', label: 'Propagation',
+      also: ['/static/station.html', '/static/ionogram.html'] },
+    { href: '/static/ionosphere.html', label: 'Ionosphere',
+      also: ['/static/phase.html', '/static/dtec.html', '/phase'] },
     { href: '/static/test_signal.html', label: 'Test signal' },
     { href: '/static/grape.html', label: 'GRAPE', also: ['/grape'] },
+];
+
+/** Links the footer carries on every page (Docs left the nav, stage 2 §6). */
+const SITE_FOOTER_LINKS = [
     { href: '/static/docs.html', label: 'Docs' },
 ];
 
@@ -564,10 +568,50 @@ function renderSiteNav() {
     }
 }
 
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', renderSiteNav);
-} else {
+/** The footer links as HTML; the link for ``pathname`` marked current. */
+function siteFooterHTML(pathname) {
+    const path = pathname || '/';
+    return SITE_FOOTER_LINKS.map(item => {
+        const current = item.href === path;
+        return `<a href="${escapeHtml(item.href)}" class="footer-link"` +
+               `${current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a>`;
+    }).join(' · ');
+}
+
+/** Append the site footer to the page's container, once. */
+function renderSiteFooter() {
+    if (document.querySelector('footer.site-footer')) return;
+    const host = document.querySelector('.container') || document.body;
+    if (!host) return;
+    const footer = document.createElement('footer');
+    footer.className = 'site-footer';
+    footer.innerHTML = siteFooterHTML(window.location.pathname);
+    host.appendChild(footer);
+}
+
+/**
+ * Where a retired station.html URL lands: the Propagation page with its
+ * station filter preselected.  ``?id=WWV`` becomes ``?station=WWV``; a name
+ * outside the broadcast catalogue lands on the unfiltered page.
+ */
+function retiredStationTarget(search) {
+    const base = '/static/propagation.html';
+    const m = /[?&]id=([^&#]*)/.exec(search || '');
+    if (!m) return base;
+    let id;
+    try { id = decodeURIComponent(m[1]).toUpperCase(); } catch (e) { return base; }
+    return ['WWV', 'WWVH', 'BPM'].includes(id) ? `${base}?station=${id}` : base;
+}
+
+function renderSiteChrome() {
     renderSiteNav();
+    renderSiteFooter();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderSiteChrome);
+} else {
+    renderSiteChrome();
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -784,6 +828,10 @@ window.statusBadge = statusBadge;
 window.NAV_ITEMS = NAV_ITEMS;
 window.siteNavHTML = siteNavHTML;
 window.renderSiteNav = renderSiteNav;
+window.SITE_FOOTER_LINKS = SITE_FOOTER_LINKS;
+window.siteFooterHTML = siteFooterHTML;
+window.renderSiteFooter = renderSiteFooter;
+window.retiredStationTarget = retiredStationTarget;
 window.formatDuration = formatDuration;
 window.formatMeasure = formatMeasure;
 window.registrationPanelHTML = registrationPanelHTML;
