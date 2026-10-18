@@ -75,6 +75,8 @@ class ChronyService:
             "name": r["source_name"], "mode": r.get("source_mode", ""), "state": r.get("source_state", ""),
             "stratum": r.get("stratum"), "reach": r.get("reach"), "offset_us": r.get("offset_us"),
             "error_us": r.get("error_us"), "n_samples": r.get("n_samples"), "std_dev_us": r.get("std_dev_us"),
+            # chronyc sourcestats: this source's estimated frequency and skew
+            "frequency_ppm": r.get("frequency_ppm"), "freq_skew_ppm": r.get("freq_skew_ppm"),
         } for r in rows]
         sources.sort(key=lambda s: (STATE_ORDER.get(s["state"], 9), s["name"]))
         # sys_offset_s describes the host's tracking offset at the moment a
@@ -82,13 +84,21 @@ class ChronyService:
         # whichever source happens first in iteration order, or a stale
         # source's reading can silently override a fresh one's.
         newest_rows = [r for r in rows if r["unix_time"] == newest]
-        sys_off = next((r.get("sys_offset_s") for r in newest_rows if r.get("sys_offset_s") is not None), None)
-        if sys_off is None:
-            sys_off = next((r.get("sys_offset_s") for r in rows if r.get("sys_offset_s") is not None), None)
+        track = next((r for r in newest_rows if r.get("sys_offset_s") is not None), None)
+        if track is None:
+            track = next((r for r in rows if r.get("sys_offset_s") is not None), None)
+        tracking = None
+        if track is not None:
+            # chronyc tracking, denormalised onto every row of a snapshot.
+            # The product carries only these three tracking fields.
+            rms = track.get("rms_offset_s")
+            tracking = {"sys_offset_us": round(track["sys_offset_s"] * 1e6, 2),
+                        "rms_offset_us": round(rms * 1e6, 2) if rms is not None else None,
+                        "reference_id": track.get("reference_id")}
         return {
             "timestamp_utc": datetime.fromtimestamp(newest, timezone.utc).isoformat().replace("+00:00", "Z"),
             "unix_time": newest, "age_s": round(age, 1), "stale": age > STALE_AFTER_S,
-            "tracking": {"sys_offset_us": round(sys_off * 1e6, 2)} if sys_off is not None else None,
+            "tracking": tracking,
             "sources": sources,
         }
 
@@ -100,14 +110,21 @@ class ChronyService:
         return {"sources": snap["sources"], "tracking": snap["tracking"],
                 "stale": snap["stale"], "age_s": snap["age_s"], "timestamp_utc": snap["timestamp_utc"]}
 
-    def get_history(self, hours: int = 24) -> Dict[str, Any]:
+    def get_history(self, hours: int = 24, start: Optional[datetime] = None,
+                    end: Optional[datetime] = None) -> Dict[str, Any]:
         """Get historical chrony stats from the DIAG_chrony_stats SQLite
         table.  Returns per-source time series of offset and std_dev,
         plus a deduplicated system-tracking offset series.
+
+        The window is ``[start, end]`` (aware UTC datetimes) when given,
+        else the last ``hours`` ending now.
         """
-        now = datetime.now(timezone.utc)
-        start_iso = (now - timedelta(hours=hours)).isoformat().replace('+00:00', 'Z')
-        end_iso = now.isoformat().replace('+00:00', 'Z')
+        if end is None:
+            end = datetime.now(timezone.utc)
+        if start is None:
+            start = end - timedelta(hours=hours)
+        start_iso = start.isoformat().replace('+00:00', 'Z')
+        end_iso = end.isoformat().replace('+00:00', 'Z')
 
         try:
             reader = make_data_product_reader(
@@ -136,7 +153,7 @@ class ChronyService:
                     pass
 
         if not rows:
-            return {'sources': {}, 'system': []}
+            return {'sources': {}, 'system': [], 'start': start_iso, 'end': end_iso}
 
         sources_data: Dict[str, Dict[str, Any]] = {}
         seen_sys_times: set = set()
@@ -180,6 +197,7 @@ class ChronyService:
         return {
             'sources': sources_data,
             'system': system_ts,
-            'hours': hours,
+            'start': start_iso,
+            'end': end_iso,
             'n_sources': len(sources_data),
         }
