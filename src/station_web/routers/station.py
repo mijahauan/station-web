@@ -2,11 +2,17 @@
 Station metadata API endpoints.
 """
 
-from fastapi import APIRouter, HTTPException
+import logging
+
+from fastapi import APIRouter
+
+from station_web.errors import internal_error
 
 from station_web.models.station import StationMetadata
 from station_web.services.channels import discover_channel_infos
 from station_web.config import config
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/station", tags=["station"])
 
@@ -37,4 +43,4 @@ def get_station_metadata():
         return metadata
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "station metadata", e)

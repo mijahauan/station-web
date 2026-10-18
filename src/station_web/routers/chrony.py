@@ -4,13 +4,18 @@ Chrony source comparison API endpoints.
 Provides live and historical chrony source statistics for metrology validation.
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from station_web.errors import internal_error
 from station_web.services.chrony_service import ChronyService, LOOKBACK_S
 from station_web.config import config
+from station_web.timeutil import parse_utc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chrony", tags=["chrony"])
 
@@ -19,11 +24,8 @@ MAX_WINDOW = timedelta(days=7)
 
 
 def _parse_utc(value: str) -> datetime:
-    """``now`` or an ISO-8601 time; a naive time is taken as UTC."""
-    if value == "now":
-        return datetime.now(timezone.utc)
-    dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    """``now``, a relative time or ISO-8601 (station_web.timeutil); naive = UTC."""
+    return parse_utc(value)
 
 
 @router.get("/snapshot")
@@ -41,7 +43,7 @@ def get_live_snapshot() -> Dict[str, Any]:
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "chrony snapshot", e)
 
 
 @router.get("/comparison")
@@ -55,7 +57,7 @@ def get_source_comparison() -> Dict[str, Any]:
         service = ChronyService(data_root=config.data_root, storage_config=config.storage)
         return service.get_source_comparison()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "chrony comparison", e)
 
 
 @router.get("/history")
@@ -72,8 +74,9 @@ def get_source_history(
     try:
         t_end = _parse_utc(end) if end else None
         t_start = _parse_utc(start) if start else None
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"bad time: {e}")
+    except ValueError:
+        # fixed text: the parser's message would echo the client's input
+        raise HTTPException(status_code=400, detail="bad time: use ISO 8601 UTC or 'now'")
     if t_start is not None:
         t_end = t_end or datetime.now(timezone.utc)
         if t_end <= t_start or t_end - t_start > MAX_WINDOW:
@@ -83,4 +86,4 @@ def get_source_history(
         service = ChronyService(data_root=config.data_root, storage_config=config.storage)
         return service.get_history(hours=hours, start=t_start, end=t_end)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "chrony history", e)
