@@ -27,7 +27,7 @@ def test_fresh_authority_files(settings):
     assert a["verdict"] == h["verdict"] == "INFORMATIONAL"
     assert a["applicable"] is True and a["stale"] is False and 3 <= a["age_s"] <= 10
     assert h["stale"] is False and 19 <= h["age_s"] <= 30
-    assert a["expected_s"] == 30 and h["expected_s"] == 120
+    assert a["expected_s"] == 75 and h["expected_s"] == 120
 
 
 def test_stale_authority_never_forces_degraded(settings):
@@ -49,3 +49,11 @@ def test_control_socket_omits_authority_entries(client, settings):
     client.get("/api/health/system")
     from station_web.app import STATUS
     assert "authority.json" not in STATUS["products"]
+
+
+def test_authority_one_slow_cycle_old_is_not_stale(settings):
+    """The writer's period runs 30 s plus its tick; 31 s old is a healthy snapshot."""
+    now = datetime.now(timezone.utc)
+    write_authority(settings.authority_path, T6_SNAPSHOT, published=now - timedelta(seconds=31))
+    a = freshness.table(settings)["products"]["authority.json"]
+    assert a["stale"] is False

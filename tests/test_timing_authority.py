@@ -93,7 +93,7 @@ def test_published_u_epoch_and_stability_pass_through(settings):
 
 def test_stale_snapshot_is_flagged(settings):
     write_authority(settings.authority_path, T6_SNAPSHOT)
-    s = ta.registration_snapshot(settings, now=datetime(2026, 10, 18, 16, 43, 0, tzinfo=timezone.utc))
+    s = ta.registration_snapshot(settings, now=datetime(2026, 10, 18, 16, 45, 0, tzinfo=timezone.utc))
     assert s["age_s"] > ta.STALE_S and s["stale"] is True
 
 
@@ -319,3 +319,12 @@ def test_inventory_names_the_authority_files(settings):
     files = build_inventory(settings)["instances"][0]["data_path"]["details"]["timing_authority_files"]
     assert str(settings.authority_path) in files
     assert str(settings.authority_history_path) in files
+
+
+def test_snapshot_one_slow_cycle_old_is_not_stale(settings):
+    """hf-timestd writes, then waits 30 s; a 31 s old snapshot sits mid-cycle."""
+    write_authority(settings.authority_path, T6_SNAPSHOT, published=NOW - timedelta(seconds=31))
+    s = ta.registration_snapshot(settings, now=NOW)
+    assert s["stale"] is False and s["stale_after_s"] == 75.0
+    write_authority(settings.authority_path, T6_SNAPSHOT, published=NOW - timedelta(seconds=76))
+    assert ta.registration_snapshot(settings, now=NOW)["stale"] is True

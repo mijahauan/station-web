@@ -168,7 +168,10 @@ def _newest_across_channels(settings: Settings, level: str, name: str, channels:
 #: the timing authority's files: name -> expected max age in seconds.  Both
 #: are INFORMATIONAL: a station without hf-timestd has neither, and a stale
 #: authority shows on the Status page, named, without judging ``status``.
-AUTHORITY_EXPECTED = {"authority.json": 30, "authority_history.db": 120}
+#: authority.json uses timing_authority.STALE_S (75 s, about 2.5 writer
+#: periods of 30 s plus the tick), so both pages agree on when it is stale.
+AUTHORITY_EXPECTED = {"authority.json": int(timing_authority.STALE_S),
+                      "authority_history.db": 120}
 
 
 def _authority_entries(settings: Settings, now: datetime) -> dict[str, dict]:

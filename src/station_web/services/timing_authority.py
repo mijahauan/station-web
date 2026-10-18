@@ -6,7 +6,7 @@ Three sources, all read-only, none in the product database:
   ``/run/hf-timestd/authority.json``): the current snapshot.  The tier in
   force, the tiers available, the published sigma, the T6 anchor state, the
   host-clock verdict and the registration block.  hf-timestd rewrites it
-  every few seconds by atomic rename, so a file that will not parse marks a
+  about every 30 s by atomic rename, so a file that will not parse marks a
   fault (HTTP 500), not an empty answer.
 - ``authority_history.db``, table ``authority_snapshot``: one row per
   authority cycle (about 30 s), keyed by ``utc_published`` (TEXT PRIMARY
@@ -39,8 +39,12 @@ from station_web.config import Settings
 from station_web.timeutil import as_utc, iso_z, utcnow
 
 NOT_PUBLISHED = "not published"
-#: A snapshot older than this reads ``stale``; hf-timestd rewrites it every few seconds.
-STALE_S = 30.0
+#: A snapshot older than this reads ``stale``.  hf-timestd's AuthorityRunner
+#: writes once per tick and then waits 30 s, so the period runs 30 s plus the
+#: tick's own time (30.05-30.08 s on B4, longer when a chrony probe times out
+#: or the T6 battery runs).  75 s, about 2.5 periods, flags a writer that has
+#: missed at least one cycle and never a healthy snapshot late in its cycle.
+STALE_S = 75.0
 #: The longest history window one request may ask for.
 MAX_WINDOW = timedelta(days=7)
 #: The history answer carries at most this many points.
