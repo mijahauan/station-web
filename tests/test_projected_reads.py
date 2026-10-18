@@ -26,7 +26,7 @@ def traced(monkeypatch):
     return statements
 
 
-PRODUCT = re.compile(r"\bFROM\s+\"?((?:L1|L2|L3|DIAG)_\w+)", re.I)
+PRODUCT = re.compile(r"\bFROM\s+\"?((?:L1|L2|L3C?|DIAG)_\w+)", re.I)
 
 # Routes whose rows this fix projects: no SELECT * may reach their tables.
 PROJECTED = [
@@ -39,6 +39,7 @@ PROJECTED = [
     ("/api/propagation/tec?start=-24h&end=now", "L3_tec"),
     ("/api/propagation/timeline?start=-6h&end=now", "L2_timing_measurements"),
     ("/api/propagation/timeline?start=-6h&end=now", "L2_tick_timing"),
+    ("/api/propagation/stats?start=-24h&end=now", "L3C_propagation_stats"),
 ]
 
 
@@ -66,6 +67,11 @@ SEEKING = [
     "/api/ionogram/combined?start=-6h&end=now",
     "/api/ionogram/channels",
     "/api/phase/combined?start=-6h&end=now",
+    # S2D: the seeded root carries L3C rows; tests/test_s2d_products.py seeds
+    # L2_detection_attempts and L3_gnss_vtec and runs the same check on them
+    "/api/propagation/stats?start=-24h&end=now",
+    "/api/propagation/detections?start=-6h&end=now",
+    "/api/tec/gnss-vtec?start=-6h&end=now",
 ]
 
 

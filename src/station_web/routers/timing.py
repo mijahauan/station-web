@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from station_web.config import config
 from station_web.errors import internal_error
 from station_web.services import timing_authority as ta
+from station_web.services import wwvb
 from station_web.timeutil import parse_window
 
 logger = logging.getLogger(__name__)
@@ -45,3 +46,12 @@ def get_alarms(n: int = Query(default=20, ge=0, le=ta.MAX_INCIDENTS)):
         return ta.alarms(config, n=n)
     except Exception as e:
         raise internal_error(logger, "timing alarms", e)
+
+
+@router.get("/wwvb")
+def get_wwvb(n: int = Query(default=10, ge=0, le=wwvb.MAX_FRAMES)):
+    """The WWVB decode ledger: passes, frames, the minute WWVB last named."""
+    try:
+        return wwvb.summary(config, n=n)
+    except Exception as e:
+        raise internal_error(logger, "wwvb ledger", e)

@@ -16,6 +16,8 @@ root = "/var/lib/timestd"
 # authority_path = "/run/hf-timestd/authority.json"
 # authority_history_path = "/var/lib/timestd/authority_history.db"
 # status_dir = "/var/lib/timestd/status"
+# hf-timestd's WWVB decode ledger (YYYY-MM-DD.jsonl), read-only.
+# wwvb_dir = "/var/lib/timestd/wwvb"
 
 [storage]
 # Mirrors hf-timestd's [storage].  Empty = the hamsci_dsp default

@@ -67,6 +67,8 @@ def build_inventory(settings: Settings) -> dict:
                 "timing_authority_files": [str(settings.authority_path),
                                            str(settings.authority_history_path),
                                            str(settings.timing_status_dir)],
+                # hf-timestd's WWVB decode ledger, read-only (Timing page)
+                "wwvb_ledger": str(settings.wwvb_dir),
             },
         },
         "serves": {"http": {"bind": settings.web_bind, "port": settings.web_port}},

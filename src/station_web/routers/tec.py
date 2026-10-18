@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import timedelta
 
 from station_web import heavy, projected
+from station_web.services import gnss_vtec
 from station_web.broadcast import DEFAULT_STATIONS
 from station_web.errors import internal_error
 from station_web.services.tec_service import (
@@ -257,3 +258,21 @@ def get_tec_by_station(
         raise
     except Exception as e:
         raise internal_error(logger, f"TEC read for {station}", e)
+
+
+@router.get("/gnss-vtec")
+def get_gnss_vtec(
+    start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
+    end: str = Query("now", description="End time"),
+):
+    """GNSS VTEC over the receiver (L3_gnss_vtec): the reference for the HF TEC chart."""
+    try:
+        t0, t1 = parse_window(start, end, max_span=gnss_vtec.MAX_SPAN)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        return gnss_vtec.series(t0, t1)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise internal_error(logger, "gnss vtec", e)

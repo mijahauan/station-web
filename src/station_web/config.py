@@ -79,6 +79,12 @@ class Settings:
         return Path(p) if p else self.data_root / "status"
 
     @property
+    def wwvb_dir(self) -> Path:
+        """hf-timestd's WWVB decode ledger, one JSONL file per UTC day."""
+        p = (self.raw.get("data", {}) or {}).get("wwvb_dir")
+        return Path(p) if p else self.data_root / "wwvb"
+
+    @property
     def fusion_dir(self) -> Path:
         return self.data_root / "phase2" / "fusion"
 

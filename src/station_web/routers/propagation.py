@@ -9,6 +9,7 @@ from typing import Optional
 import logging
 
 from station_web.errors import internal_error
+from station_web.services import propagation_products
 from station_web.services.propagation_service import (PropagationService, TIMELINE_MAX_WINDOW,
                                                       known_stations)
 from station_web.config import config
@@ -138,3 +139,47 @@ def get_test_signals(
             detail="No test signal data available"
         )
     return test_signal_data
+
+
+def _station_param(station: Optional[str]) -> Optional[str]:
+    """A station name from the broadcast catalogue, upper-cased; anything else is a 400."""
+    if station is None or station == "":
+        return None
+    s = station.upper()
+    if s not in known_stations():
+        raise HTTPException(status_code=400, detail="Unknown station")   # fixed text, no echo
+    return s
+
+
+@router.get("/stats")
+def get_propagation_stats(
+    start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
+    end: str = Query("now", description="End time"),
+    station: Optional[str] = Query(None, description="WWV, WWVH or BPM"),
+):
+    """Hourly MUF and mode probability per station (L3C_propagation_stats)."""
+    t0, t1 = _window(start, end, max_span=propagation_products.STATS_MAX_SPAN)
+    st = _station_param(station)
+    try:
+        return propagation_products.hourly_stats(t0, t1, station=st)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise internal_error(logger, "propagation stats", e)
+
+
+@router.get("/detections")
+def get_detection_funnel(
+    start: str = Query("-6h", description="Start time (ISO8601 or relative like '-6h')"),
+    end: str = Query("now", description="End time"),
+    station: Optional[str] = Query(None, description="WWV, WWVH or BPM"),
+):
+    """Attempts, detections and rejections by reason, per broadcast (L2_detection_attempts)."""
+    t0, t1 = _window(start, end, max_span=propagation_products.DETECT_MAX_SPAN)
+    st = _station_param(station)
+    try:
+        return propagation_products.detection_funnel(config, t0, t1, station=st)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise internal_error(logger, "detection funnel", e)
