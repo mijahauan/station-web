@@ -5,46 +5,161 @@ Analogous to Gwyn Griffiths' WSPRDaemon grape_acf_doppler_spread.py plots:
   - ToF time series with S+N level overlay
   - ToF vs S+N scatter with KDE density contours (cluster analysis)
 
-Data source: /var/lib/timestd/phase2/<CHANNEL>/all_arrivals/*.h5
-Schema fields used: timing_error_ms, corr_snr_db, peak_rank, minute_boundary_utc,
-                    model_expected_ms, utc_second, station, frequency_mhz
+Data source: the ``L1_all_arrivals`` SQLite product that hf-timestd's
+metrology service writes.  Channels and the stations heard on each are
+discovered from that table; a SHARED_* channel carries WWV, WWVH and BPM at
+once, so every endpoint takes a ``station`` filter.
+
+Row semantics (hf-timestd ``metrology_service`` writes, ``metrology_engine``
+measures):
+  - ``minute_boundary_utc`` is the true minute boundary (unix seconds);
+    ``utc_second`` is the second the tick was transmitted in.
+  - ``tone_correlator`` rows: ``arrival_ms`` counts from the start of the
+    minute buffer, so ToF = arrival_ms − 1000·(utc_second − minute_boundary).
+    This assumes the buffer starts on the minute (RTP-derived; within a
+    sample or so).
+  - ``edge_tick`` and ``clean`` rows: ``model_expected_ms`` is the geometric
+    propagation delay and ``timing_error_ms`` the residual against it;
+    ``clean`` rows write ``arrival_ms = 0``.  ToF = model_expected_ms +
+    timing_error_ms.
 """
 
 from fastapi import APIRouter, Query, HTTPException
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List
+from typing import Optional
 from pathlib import Path
 import logging
+import sqlite3
 
 from station_web.config import config
+from station_web.services.channels import _db_path
 from hamsci_dsp.io import make_data_product_reader
+from hamsci_dsp.stations import BUILTIN_CATALOG
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ionogram", tags=["ionosphere"])
 
-# Channels that have all_arrivals data
-ALL_ARRIVALS_CHANNELS = [
-    "CHU_3330", "CHU_7850", "CHU_14670",
-    "WWV_5000", "WWV_10000", "WWV_15000", "WWV_20000", "WWV_25000",
-    "WWVH_5000", "WWVH_10000",
-    "BPM_5000", "BPM_10000",
-]
+TABLE = "L1_all_arrivals"
+
+#: how far back channel discovery looks for the stations heard on a channel
+STATION_LOOKBACK = timedelta(days=2)
 
 # Station colour palette (matches Gwyn Griffiths slide aesthetic)
 STATION_COLORS = {
-    "CHU": "#A78BFA",   # bright violet (was #7B68EE)
-    "WWV": "#2DD4BF",   # bright teal (was #20B2AA)
-    "WWVH": "#FB923C",  # bright orange (was #FF8C00)
-    "BPM": "#FB7185",   # bright rose (was #DC143C)
+    "WWV": "#2DD4BF",   # bright teal
+    "WWVH": "#FB923C",  # bright orange
+    "BPM": "#FB7185",   # bright rose
 }
 
+#: plausible ToF ceiling per station (ms); farther paths, longer ceilings
+TOF_MAX_MS = {"WWV": 200.0, "WWVH": 500.0, "BPM": 500.0}
 
-def _channel_to_station(channel: str) -> str:
-    for s in ("CHU", "WWV", "WWVH", "BPM"):
-        if channel.startswith(s):
-            return s
-    return channel
+#: a residual beyond this means the correlator locked onto the wrong tick
+MAX_TIMING_ERROR_MS = 15.0
+
+SNR_CAP = 40.0   # removes DC/self-interference artefacts
+
+#: detection methods whose model_expected_ms is the propagation delay
+MODEL_RELATIVE = ("edge_tick", "clean")
+
+
+def _iso(dt: datetime) -> str:
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def _parse_time(s: str, now: datetime) -> datetime:
+    """``now``, a relative ``-6h``/``-2d``/``-30m``, or ISO-8601 (naive = UTC)."""
+    if s == "now":
+        return now
+    if s.startswith("-"):
+        val = int(s[1:-1])
+        u = s[-1]
+        if u == "h":
+            return now - timedelta(hours=val)
+        if u == "d":
+            return now - timedelta(days=val)
+        if u == "m":
+            return now - timedelta(minutes=val)
+        raise ValueError(f"Unknown unit '{u}'")
+    dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _window(start: str, end: str):
+    now = datetime.now(timezone.utc)
+    return _parse_time(start, now), _parse_time(end, now)
+
+
+def _connect():
+    db = _db_path(config)
+    if not db.exists():
+        return None
+    try:
+        return sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    except sqlite3.Error as e:
+        logger.warning(f"ionogram: cannot open {db}: {e}")
+        return None
+
+
+def discover_channels() -> list:
+    """Channels in ``L1_all_arrivals``, each with the stations heard lately.
+
+    Walks the (channel, timestamp_utc) index: one skip-scan step per
+    channel, then a bounded range per channel.  No full-table scan — the
+    table grows by tens of thousands of rows a day.
+    """
+    con = _connect()
+    if con is None:
+        return []
+    out = []
+    try:
+        present = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                              (TABLE,)).fetchone()
+        if not present:
+            return []
+        since = (datetime.now(timezone.utc) - STATION_LOOKBACK).isoformat()
+        channel = ""
+        while True:
+            row = con.execute(f"SELECT channel FROM {TABLE} WHERE channel > ? "
+                              f"ORDER BY channel LIMIT 1", (channel,)).fetchone()
+            if row is None:
+                break
+            channel = row[0]
+            latest = con.execute(f"SELECT MAX(timestamp_utc) FROM {TABLE} WHERE channel = ?",
+                                 (channel,)).fetchone()[0]
+            stations = [r[0] for r in con.execute(
+                f"SELECT DISTINCT station FROM {TABLE} WHERE channel = ? AND timestamp_utc >= ? "
+                f"ORDER BY station", (channel, since)) if r[0]]
+            out.append({
+                "channel": channel,
+                "stations": stations,
+                "color": STATION_COLORS.get(stations[0], "#888888") if len(stations) == 1 else "#888888",
+                "latest": latest,
+            })
+    except sqlite3.Error as e:
+        logger.warning(f"ionogram channel discovery failed: {e}")
+    finally:
+        con.close()
+    return out
+
+
+def _default_channel() -> Optional[str]:
+    """The channel with the newest row, or None when the table is empty."""
+    chans = discover_channels()
+    if not chans:
+        return None
+    return max(chans, key=lambda c: c["latest"] or "")["channel"]
+
+
+def _resolve_channel(channel: Optional[str]) -> Optional[str]:
+    return channel or _default_channel()
+
+
+def _no_data(channel, station, t0, t1, reason, **extra):
+    return {"status": "no_data", "channel": channel, "station": station,
+            "time_range": {"start": _iso(t0), "end": _iso(t1)},
+            "reason": reason, **extra}
 
 
 def _compute_solar_overlay(station: str, t0: datetime, t1: datetime) -> dict:
@@ -56,15 +171,7 @@ def _compute_solar_overlay(station: str, t0: datetime, t1: datetime) -> dict:
 
         rx_lat = config.station_metadata.get('latitude', 0.0)
         rx_lon = config.station_metadata.get('longitude', 0.0)
-
-        # Transmitter coordinates (approximate)
-        TX_COORDS = {
-            "CHU": (45.2950, -75.7533),   # Ottawa
-            "WWV": (40.6776, -105.0461),   # Fort Collins
-            "WWVH": (21.9886, -159.7642),  # Kauai
-            "BPM": (34.95, 109.51),        # Pucheng
-        }
-        tx_lat, tx_lon = TX_COORDS.get(station, (40.0, -100.0))
+        tx_lat, tx_lon = BUILTIN_CATALOG.get(station).coordinates
         mid_lat, mid_lon = calculate_midpoint(rx_lat, rx_lon, tx_lat, tx_lon)
 
         # Generate every 5 minutes over the window
@@ -96,20 +203,17 @@ def _load_all_arrivals(
     rank_filter: Optional[int],
     min_snr_db: float,
     data_root: Path,
+    station: Optional[str] = None,
 ):
-    """Load L1_all_arrivals records for one channel in [ts0, ts1]."""
+    """Load L1_all_arrivals records for one channel (and station) in [ts0, ts1]."""
     arr_dir = data_root / "phase2" / channel / "all_arrivals"
-
-    # Per-station transmitter onset correction (fixed calibration constant).
-    # CHU: 74ms H3E sideband filter group delay at the transmitter.
-    # All others: no correction needed.
-    station = _channel_to_station(channel)
-    onset_ms = 74.0 if station == "CHU" else 0.0
 
     rows = {
         "minute_boundary": [],
+        "station": [],
         "arrival_ms": [],
         "timing_error_ms": [],
+        "model_expected_ms": [],
         "corr_snr_db": [],
         "peak_rank": [],
         "utc_second": [],
@@ -119,8 +223,8 @@ def _load_all_arrivals(
     }
 
     # Read window as ISO; minute_boundary equality filter happens in Python.
-    t0_iso = datetime.fromtimestamp(ts0, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
-    t1_iso = datetime.fromtimestamp(ts1, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+    t0_iso = _iso(datetime.fromtimestamp(ts0, tz=timezone.utc))
+    t1_iso = _iso(datetime.fromtimestamp(ts1, tz=timezone.utc))
 
     try:
         reader = make_data_product_reader(
@@ -136,7 +240,7 @@ def _load_all_arrivals(
 
     try:
         try:
-            raw_rows = reader.read_time_range(start=t0_iso, end=t1_iso)
+            raw_rows = reader.read_time_range(start=t0_iso, end=t1_iso, station=station)
         except Exception as e:
             logger.warning(f"L1_all_arrivals read failed for {channel}: {e}")
             raw_rows = []
@@ -152,6 +256,8 @@ def _load_all_arrivals(
         mb = row.get('minute_boundary_utc')
         if mb is None or mb < ts0 or mb > ts1:
             continue
+        if station is not None and row.get('station') != station:
+            continue
         snr = row.get('corr_snr_db')
         if snr is None or snr < min_snr_db:
             continue
@@ -159,8 +265,10 @@ def _load_all_arrivals(
         if rank_filter is not None and rank != rank_filter:
             continue
         rows["minute_boundary"].append(mb)
+        rows["station"].append(row.get('station') or '')
         rows["arrival_ms"].append(row.get('arrival_ms'))
         rows["timing_error_ms"].append(row.get('timing_error_ms'))
+        rows["model_expected_ms"].append(row.get('model_expected_ms'))
         rows["corr_snr_db"].append(snr)
         rows["peak_rank"].append(rank)
         rows["utc_second"].append(row.get('utc_second'))
@@ -171,28 +279,42 @@ def _load_all_arrivals(
     if not rows["minute_boundary"]:
         return None
 
-    # GPS-referenced ToF: no propagation model needed.
-    #
-    # CHU: minute_boundary_utc is the true minute boundary; utc_second is the
-    #   broadcast second (Unix timestamp). sec_in_min = utc_second - mb (1..59).
-    #   tof_ms = arrival_ms - sec_in_min*1000 - onset_ms
-    #
-    # WWV/WWVH/BPM: the writer stores per-second boundaries — minute_boundary_utc
-    #   equals utc_second, so sec_in_min = 0. arrival_ms is already the offset
-    #   within that second, i.e. the propagation delay directly.
-    #   tof_ms = arrival_ms - onset_ms  (onset_ms = 0 for these stations)
+    # GPS-referenced ToF (see the module docstring for the row semantics).
     import numpy as np
-    arr_arr = np.array(rows["arrival_ms"])
-    mb_arr  = np.array(rows["minute_boundary"])
-    sec_arr = np.array(rows["utc_second"])
-    te_arr  = np.array(rows["timing_error_ms"])
-    sec_in_min = sec_arr - mb_arr  # 1..59 for CHU, 0 for WWV/WWVH/BPM
-    rows["tof_ms"] = (arr_arr - sec_in_min * 1000.0 - onset_ms).tolist()
-    rows["sec_in_min"] = sec_in_min.tolist()
+    f = lambda k: np.array([np.nan if v is None else v for v in rows[k]], dtype=float)
+    arr_arr = f("arrival_ms")
+    te_arr = f("timing_error_ms")
+    me_arr = f("model_expected_ms")
+    mb_arr = np.array(rows["minute_boundary"], dtype=float)
+    sec_arr = f("utc_second")
+    model_rel = np.array([m in MODEL_RELATIVE for m in rows["detection_method"]])
+    sec_in_min = sec_arr - mb_arr
+    tof_tone = arr_arr - sec_in_min * 1000.0
+    tof_model = np.where(me_arr > 0, me_arr + te_arr, np.nan)
+    rows["tof_ms"] = np.where(model_rel, tof_model, tof_tone).tolist()
     rows["timing_error_ms"] = te_arr.tolist()
-    rows["onset_correction_ms"] = onset_ms
 
     return rows
+
+
+def _plausible(rows, np):
+    """Mask of physically plausible arrivals: finite ToF within the station's
+    ceiling, a residual small enough to rule out a wrong-tick lock, and SNR
+    below the self-interference cap."""
+    tof = np.array(rows["tof_ms"], dtype=float)
+    te = np.array(rows["timing_error_ms"], dtype=float)
+    snr = np.array(rows["corr_snr_db"], dtype=float)
+    tof_max = np.array([TOF_MAX_MS.get(s, 500.0) for s in rows["station"]])
+    with np.errstate(invalid="ignore"):
+        return (np.isfinite(tof) & (tof >= 0) & (tof <= tof_max)
+                & (np.abs(te) < MAX_TIMING_ERROR_MS) & (snr <= SNR_CAP))
+
+
+def _station_label(channel: str, station: Optional[str], rows) -> Optional[str]:
+    if station:
+        return station
+    heard = sorted(set(rows["station"])) if rows else []
+    return heard[0] if len(heard) == 1 else None
 
 
 def _kde_contours(x, y, n_grid=60, bandwidth=None):
@@ -236,9 +358,20 @@ def _kde_contours(x, y, n_grid=60, bandwidth=None):
         return None
 
 
+def _freq_mhz(channel: str) -> float:
+    try:
+        return int(channel.split("_")[-1]) / 1000.0
+    except ValueError:
+        return 0.0
+
+
+NO_CHANNELS = "no channel has rows in L1_all_arrivals"
+
+
 @router.get("/arrivals")
 def get_all_arrivals(
-    channel: str = Query("CHU_7850", description="Channel name, e.g. CHU_7850, WWV_10000"),
+    channel: Optional[str] = Query(None, description="Channel name, e.g. SHARED_10000, WWV_20000 (default: newest)"),
+    station: Optional[str] = Query(None, description="Station on the channel: WWV, WWVH or BPM (default: all)"),
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-6h')"),
     end: str = Query("now", description="End time"),
     rank: Optional[int] = Query(None, description="Filter by peak_rank (0=dominant, 1=secondary, None=all)"),
@@ -247,91 +380,39 @@ def get_all_arrivals(
     downsample: int = Query(1, description="Keep every Nth point for scatter (1=all)"),
 ):
     """
-    All-arrivals Time-of-Flight data for one channel.
+    All-arrivals Time-of-Flight data for one channel (and station).
 
     Returns scatter data (ToF vs corr_snr_db) and optionally a KDE density
     grid for contour overlay — analogous to Gwyn Griffiths' cluster analysis
     of ToF and S+N level.
 
-    ToF = model_expected_ms + timing_error_ms (absolute propagation delay).
     Rank 0 = dominant (shortest) arrival; rank ≥ 1 = secondary (multi-hop).
     """
     try:
         import numpy as np
 
-        now = datetime.utcnow()
-
-        def _parse(s):
-            if s == "now":
-                return now
-            if s.startswith("-"):
-                val = int(s[1:-1])
-                u = s[-1]
-                if u == "h":
-                    return now - timedelta(hours=val)
-                if u == "d":
-                    return now - timedelta(days=val)
-                if u == "m":
-                    return now - timedelta(minutes=val)
-                raise ValueError(f"Unknown unit '{u}'")
-            return datetime.fromisoformat(s.replace("Z", ""))
-
-        t0 = _parse(start)
-        t1 = _parse(end)
-        ts0 = int(t0.timestamp())
-        ts1 = int(t1.timestamp())
+        t0, t1 = _window(start, end)
+        channel = _resolve_channel(channel)
+        if channel is None:
+            return _no_data(None, station, t0, t1, NO_CHANNELS, n_points=0, scatter={}, kde=None)
 
         data_root = Path(config.data_root)
-        rows = _load_all_arrivals(channel, ts0, ts1, rank, min_snr_db, data_root)
+        rows = _load_all_arrivals(channel, int(t0.timestamp()), int(t1.timestamp()),
+                                  rank, min_snr_db, data_root, station)
 
         if rows is None or not rows["minute_boundary"]:
-            return {
-                "status": "no_data",
-                "channel": channel,
-                "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
-                "n_points": 0,
-                "scatter": {},
-                "kde": None,
-            }
+            return _no_data(channel, station, t0, t1,
+                            f"no {channel}{' ' + station if station else ''} arrivals "
+                            f"above {min_snr_db:g} dB in this window",
+                            n_points=0, scatter={}, kde=None)
 
-        tof = np.array(rows["tof_ms"])
-        snr = np.array(rows["corr_snr_db"])
-        rank_arr = np.array(rows["peak_rank"])
-        mb = np.array(rows["minute_boundary"])
-        sim = np.array(rows["sec_in_min"])
-        te_arr = np.array(rows["timing_error_ms"])
-
-        # Filter to physically plausible GPS-referenced ToF.
-        # CHU: sec_in_min must be 1-59 (valid broadcast seconds within minute).
-        #   The sec_in_min filter already rejects wrong-minute matches.
-        # WWV/WWVH/BPM: writer stores per-second boundaries (sec_in_min=0).
-        #   arrival_ms = me + te. The correlator frequently locks onto the wrong
-        #   5ms tick (te ≈ +60-90ms). Filter |te| < 15ms to keep only real
-        #   detections where the peak landed near the model-expected position.
-        # SNR cap at 40 dB removes DC/self-interference artefacts.
-        SNR_CAP = 40.0
-        station = _channel_to_station(channel)
-        if station == "CHU":
-            tof_max = 30.0
-            sim_valid = (sim >= 1) & (sim <= 59)
-            te_valid = np.ones(len(te_arr), dtype=bool)  # sec_in_min handles this
-        elif station in ("WWVH", "BPM"):
-            tof_max = 500.0
-            sim_valid = sim == 0
-            te_valid = np.abs(te_arr) < 15.0
-        else:  # WWV
-            tof_max = 200.0
-            sim_valid = sim == 0
-            te_valid = np.abs(te_arr) < 15.0
-        valid = (
-            (snr <= SNR_CAP)
-            & np.isfinite(tof)
-            & (tof >= 0)
-            & (tof <= tof_max)
-            & sim_valid
-            & te_valid
-        )
-        tof, snr, rank_arr, mb = tof[valid], snr[valid], rank_arr[valid], mb[valid]
+        label = _station_label(channel, station, rows)
+        valid = _plausible(rows, np)
+        tof = np.array(rows["tof_ms"])[valid]
+        snr = np.array(rows["corr_snr_db"])[valid]
+        rank_arr = np.array(rows["peak_rank"])[valid]
+        mb = np.array(rows["minute_boundary"])[valid]
+        st_arr = np.array(rows["station"])[valid]
 
         # Downsample for scatter (KDE always uses full set)
         if downsample > 1:
@@ -344,6 +425,7 @@ def get_all_arrivals(
             "tof_ms": tof[idx].tolist(),
             "corr_snr_db": snr[idx].tolist(),
             "peak_rank": rank_arr[idx].tolist(),
+            "station": st_arr[idx].tolist(),
         }
 
         # KDE on full (undownsampled, capped) data — x=snr, y=tof (Griffiths convention)
@@ -362,20 +444,13 @@ def get_all_arrivals(
                 "snr_mean_db": float(np.nanmean(snr[m])),
             }
 
-        station = _channel_to_station(channel)
-        freq_khz = channel.split("_")[-1]
-        try:
-            freq_mhz = int(freq_khz) / 1000.0
-        except ValueError:
-            freq_mhz = 0.0
-
         return {
             "status": "ok",
             "channel": channel,
-            "station": station,
-            "frequency_mhz": freq_mhz,
-            "color": STATION_COLORS.get(station, "#888888"),
-            "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
+            "station": label,
+            "frequency_mhz": _freq_mhz(channel),
+            "color": STATION_COLORS.get(label, "#888888"),
+            "time_range": {"start": _iso(t0), "end": _iso(t1)},
             "n_points": len(tof),
             "n_scatter": len(idx),
             "rank_stats": rank_stats,
@@ -392,7 +467,8 @@ def get_all_arrivals(
 
 @router.get("/arrivals/timeseries")
 def get_arrivals_timeseries(
-    channel: str = Query("CHU_7850", description="Channel name"),
+    channel: Optional[str] = Query(None, description="Channel name (default: newest)"),
+    station: Optional[str] = Query(None, description="Station on the channel (default: all)"),
     start: str = Query("-24h", description="Start time"),
     end: str = Query("now", description="End time"),
     min_snr_db: float = Query(6.0, description="Minimum correlation SNR"),
@@ -408,68 +484,32 @@ def get_arrivals_timeseries(
         Δτ = τ(2F2) − τ(1F2)
         h_F2 = sqrt( (c·Δτ/2)² − (d/4)² )   [flat-Earth approx]
     """
+    empty = {"timestamps": [], "tof_ms": [], "snr_db": []}
     try:
         import numpy as np
 
-        now = datetime.utcnow()
-
-        def _parse(s):
-            if s == "now":
-                return now
-            if s.startswith("-"):
-                val = int(s[1:-1])
-                u = s[-1]
-                if u == "h":
-                    return now - timedelta(hours=val)
-                if u == "d":
-                    return now - timedelta(days=val)
-                if u == "m":
-                    return now - timedelta(minutes=val)
-                raise ValueError(f"Unknown unit '{u}'")
-            return datetime.fromisoformat(s.replace("Z", ""))
-
-        t0 = _parse(start)
-        t1 = _parse(end)
-        ts0 = int(t0.timestamp())
-        ts1 = int(t1.timestamp())
+        t0, t1 = _window(start, end)
+        channel = _resolve_channel(channel)
+        if channel is None:
+            return _no_data(None, station, t0, t1, NO_CHANNELS,
+                            dominant=dict(empty), secondary=dict(empty))
 
         data_root = Path(config.data_root)
-        rows = _load_all_arrivals(channel, ts0, ts1, None, min_snr_db, data_root)
+        rows = _load_all_arrivals(channel, int(t0.timestamp()), int(t1.timestamp()),
+                                  None, min_snr_db, data_root, station)
 
         if rows is None or not rows["minute_boundary"]:
-            return {
-                "status": "no_data",
-                "channel": channel,
-                "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
-                "dominant": {"timestamps": [], "tof_ms": [], "snr_db": []},
-                "secondary": {"timestamps": [], "tof_ms": [], "snr_db": []},
-            }
+            return _no_data(channel, station, t0, t1,
+                            f"no {channel}{' ' + station if station else ''} arrivals "
+                            f"above {min_snr_db:g} dB in this window",
+                            dominant=dict(empty), secondary=dict(empty))
 
-        tof = np.array(rows["tof_ms"])
-        snr = np.array(rows["corr_snr_db"])
-        rank_arr = np.array(rows["peak_rank"])
-        mb = np.array(rows["minute_boundary"])
-        sim = np.array(rows["sec_in_min"])
-        te_arr = np.array(rows["timing_error_ms"])
-
-        # Same GPS-referenced filter as /arrivals endpoint
-        station = _channel_to_station(channel)
-        if station == "CHU":
-            tof_max = 30.0
-            sim_valid = (sim >= 1) & (sim <= 59)
-            te_valid = np.ones(len(te_arr), dtype=bool)
-        elif station in ("WWVH", "BPM"):
-            tof_max = 500.0
-            sim_valid = sim == 0
-            te_valid = np.abs(te_arr) < 15.0
-        else:  # WWV
-            tof_max = 200.0
-            sim_valid = sim == 0
-            te_valid = np.abs(te_arr) < 15.0
-        valid = (
-            np.isfinite(tof) & (tof >= 0) & (tof <= tof_max) & sim_valid & te_valid
-        )
-        tof, snr, rank_arr, mb = tof[valid], snr[valid], rank_arr[valid], mb[valid]
+        label = _station_label(channel, station, rows)
+        valid = _plausible(rows, np)
+        tof = np.array(rows["tof_ms"])[valid]
+        snr = np.array(rows["corr_snr_db"])[valid]
+        rank_arr = np.array(rows["peak_rank"])[valid]
+        mb = np.array(rows["minute_boundary"])[valid]
 
         dom = rank_arr == 0
         sec = rank_arr > 0
@@ -518,17 +558,15 @@ def get_arrivals_timeseries(
                 h_ts.append(int(t))
                 h_vals.append(float(h_approx_km))
 
-        station = _channel_to_station(channel)
-
-        # Solar zenith at path midpoint — for day/night shading overlay
-        solar = _compute_solar_overlay(station, t0, t1)
+        # Solar elevation at path midpoint — for day/night shading overlay
+        solar = _compute_solar_overlay(label, t0, t1) if label else None
 
         return {
             "status": "ok",
             "channel": channel,
-            "station": station,
-            "color": STATION_COLORS.get(station, "#888888"),
-            "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
+            "station": label,
+            "color": STATION_COLORS.get(label, "#888888"),
+            "time_range": {"start": _iso(t0), "end": _iso(t1)},
             "dominant": {
                 "timestamps": dom_ts,
                 "tof_ms": dom_tof,
@@ -559,7 +597,8 @@ def get_arrivals_timeseries(
 
 @router.get("/doppler-delay")
 def get_doppler_delay(
-    channel: str = Query("CHU_7850", description="Channel name"),
+    channel: Optional[str] = Query(None, description="Channel name (default: newest)"),
+    station: Optional[str] = Query(None, description="Station on the channel (default: all)"),
     start: str = Query("-6h", description="Start time"),
     end: str = Query("now", description="End time"),
     min_snr_db: float = Query(3.0, description="Minimum tick SNR (lower for edge ticks)"),
@@ -585,47 +624,28 @@ def get_doppler_delay(
     try:
         import numpy as np
 
-        now = datetime.utcnow()
-
-        def _parse(s):
-            if s == "now":
-                return now
-            if s.startswith("-"):
-                val = int(s[1:-1])
-                u = s[-1]
-                if u == "h":
-                    return now - timedelta(hours=val)
-                if u == "d":
-                    return now - timedelta(days=val)
-                if u == "m":
-                    return now - timedelta(minutes=val)
-                raise ValueError(f"Unknown unit '{u}'")
-            return datetime.fromisoformat(s.replace("Z", ""))
-
-        t0 = _parse(start)
-        t1 = _parse(end)
-        ts0 = int(t0.timestamp())
-        ts1 = int(t1.timestamp())
+        t0, t1 = _window(start, end)
+        channel = _resolve_channel(channel)
+        if channel is None:
+            return _no_data(None, station, t0, t1, NO_CHANNELS, n_points=0, scatter={}, kde=None)
 
         data_root = Path(config.data_root)
-        rows = _load_all_arrivals(channel, ts0, ts1, None, min_snr_db, data_root)
+        rows = _load_all_arrivals(channel, int(t0.timestamp()), int(t1.timestamp()),
+                                  None, min_snr_db, data_root, station)
 
         if rows is None or not rows["minute_boundary"]:
-            return {
-                "status": "no_data",
-                "channel": channel,
-                "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
-                "n_points": 0,
-                "scatter": {},
-                "kde": None,
-            }
+            return _no_data(channel, station, t0, t1,
+                            f"no {channel}{' ' + station if station else ''} arrivals "
+                            f"above {min_snr_db:g} dB in this window",
+                            n_points=0, scatter={}, kde=None)
 
-        te_arr = np.array(rows["timing_error_ms"])
-        phase_arr = np.array(rows["carrier_phase_rad"])
+        label = _station_label(channel, station, rows)
+        te_arr = np.array(rows["timing_error_ms"], dtype=float)
+        phase_arr = np.array(rows["carrier_phase_rad"], dtype=float)
         snr_arr = np.array(rows["corr_snr_db"])
         mb_arr = np.array(rows["minute_boundary"])
         sec_arr = np.array(rows["utc_second"])
-        sim_arr = np.array(rows.get("sec_in_minute", [0] * len(te_arr)))
+        sim_arr = np.array(rows["sec_in_minute"])
         method_arr = np.array(rows["detection_method"])
 
         # Filter by detection method if specified
@@ -634,21 +654,15 @@ def get_doppler_delay(
         else:
             method_mask = np.ones(len(te_arr), dtype=bool)
 
-        # Filter out zero-phase records (tone_correlator doesn't have real phase)
-        # and require finite values
+        # Require finite values and an implausibly large residual rules out
+        # a wrong-tick lock.
         valid = (
             method_mask
             & np.isfinite(te_arr)
             & np.isfinite(phase_arr)
             & (snr_arr >= min_snr_db)
+            & (np.abs(te_arr) < MAX_TIMING_ERROR_MS)
         )
-
-        # For edge_tick records, also filter implausible timing errors
-        station = _channel_to_station(channel)
-        if station == "CHU":
-            valid &= (np.abs(te_arr) < 20.0)
-        else:
-            valid &= (np.abs(te_arr) < 15.0)
 
         te = te_arr[valid]
         phase = phase_arr[valid]
@@ -704,9 +718,9 @@ def get_doppler_delay(
         return {
             "status": "ok",
             "channel": channel,
-            "station": station,
-            "color": STATION_COLORS.get(station, "#888888"),
-            "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
+            "station": label,
+            "color": STATION_COLORS.get(label, "#888888"),
+            "time_range": {"start": _iso(t0), "end": _iso(t1)},
             "n_points": len(te),
             "n_edge_ticks": n_edge,
             "n_tone_correlator": n_corr,
@@ -731,18 +745,6 @@ def get_doppler_delay(
 
 @router.get("/channels")
 def list_ionogram_channels():
-    """List channels that have all_arrivals data available."""
-    data_root = Path(config.data_root)
-    available = []
-    for ch in ALL_ARRIVALS_CHANNELS:
-        arr_dir = data_root / "phase2" / ch / "all_arrivals"
-        if arr_dir.exists() and any(arr_dir.glob("*.h5")):
-            files = sorted(arr_dir.glob("*.h5"))
-            available.append({
-                "channel": ch,
-                "station": _channel_to_station(ch),
-                "color": STATION_COLORS.get(_channel_to_station(ch), "#888888"),
-                "n_files": len(files),
-                "latest_date": files[-1].stem.split("_")[-1] if files else None,
-            })
+    """Channels with rows in L1_all_arrivals, and the stations heard on each."""
+    available = discover_channels()
     return {"status": "ok", "channels": available, "n_channels": len(available)}
