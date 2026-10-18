@@ -27,9 +27,17 @@ from station_web.config import config as _web_config
 from station_web.services.channels import discover_channels
 from station_web.timeutil import as_utc, iso_z
 
-from hamsci_dsp.io import make_data_product_reader
+from station_web import projected
 
 logger = logging.getLogger(__name__)
+
+#: The L2_tick_phase columns sigma-phi needs, in the order it unpacks them.
+_SIGMA_COLUMNS = ('station', 'minute_boundary_utc', 'carrier_phase_rad',
+                  'window_center_second', 'snr_db', 'correlation_peak', 'frequency_mhz')
+#: The L2_test_signal columns the S4 records carry.
+_S4_COLUMNS = ('timestamp_utc', 'station', 'frequency_mhz', 'scintillation_index',
+               's4_2khz', 's4_3khz', 's4_4khz', 's4_5khz', 's4_frequency_slope',
+               'fading_variance')
 
 #: Stations that send the minute-8/44 multitone test signal (S4 source).
 TEST_SIGNAL_STATIONS = ('WWV', 'WWVH')
@@ -100,23 +108,10 @@ class ScintillationService:
         """Read S4 amplitude scintillation from the L2_test_signal SQLite
         table."""
         records: List[Dict[str, Any]] = []
-        # iso_z makes every bound aware UTC: a naive bound reached the
-        # reader as a zone-less string and raised TypeError there.
-        start_iso, end_iso = iso_z(start), iso_z(end)
-        storage_config = getattr(_web_config, 'storage', {}) if _web_config else {}
-
+        # projected.iter_rows makes every bound aware UTC: a naive bound
+        # once reached the reader as a zone-less string and raised there.
         for channel in test_signal_channels():
-            reader = make_data_product_reader(
-                data_dir=self.phase2_dir / channel / 'test_signal',
-                product_level='L2',
-                product_name='test_signal',
-                channel=channel,
-                storage_config=storage_config,
-            )
-            try:
-                rows = reader.read_time_range(start=start_iso, end=end_iso)
-            finally:
-                reader.close()
+            rows = projected.read_rows('L2_test_signal', channel, start, end, _S4_COLUMNS)
 
             for row in rows:
                 records.append({
@@ -155,33 +150,17 @@ class ScintillationService:
         start, end = as_utc(start), as_utc(end)
         start_epoch = start.timestamp()
         end_epoch = end.timestamp()
-        start_iso, end_iso = iso_z(start), iso_z(end)
-        storage_config = getattr(_web_config, 'storage', {}) if _web_config else {}
-
         for channel in tick_phase_channels():
-            reader = make_data_product_reader(
-                data_dir=self.phase2_dir / channel / 'tick_phase',
-                product_level='L2',
-                product_name='tick_phase',
-                channel=channel,
-                storage_config=storage_config,
-            )
-            try:
-                rows = reader.read_time_range(start=start_iso, end=end_iso)
-            finally:
-                reader.close()
-
-            # Group rows by (station, minute_boundary_utc) for sigma-phi
-            # estimation.
-            groups: Dict[tuple, List[Dict[str, Any]]] = {}
-            for row in rows:
-                stn = row.get('station')
-                mb = row.get('minute_boundary_utc')
-                if stn is None or mb is None:
-                    continue
-                if mb < start_epoch or mb > end_epoch:
-                    continue
-                groups.setdefault((stn, int(mb)), []).append(row)
+            # Group (second, phase, snr, peak, freq) by (station, minute)
+            # for sigma-phi estimation; only these columns leave SQLite.
+            groups: Dict[tuple, List[tuple]] = {}
+            for part in projected.iter_rows('L2_tick_phase', channel, start, end, _SIGMA_COLUMNS):
+                for stn, mb, cp, sec, snr, peak, freq in part:
+                    if stn is None or mb is None:
+                        continue
+                    if mb < start_epoch or mb > end_epoch:
+                        continue
+                    groups.setdefault((stn, int(mb)), []).append((cp, sec, snr, peak, freq))
 
             for (stn, mb_epoch), group in groups.items():
                 phases = []
@@ -189,18 +168,15 @@ class ScintillationService:
                 snrs = []
                 amps = []
                 freq_mhz_val = None
-                for r in group:
-                    cp = r.get('carrier_phase_rad')
-                    sec = r.get('window_center_second')
-                    snr = r.get('snr_db')
+                for cp, sec, snr, peak, freq in group:
                     if cp is None or sec is None or snr is None:
                         continue
                     phases.append(float(cp))
                     seconds.append(float(sec))
                     snrs.append(float(snr))
-                    amps.append(r.get('correlation_peak'))
+                    amps.append(peak)
                     if freq_mhz_val is None:
-                        freq_mhz_val = r.get('frequency_mhz')
+                        freq_mhz_val = freq
                 if len(phases) < 5:
                     continue
 

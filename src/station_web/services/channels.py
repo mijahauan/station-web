@@ -30,7 +30,17 @@ def discover_channels(settings: Settings, table: str = "L2_timing_measurements")
     try:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
         try:
-            rows = con.execute(f'SELECT DISTINCT channel FROM "{table}" ORDER BY channel').fetchall()
+            # Skip-scan the (channel, timestamp_utc) index: one seek per
+            # channel.  SELECT DISTINCT walked the whole index, which took
+            # 13 s on B4's tick_phase table.
+            rows, last = [], ""
+            while True:
+                row = con.execute(f'SELECT channel FROM "{table}" WHERE channel > ? '
+                                  'ORDER BY channel LIMIT 1', (last,)).fetchone()
+                if row is None:
+                    break
+                last = row[0]
+                rows.append(row)
         finally:
             con.close()
     except sqlite3.Error as exc:

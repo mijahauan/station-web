@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
 
-from hamsci_dsp.io import make_data_product_reader
-from station_web.config import config
-from station_web.timeutil import as_utc, iso_z
+from station_web import projected
+from station_web.timeutil import as_utc
 
 # Import core stability functions - try from installed package first,
 # fall back to local implementation if not available
@@ -54,15 +53,6 @@ class StabilityService:
         self.data_root = Path(data_root)
         self.fusion_dir = self.data_root / 'phase2' / 'fusion'
 
-        # Initialize reader for fusion data
-        self.reader = make_data_product_reader(
-            data_dir=self.fusion_dir,
-            product_level='L3',
-            product_name='fusion_timing',
-            channel='fusion',
-            storage_config=config.storage
-        )
-
     def compute_stability_metrics(
         self,
         start: datetime,
@@ -82,28 +72,29 @@ class StabilityService:
             too few points.  A read or computation failure raises.
         """
         start, end = as_utc(start), as_utc(end)
-        start_str = iso_z(start)
-        end_str = iso_z(end)
 
-        measurements = self.reader.read_time_range(
-            start=start_str,
-            end=end_str
-        )
-
-        # A row without a fused value is not a phase sample.
-        measurements = [m for m in measurements if m.get('d_clock_fused_ms') is not None]
-        if len(measurements) < min_points:
-            logger.warning(f"Insufficient data for stability analysis: {len(measurements)} < {min_points}")
+        # Two columns, streamed into flat arrays: the page's "All data" asks
+        # for a year, ~525k rows at one a minute, and a dict per row of all
+        # 48 columns would not fit the unit's memory.
+        ts_list: List[float] = []
+        d_list: List[float] = []
+        for part in projected.iter_rows('L3_fusion_timing', 'fusion', start, end,
+                                        ('timestamp_utc', 'd_clock_fused_ms')):
+            for ts, d in part:
+                # A row without a fused value is not a phase sample.
+                if d is None:
+                    continue
+                ts_list.append(as_utc(datetime.fromisoformat(
+                    str(ts).replace('Z', '+00:00'))).timestamp())
+                d_list.append(float(d))
+        if len(d_list) < min_points:
+            logger.warning(f"Insufficient data for stability analysis: {len(d_list)} < {min_points}")
             return None
 
-        # Extract D_clock values (convert to fractional frequency)
-        d_clock_ms = np.array([m['d_clock_fused_ms'] for m in measurements])
-
-        # Parse timestamps to seconds for interval calculation
-        # timestamp_utc is ISO format string
-        timestamps_dt = [as_utc(datetime.fromisoformat(m['timestamp_utc'].replace('Z', '+00:00')))
-                         for m in measurements]
-        timestamps = np.array([dt.timestamp() for dt in timestamps_dt])
+        d_clock_ms = np.array(d_list)
+        timestamps = np.array(ts_list)
+        n_points = len(d_list)
+        del ts_list, d_list
 
         # Calculate sample interval dynamically
         intervals = np.diff(timestamps)
@@ -128,7 +119,7 @@ class StabilityService:
             return None
 
         # Add API-specific fields
-        result['n_points'] = len(measurements)
+        result['n_points'] = n_points
         result['sample_rate_hz'] = 1.0 / sample_interval
         result['time_span_hours'] = (end - start).total_seconds() / 3600
 

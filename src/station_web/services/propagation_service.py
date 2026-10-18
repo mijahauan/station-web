@@ -16,6 +16,7 @@ import time
 from hamsci_dsp.io import make_data_product_reader
 from station_web.broadcast import DEFAULT_STATIONS
 from station_web.config import config
+from station_web import heavy, projected
 from station_web.services.channels import _db_path, discover_channels
 from station_web.services.tec_service import read_tec_rows
 from station_web.timeutil import as_utc, iso_z, utcnow
@@ -38,6 +39,14 @@ TIMELINE_CACHE_MAX = 16
 #: The longest window the timeline route serves.  station.html asks for at
 #: most 168 h; a longer request is refused rather than read.
 TIMELINE_MAX_WINDOW = timedelta(days=7)
+
+#: The columns the timeline reads from each L2 product.
+_TIMELINE_COLUMNS = {
+    'timing_measurements': ('timestamp_utc', 'minute_boundary_utc', 'station', 'frequency_mhz',
+                            'doppler_hz', 'propagation_mode', 'snr_db', 'raw_arrival_time_ms'),
+    'tick_timing': ('timestamp_utc', 'minute_boundary_utc', 'station', 'frequency_mhz',
+                    'mean_snr_db', 'doppler_hz', 'd_clock_ms'),
+}
 
 _timeline_cache: "OrderedDict[tuple, Tuple[float, Optional[Dict[str, Any]]]]" = OrderedDict()
 _timeline_lock = threading.Lock()
@@ -412,7 +421,16 @@ class PropagationService:
                 _timeline_cache.move_to_end(key)
                 return hit[1]
 
-        result = self._compute_mode_timeline(db, start, end, station)
+        # One timeline computation at a time: each reads up to a week of
+        # rows per channel.  A twin request may have filled the cache while
+        # this one waited.
+        with heavy.guard("timeline"):
+            with _timeline_lock:
+                hit = _timeline_cache.get(key)
+                if hit and time.monotonic() - hit[0] < TIMELINE_TTL_S:
+                    _timeline_cache.move_to_end(key)
+                    return hit[1]
+            result = self._compute_mode_timeline(db, start, end, station)
 
         with _timeline_lock:
             for k in [k for k, (t, _) in _timeline_cache.items()
@@ -428,8 +446,6 @@ class PropagationService:
                                station: Optional[str]) -> Optional[Dict[str, Any]]:
         import math
 
-        start_iso, end_iso = iso_z(start), iso_z(end)
-
         def _safe_float(val):
             """Convert to float, returning None for NaN/Inf/invalid."""
             if val is None:
@@ -443,17 +459,9 @@ class PropagationService:
                 return None
 
         def _read(product: str, channel: str) -> List[Dict[str, Any]]:
-            reader = make_data_product_reader(
-                data_dir=self.phase2_dir / channel,
-                product_level='L2',
-                product_name=product,
-                channel=channel,
-                storage_config=config.storage
-            )
-            try:
-                return reader.read_time_range(start=start_iso, end=end_iso, station=station)
-            finally:
-                reader.close()
+            # only the columns the timeline uses, in chunks
+            return projected.read_rows(f'L2_{product}', channel, start, end,
+                                       _TIMELINE_COLUMNS[product], station=station)
 
         all_records = []
         for channel in self._channels():

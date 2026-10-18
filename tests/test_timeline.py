@@ -20,6 +20,7 @@ from conftest import PROC_VERSION, _iso, _write_rows
 from shared_fixture import (BASE_SNR, N_MINUTES, SHARED, STATIONS, shared_seeded,  # noqa: F401
                             snr_at, minute_times)
 
+from station_web import projected
 from station_web.services import propagation_service
 
 
@@ -81,7 +82,7 @@ def test_timeline_finds_channels_from_the_products_not_directories(shared_seeded
 def test_timeline_read_failure_is_a_500_not_no_data(shared_client, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("disk on fire")
-    monkeypatch.setattr(propagation_service, "make_data_product_reader", boom)
+    monkeypatch.setattr(projected, "iter_rows", boom)
     r = shared_client.get("/api/propagation/timeline?start=-2h&end=now")
     assert_opaque_500(r, "disk on fire")
 
@@ -93,7 +94,7 @@ def test_the_journal_carries_the_cause_under_the_same_id(shared_client, monkeypa
 
     def boom(*a, **k):
         raise RuntimeError("disk on fire at /var/lib/timestd")
-    monkeypatch.setattr(propagation_service, "make_data_product_reader", boom)
+    monkeypatch.setattr(projected, "iter_rows", boom)
     with caplog.at_level("ERROR"):
         r = shared_client.get("/api/propagation/timeline?start=-2h&end=now")
     detail = assert_opaque_500(r, "/var/lib/timestd")

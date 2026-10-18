@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 import logging
 
+from station_web import projected
 from station_web.config import config
 from station_web.timeutil import iso_z, utcnow
 
@@ -40,6 +41,13 @@ TEC_CHANNELS: Tuple[str, ...] = ("REANALYZED", "AGGREGATED")
 CURRENT_MAX_AGE = timedelta(hours=2)
 
 
+#: The L3_tec columns any reader here uses (TECService and the
+#: propagation TEC summary).
+TEC_COLUMNS: Tuple[str, ...] = ('timestamp_utc', 'minute_boundary', 'station', 'tec_tecu',
+                                'confidence', 'propagation_mode', 'residuals_ms',
+                                'quality_flag', 'n_frequencies')
+
+
 def read_tec_rows(start: datetime, end: datetime) -> Tuple[List[Dict[str, Any]], Optional[str]]:
     """``L3_tec`` rows in ``[start, end]`` from the first channel that has any.
 
@@ -47,19 +55,8 @@ def read_tec_rows(start: datetime, end: datetime) -> Tuple[List[Dict[str, Any]],
     in the window.  A read failure raises — the caller must not report a
     fault as an empty window.
     """
-    tec_dir = Path(config.data_root) / 'phase2' / 'science' / 'tec'
     for channel in TEC_CHANNELS:
-        reader = make_data_product_reader(
-            data_dir=tec_dir,
-            product_level='L3',
-            product_name='tec',
-            channel=channel,
-            storage_config=config.storage,
-        )
-        try:
-            rows = reader.read_time_range(start=iso_z(start), end=iso_z(end))
-        finally:
-            reader.close()
+        rows = projected.read_rows('L3_tec', channel, start, end, TEC_COLUMNS)
         if rows:
             return rows, channel
     return [], None

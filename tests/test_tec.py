@@ -122,11 +122,11 @@ def test_freshness_sees_reanalyzed_tec(reanalyzed_only):
 
 
 def test_tec_read_failure_is_a_500(seeded_client, monkeypatch):
-    from station_web.services import tec_service
+    from station_web import projected
 
     def boom(*a, **k):
         raise RuntimeError("reader exploded")
-    monkeypatch.setattr(tec_service, "make_data_product_reader", boom)
+    monkeypatch.setattr(projected, "iter_rows", boom)
     for path in ("/api/tec/current", "/api/tec/history", "/api/propagation/tec"):
         r = seeded_client.get(path)
         assert_opaque_500(r, "reader exploded")

@@ -11,10 +11,16 @@ from typing import Dict, Any, List, Optional
 import logging
 
 from hamsci_dsp.io import make_data_product_reader
+from station_web import projected
 from station_web.config import config
 from station_web.timeutil import iso_z, utcnow
 
 logger = logging.getLogger(__name__)
+
+#: L3_fusion_timing carries 48 columns; the history plots these.
+_HISTORY_COLUMNS = ('timestamp_utc', 'd_clock_fused_ms', 'uncertainty_ms',
+                    'quality_grade', 'n_broadcasts')
+_GRADE_ORDER = {'A': 0, 'B': 1, 'C': 2, 'D': 3}
 
 
 class FusionService:
@@ -134,16 +140,15 @@ class FusionService:
         Returns:
             Dictionary with time series data
         """
-        start_iso = iso_z(start)
-        end_iso = iso_z(end)
-        
-        # Read measurements
-        measurements = self.reader.read_time_range(
-            start=start_iso,
-            end=end_iso,
-            min_quality_grade=min_quality_grade
-        )
-        
+        # Only the plotted columns, in chunks (L3_fusion_timing has 48).
+        measurements = projected.read_rows('L3_fusion_timing', 'fusion', start, end,
+                                           _HISTORY_COLUMNS)
+        if min_quality_grade:
+            # as read_time_range filters: a missing grade counts as D
+            limit = _GRADE_ORDER.get(min_quality_grade, 3)
+            measurements = [m for m in measurements
+                            if _GRADE_ORDER.get(m.get('quality_grade') or 'D', 3) <= limit]
+
         # Extract arrays
         timestamps = []
         d_clock_ms = []

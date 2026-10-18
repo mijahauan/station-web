@@ -13,6 +13,7 @@ import pytest
 from error_assert import assert_opaque_500
 from shared_fixture import SHARED, STATIONS, shared_seeded  # noqa: F401
 
+from station_web import projected
 from station_web.services import scintillation_service
 from station_web.services.scintillation_service import ScintillationService
 
@@ -54,5 +55,5 @@ def client(shared_seeded):
 def test_read_failure_is_a_500_not_count_zero(client, monkeypatch, path):
     def boom(*a, **k):
         raise TypeError("can't compare offset-naive and offset-aware datetimes")
-    monkeypatch.setattr(scintillation_service, "make_data_product_reader", boom)
+    monkeypatch.setattr(projected, "iter_rows", boom)
     assert_opaque_500(client.get(path), "offset-naive")
