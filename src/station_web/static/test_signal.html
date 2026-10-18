@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Signal Analysis - hf-timestd</title>
+    <title>Test Signal Analysis - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <style>
@@ -338,7 +338,7 @@
 
         <div class="footer">
             <div>Last updated: <span id="last-update">-</span></div>
-            <div>hf-timestd &mdash; WWV/WWVH Ionospheric Channel Characterization</div>
+            <div>station-web &mdash; WWV/WWVH Ionospheric Channel Characterization</div>
         </div>
     </div>
 
@@ -557,10 +557,10 @@
             .map(([freq, r]) => `
                 <div class="stat-card">
                     <div class="stat-card-header">
-                        <span class="stat-card-title">${freq} MHz</span>
-                        <span class="metric-badge ${qualityClass(r.channel_quality)}">${r.channel_quality||'?'}</span>
+                        <span class="stat-card-title">${escapeHtml(freq)} MHz</span>
+                        <span class="metric-badge ${qualityClass(r.channel_quality)}">${escapeHtml(r.channel_quality||'?')}</span>
                     </div>
-                    <div class="stat-row"><span class="stat-label">Station</span><span class="stat-value" style="color:${r.station==='WWV'?WWV_COLOR:WWVH_COLOR}">${r.station||'-'}</span></div>
+                    <div class="stat-row"><span class="stat-label">Station</span><span class="stat-value" style="color:${r.station==='WWV'?WWV_COLOR:WWVH_COLOR}">${escapeHtml(r.station||'-')}</span></div>
                     <div class="stat-row"><span class="stat-label">SNR</span><span class="stat-value">${fmt(r.snr_db,1,' dB')}</span></div>
                     <div class="stat-row"><span class="stat-label">Eff. SNR</span><span class="stat-value">${fmt(r.effective_snr_db,1,' dB')}</span></div>
                     <div class="stat-row"><span class="stat-label">S4</span><span class="stat-value" style="color:${s4Color(r.scintillation_index)}">${fmt(r.scintillation_index,3)}</span></div>
