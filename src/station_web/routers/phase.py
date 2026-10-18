@@ -13,12 +13,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import logging
 
-from station_web.services.phase_service import PhaseService
+from station_web.services.phase_service import PhaseBusy, PhaseRequestError, PhaseService
 from station_web.config import config
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/phase", tags=["phase"])
+
+# Replies never carry exception text, which can echo client input.
+BAD_REQUEST = "invalid request: check start, end and the other parameters"
+BUSY = "phase data busy; try again"
 
 def _service() -> PhaseService:
     """Built per request, never at import.
@@ -64,8 +68,8 @@ def _parse_time_range(start: str, end: str):
 def get_phase_timeseries(
     start: str = Query("-1h", description="Start time (ISO8601 or relative like '-1h', '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
-    channel: Optional[str] = Query(None, description="Channel name (e.g., SHARED_10000, CHU_14670)"),
-    station: Optional[str] = Query(None, description="Station name (WWV, WWVH, CHU, BPM)"),
+    channel: Optional[str] = Query(None, description="Channel name (e.g., SHARED_10000, WWV_20000)"),
+    station: Optional[str] = Query(None, description="Station name (WWV, WWVH, BPM)"),
     phase_type: str = Query("carrier_phase_rad", description="Phase field: phase_rad, carrier_phase_rad, dc_carrier_phase_rad"),
     unwrap: bool = Query(True, description="Unwrap phase for continuous tracking"),
 ):
@@ -79,7 +83,7 @@ def get_phase_timeseries(
         start_time, end_time = _parse_time_range(start, end)
 
         if phase_type not in ('phase_rad', 'carrier_phase_rad', 'dc_carrier_phase_rad'):
-            raise ValueError(f"Invalid phase_type: {phase_type}")
+            raise PhaseRequestError("invalid phase_type")
 
         result = _service().get_phase_timeseries(
             start_time, end_time,
@@ -88,10 +92,15 @@ def get_phase_timeseries(
         )
         return result
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error getting phase timeseries: {e}")
+    except PhaseRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))     # fixed text only
+    except ValueError:
+        logger.warning("bad phase request", exc_info=True)
+        raise HTTPException(status_code=400, detail=BAD_REQUEST)
+    except PhaseBusy:
+        raise HTTPException(status_code=503, detail=BUSY)
+    except Exception:
+        logger.exception("Error getting phase timeseries")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -119,10 +128,15 @@ def get_doppler(
         )
         return result
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error getting Doppler: {e}")
+    except PhaseRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))     # fixed text only
+    except ValueError:
+        logger.warning("bad phase request", exc_info=True)
+        raise HTTPException(status_code=400, detail=BAD_REQUEST)
+    except PhaseBusy:
+        raise HTTPException(status_code=503, detail=BUSY)
+    except Exception:
+        logger.exception("Error getting Doppler")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -149,17 +163,60 @@ def get_scintillation(
         )
         return result
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error getting scintillation: {e}")
+    except PhaseRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))     # fixed text only
+    except ValueError:
+        logger.warning("bad phase request", exc_info=True)
+        raise HTTPException(status_code=400, detail=BAD_REQUEST)
+    except PhaseBusy:
+        raise HTTPException(status_code=503, detail=BUSY)
+    except Exception:
+        logger.exception("Error getting scintillation")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/combined")
+def get_phase_combined(
+    start: str = Query("-1h", description="Start time"),
+    end: str = Query("now", description="End time"),
+    channel: Optional[str] = Query(None, description="Channel name"),
+    station: Optional[str] = Query(None, description="Station name"),
+    phase_type: str = Query("carrier_phase_rad", description="Phase field for the phase view"),
+    smoothing: float = Query(30.0, description="Doppler smoothing window in seconds"),
+    window: float = Query(60.0, description="Scintillation window in seconds"),
+):
+    """
+    Phase, DC carrier phase, Doppler and sigma_phi in one reply.
+
+    All four come from one read of L2_tick_phase, so the phase page needs one
+    request where it used to fire four.
+    """
+    try:
+        start_time, end_time = _parse_time_range(start, end)
+        if phase_type not in ('phase_rad', 'carrier_phase_rad', 'dc_carrier_phase_rad'):
+            raise PhaseRequestError("invalid phase_type")
+        return _service().get_combined(
+            start_time, end_time,
+            channel=channel, station=station, phase_type=phase_type,
+            smoothing_seconds=smoothing, window_seconds=window,
+        )
+
+    except PhaseRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))     # fixed text only
+    except ValueError:
+        logger.warning("bad phase request", exc_info=True)
+        raise HTTPException(status_code=400, detail=BAD_REQUEST)
+    except PhaseBusy:
+        raise HTTPException(status_code=503, detail=BUSY)
+    except Exception:
+        logger.exception("Error getting combined phase view")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/channels")
 def get_available_channels():
     """
-    List all channels and stations that have tick_phase data on disk.
+    List all channels that have tick_phase data, and the stations heard lately.
 
     Used by the frontend to populate channel/station filter dropdowns.
     """
@@ -167,8 +224,8 @@ def get_available_channels():
         result = _service().get_available_channels()
         return result
 
-    except Exception as e:
-        logger.error(f"Error listing channels: {e}")
+    except Exception:
+        logger.exception("Error listing channels")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -183,6 +240,6 @@ def get_phase_summary():
         result = _service().get_phase_summary()
         return result
 
-    except Exception as e:
-        logger.error(f"Error getting phase summary: {e}")
+    except Exception:
+        logger.exception("Error getting phase summary")
         raise HTTPException(status_code=500, detail="Internal server error")

@@ -154,12 +154,13 @@ ROUTES_WITH_DATA = [
     ("/api/phase/channels",
      lambda j: j["stations"] == ["WWV"]
      and j["channels"][0] == {"channel": "WWV_20000", "stations": ["WWV"],
-                              "n_rows": 110, "dc_meaningful": True}),
+                              "dc_meaningful": True}),
     ("/api/phase/summary",
      lambda j: j["channels"][0]["n_points"] == 110
      and j["channels"][0]["sigma_phi_rad"] > 0.0),
     ("/api/phase/timeseries?channel=WWV_20000&start=-24h&end=now",
-     lambda j: len(j["series"]) == 1 and len(j["series"][0]["epochs"]) == 110),
+     lambda j: len(j["series"]) == 1 and j["series"][0]["n_samples"] == 110
+     and len(j["series"][0]["epochs"]) == j["series"][0]["n_points"] <= 3),
     ("/api/phase/scintillation?channel=WWV_20000&start=-24h&end=now",
      lambda j: j["metadata"]["n_traces"] == 1
      and all(s > 0.0 for s in j["series"][0]["sigma_phi_rad"])),
