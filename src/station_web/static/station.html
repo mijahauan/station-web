@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Station Dashboard - hf-timestd</title>
+    <title>Station Dashboard - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -193,7 +193,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         const stationId = urlParams.get('id') || 'WWV';
 
-        document.title = `${stationId} Dashboard - hf-timestd`;
+        document.title = `${stationId} Dashboard - station-web`;
 
         // Plotly dark theme config
         const plotLayout = {
@@ -209,23 +209,24 @@
 
         async function fetchData() {
             try {
-                // Fetch Dashboard Data
-                const res = await fetch(`/api/stations/${stationId}`);
-                const data = await res.json();
-
-                // Fetch History Data
-                const histRes = await fetch(`/api/stations/${stationId}/history?hours=24`);
-                const history = await histRes.json();
-
-                // Fetch Fusion Timing Data
-                const fusionRes = await fetch(`/api/metrology/fusion/history?start=-24h&end=now`);
-                const fusion = await fusionRes.json();
-
+                // Station first: an unknown id (a stale CHU link, say) stops here
+                const data = await api.get(`/stations/${encodeURIComponent(stationId)}`);
                 updateUI(data);
-                updateCharts(history, fusion);
             } catch (err) {
                 console.error("Error fetching data:", err);
+                document.getElementById('station-name').textContent = stationId;
+                document.getElementById('station-location').textContent = `Station unavailable: ${err.message}`;
+                ['snr-chart', 'mode-chart', 'tec-chart', 'timing-chart']
+                    .forEach(id => showPlotMessage(id, `Station unavailable: ${err.message}`, 'error'));
+                return;
             }
+            const [history, fusion] = await Promise.all([
+                api.get(`/stations/${encodeURIComponent(stationId)}/history`, { hours: 24 })
+                    .catch(e => ({ error: e.message })),
+                api.get('/metrology/fusion/history', { start: '-24h', end: 'now' })
+                    .catch(e => ({ error: e.message })),
+            ]);
+            updateCharts(history, fusion);
         }
 
         function updateUI(data) {
@@ -235,7 +236,7 @@
 
             const coords = data.info.coordinates;
             if (coords) {
-                document.getElementById('station-coords').textContent = `${coords.lat.toFixed(2)}°N, ${coords.lon.toFixed(2)}°E`;
+                document.getElementById('station-coords').textContent = formatLatLon(coords.lat, coords.lon, 2);
             }
 
             const freqs = data.info.frequencies;
@@ -277,7 +278,14 @@
         }
 
         function updateCharts(history, fusion) {
-            if (!history.timeline) return;
+            if (!history.timeline) {
+                const why = history.error || noDataReason(history, 'No propagation timeline for the last 24 h');
+                ['snr-chart', 'mode-chart', 'tec-chart'].forEach(id => showPlotMessage(id, why));
+                if (!(fusion && fusion.timestamps && fusion.timestamps.length)) {
+                    showPlotMessage('timing-chart', fusion && fusion.error ? fusion.error : 'No fusion history for the last 24 h');
+                }
+                return;
+            }
 
             const tl = history.timeline;
 
@@ -370,6 +378,8 @@
                     ...plotLayout,
                     yaxis: { ...plotLayout.yaxis, title: 'TECU' }
                 });
+            } else {
+                showPlotMessage('tec-chart', 'No HF TEC for this station in the last 24 h');
             }
 
             // 4. Timing Stability Chart
