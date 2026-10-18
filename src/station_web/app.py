@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -63,6 +64,8 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
     app = FastAPI(title="station-web", version="0.1.0", docs_url="/api/docs",
                   redoc_url="/api/redoc", lifespan=lifespan)
     app.state.settings = settings
+    # The JSON series run to megabytes; gzip shrinks them several-fold.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     def page(name: str):
