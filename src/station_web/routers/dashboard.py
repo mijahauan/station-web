@@ -111,15 +111,18 @@ def get_24h_broadcast_data(
 
     This is the primary endpoint for the 24-hour UTC visualization dashboard.
     """
+    if date:
+        # a malformed date is the client's error (400, fixed text), not a fault
+        try:
+            day0 = datetime.strptime(date, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYYMMDD")
     try:
         registry = get_broadcast_registry()
 
         # Parse date or use today
         if date:
-            year = int(date[0:4])
-            month = int(date[4:6])
-            day = int(date[6:8])
-            start_time = datetime(year, month, day, 0, 0, 0, tzinfo=timezone.utc)
+            start_time = day0
         else:
             # Use last 24 hours ending now
             start_time = utcnow() - timedelta(hours=24)
@@ -294,15 +297,18 @@ def get_24h_solar_zenith(
     Returns solar elevation at the path midpoint for each broadcast,
     which correlates with D-layer absorption and propagation conditions.
     """
+    if date:
+        # a malformed date is the client's error (400, fixed text), not a fault
+        try:
+            day0 = datetime.strptime(date, "%Y%m%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYYMMDD")
     try:
         registry = get_broadcast_registry()
 
         # Parse date or use today
         if date:
-            year = int(date[0:4])
-            month = int(date[4:6])
-            day = int(date[6:8])
-            start_time = datetime(year, month, day, 0, 0, 0, tzinfo=timezone.utc)
+            start_time = day0
         else:
             now = utcnow()
             start_time = datetime(now.year, now.month, now.day, 0, 0, 0, tzinfo=timezone.utc)

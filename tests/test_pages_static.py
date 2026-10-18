@@ -1,8 +1,7 @@
 """Static checks over the HTML pages.
 
 Each test names a defect the 2026-10-18 review found on B4 and keeps it from
-coming back.  phase.html belongs to separate work and is excluded where a
-check would reach into its content.
+coming back.  Every page, phase.html included, now passes every check.
 """
 import re
 from pathlib import Path
@@ -11,7 +10,7 @@ import pytest
 
 STATIC = Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
 ALL_PAGES = sorted(p.name for p in STATIC.glob("*.html"))
-PAGES = [p for p in ALL_PAGES if p != "phase.html"]
+PAGES = ALL_PAGES
 
 
 def _text(name):
@@ -85,3 +84,16 @@ def test_index_counts_channel_names():
     index = _text("index.html")
     assert "ch.status === 'active'" not in index
     assert "health.channels" in index
+
+
+def test_phase_summary_cards_escape_database_values():
+    """N2: channel, station and colour come from the database; escape them
+    like every other page does."""
+    text = _text("phase.html")
+    for field in ("ch.channel", "ch.station", "ch.color"):
+        assert f"${{{field}}}" not in text, field
+        assert f"escapeHtml({field})" in text, field
+
+
+def test_docs_unknown_widget_is_escaped():
+    assert "${widgetType}" not in _text("docs.html")

@@ -61,3 +61,19 @@ def test_route_refuses_a_window_past_its_cap(seeded_client, path, cap):
 def test_route_serves_a_window_at_its_cap(seeded_client, path, cap):
     r = seeded_client.get(path, params={"start": f"-{int(cap.total_seconds())}s", "end": "now"})
     assert r.status_code in (200, 404), (path, r.status_code, r.text[:200])
+
+
+# N4: a 400 never echoes the client's input, on any router.
+@pytest.mark.parametrize("path", [p for p, _ in CAPS] + ["/api/propagation/timeline"])
+def test_bad_time_400_does_not_echo_input(seeded_client, path):
+    r = seeded_client.get(path, params={"start": "zz-marker", "end": "now"})
+    assert r.status_code == 400, (path, r.status_code)
+    assert "zz-marker" not in r.text, r.text
+
+
+# N6: a malformed date on the dashboard is the client's error, not a fault.
+@pytest.mark.parametrize("date", ["2026xx01", "garbage", "20261399"])
+def test_dashboard_bad_date_is_400(seeded_client, date):
+    r = seeded_client.get("/api/dashboard/broadcasts/24h", params={"date": date})
+    assert r.status_code == 400, (r.status_code, r.text[:200])
+    assert date not in r.text

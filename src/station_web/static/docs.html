@@ -444,7 +444,7 @@
                     renderReanalysisSummaryWidget(container);
                     break;
                 default:
-                    container.innerHTML = `<div class="widget-title">Unknown widget: ${widgetType}</div>`;
+                    container.innerHTML = `<div class="widget-title">Unknown widget: ${escapeHtml(widgetType)}</div>`;
             }
         }
         

@@ -44,7 +44,8 @@ def parse_utc(value: str, now: datetime | None = None) -> datetime:
     """Parse one time parameter into an aware UTC datetime.
 
     Raises ``ValueError`` (which routers turn into HTTP 400) for anything
-    it cannot read.
+    it cannot read.  The message is fixed text: routers return it as the
+    400 detail, and it must never echo the client's input.
     """
     if value is None:
         raise ValueError("missing time value")
@@ -59,11 +60,11 @@ def parse_utc(value: str, now: datetime | None = None) -> datetime:
         except OverflowError:
             raise ValueError("Relative time reaches past the calendar") from None
     if s.startswith("-"):
-        raise ValueError(f"Invalid relative time {value!r}: use -<n><s|m|h|d|w>, e.g. -6h")
+        raise ValueError("Invalid relative time: use -<n><s|m|h|d|w>, e.g. -6h")
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00").replace("z", "+00:00"))
     except ValueError:
-        raise ValueError(f"Invalid time {value!r}: use 'now', -<n><s|m|h|d|w>, or ISO 8601") from None
+        raise ValueError("Invalid time: use 'now', -<n><s|m|h|d|w>, or ISO 8601") from None
     return as_utc(dt)
 
 

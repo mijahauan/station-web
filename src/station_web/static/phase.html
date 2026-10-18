@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Phase &amp; Doppler Dashboard - hf-timestd</title>
+    <title>Phase &amp; Doppler Dashboard - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -204,7 +204,7 @@
             // Compute median dt in ms from ISO strings
             const dts = [];
             for (let i = 1; i < timestamps.length; i++) {
-                dts.push(new Date(timestamps[i]) - new Date(timestamps[i - 1]));
+                dts.push(Date.parse(timestamps[i]) - Date.parse(timestamps[i - 1]));
             }
             dts.sort((a, b) => a - b);
             const medianDt = dts[Math.floor(dts.length / 2)];
@@ -303,12 +303,12 @@
                 }
 
                 container.innerHTML = data.channels.map(ch => `
-                    <div style="background: var(--bg-primary); border-radius: var(--radius-md); padding: var(--spacing-md); border-left: 3px solid ${ch.color};">
+                    <div style="background: var(--bg-primary); border-radius: var(--radius-md); padding: var(--spacing-md); border-left: 3px solid ${escapeHtml(ch.color)};">
                         <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;">
-                            ${ch.channel} / ${ch.station}
+                            ${escapeHtml(ch.channel)} / ${escapeHtml(ch.station)}
                             ${ch.dc_meaningful ? '<span style="color: #10b981; font-size: 11px;" title="DC carrier phase available"> &#x2713; DC</span>' : ''}
                         </div>
-                        <div style="font-size: 20px; font-weight: 600; color: ${ch.color}; margin-bottom: 8px;">
+                        <div style="font-size: 20px; font-weight: 600; color: ${escapeHtml(ch.color)}; margin-bottom: 8px;">
                             ${ch.doppler_hz.toFixed(3)} Hz
                         </div>
                         <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary);">
