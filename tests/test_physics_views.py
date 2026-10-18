@@ -487,3 +487,38 @@ def test_doppler_sign_follows_the_producer_mixdown():
     dphi = np.diff(np.unwrap(phases))
     est = phase_service.doppler_from_steps(dphi, np.ones_like(dphi))
     assert est == pytest.approx(f_d, abs=1e-4)
+
+
+NOMINAL_LABEL = "nominal (MEASUREMENT_MODEL §2), station stability not published"
+
+
+@needs_node
+def test_ruler_floor_labels_the_nominal_figure():
+    """0.0004 ppm is B4's 2026-08-16 measurement, tabled in MEASUREMENT_MODEL §2,
+    not this station's: the floor says so while the station publishes none."""
+    a10 = _node("rulerDopplerFloor('A1', 10)")
+    assert a10["source"] == "nominal" and NOMINAL_LABEL in a10["text"]
+    html = _node("rulerFloorHTML({available: true, ruler: {a_level: 'A1'},"
+                 " stability: 'not published'}, [10])")
+    assert NOMINAL_LABEL in html and "0.004 Hz at 10 MHz" in html
+
+
+@needs_node
+def test_ruler_floor_prefers_the_published_stability():
+    # 100 ns over 1000 s: fractional 1e-10, so 0.001 Hz at 10 MHz
+    reg = ("{available: true, ruler: {a_level: 'A1'},"
+           " stability: {value: 100, unit: 'ns', field: 'stability_ns', tau_s: 1000}}")
+    html = _node(f"rulerFloorHTML({reg}, [10])")
+    assert "0.001 Hz at 10 MHz" in html and "nominal" not in html
+    assert "published stability" in html and "100 ns over 1000 s" in html
+    one = _node(f"rulerDopplerFloor('A1', 20, {reg}.stability)")
+    assert one["source"] == "published" and one["floor_hz"] == pytest.approx(0.002)
+
+
+@needs_node
+@pytest.mark.parametrize("stab", ["'not published'", "null", "{value: 0, tau_s: 1000}",
+                                  "{value: 100}", "{value: NaN, tau_s: 10}",
+                                  "{value: 100, tau_s: -1}"])
+def test_ruler_floor_ignores_an_unusable_stability(stab):
+    out = _node(f"rulerDopplerFloor('A1', 10, {stab})")
+    assert out["source"] == "nominal" and out["floor_hz"] == pytest.approx(0.004)
