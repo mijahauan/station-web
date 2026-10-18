@@ -32,7 +32,7 @@ DAY0 = datetime(2026, 10, 17, tzinfo=timezone.utc)
 DAY1 = DAY0 + timedelta(days=1)
 WINDOW = f"start={DAY0:%Y-%m-%dT%H:%M:%SZ}&end={DAY1:%Y-%m-%dT%H:%M:%SZ}"
 
-# Known Doppler per (channel, station): f_D = -(1/2pi) dphi/dt.  Small
+# Known Doppler per (channel, station): f_D = +(1/2pi) dphi/dt.  Small
 # enough that the ~6 s gap between one minute's last window and the next
 # minute's first never aliases the unwrap (6 s * 0.05 Hz * 2pi < pi).
 # SHARED_10000 carries ONE composite carrier, so every station's rows on it
