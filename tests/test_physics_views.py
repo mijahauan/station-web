@@ -90,7 +90,7 @@ def _write_doppler_fixture(settings, now=None):
         mb = first + 60 * i
         for sec in range(1, 56):
             t = mb + sec + 0.5
-            phi = -2 * math.pi * FD_HZ * (t - first)
+            phi = 2 * math.pi * FD_HZ * (t - first)
             phase_rows.append({
                 "timestamp_utc": _iso(datetime.fromtimestamp(mb + 65, timezone.utc)),
                 "minute_boundary_utc": mb, "channel": "WWV_20000", "station": "WWV",
@@ -200,7 +200,7 @@ def test_composite_doppler_is_the_carrier_doppler(shared_client):
     j = shared_client.get(f"/api/phase/doppler?channel={SHARED}&start=-2h&end=now"
                           "&smoothing=0").json()
     (s,) = j["series"]
-    want = -0.1 / (2 * math.pi)
+    want = 0.1 / (2 * math.pi)
     assert float(np.median(s["doppler_raw_hz"])) == pytest.approx(want, abs=1e-3)
 
 
@@ -219,7 +219,7 @@ def test_summary_cards_follow_the_composite_rule(shared_client):
     card = by[SHARED][0]
     assert card["station"] == "composite" and card["label"] == COMPOSITE_LABEL
     # the card's Doppler comes from the chart's estimator
-    assert card["doppler_hz"] == pytest.approx(-0.1 / (2 * math.pi), abs=1e-3)
+    assert card["doppler_hz"] == pytest.approx(0.1 / (2 * math.pi), abs=1e-3)
     assert j["doppler_estimator"] == phase_service.DOPPLER_ESTIMATOR
     assert j["sigma_window_seconds"] == 60
 
@@ -470,3 +470,20 @@ def test_observatory_tec_and_residual_charts():
     # one Doppler estimator: the Ionosphere page draws phase-view's combined read
     assert "/phase/combined" in _js("phase-view.js")
     assert "doppler_hz" not in _js("propagation.js") and "doppler_hz" not in _js("ionosphere.js")
+
+
+def test_doppler_sign_follows_the_producer_mixdown():
+    # hf-timestd forms carrier_phase_rad as angle(mean(IQ * exp(-2j*pi*f_tone*t)))
+    # (tick_matched_filter.py).  A tone received f_D above f_tone therefore
+    # advances that phase by 2*pi*f_D per second, so the estimator must return
+    # +f_D: f_D = +(1/2pi) dphi/dt, as hamsci_dsp.dsp.doppler_from_phase has it.
+    f_tone, f_d, fs = 1000.0, 0.05, 8000.0
+    t_sec = np.arange(0, 120)
+    phases = []
+    for t0 in t_sec:
+        t = t0 + np.arange(int(0.005 * fs)) / fs
+        iq = np.exp(2j * np.pi * (f_tone + f_d) * t)
+        phases.append(float(np.angle(np.mean(iq * np.exp(-2j * np.pi * f_tone * t)))))
+    dphi = np.diff(np.unwrap(phases))
+    est = phase_service.doppler_from_steps(dphi, np.ones_like(dphi))
+    assert est == pytest.approx(f_d, abs=1e-4)

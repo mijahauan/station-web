@@ -102,7 +102,7 @@ def get_doppler(
     Get Doppler shift derived from carrier phase rate: the one Doppler
     estimator on the site (``metadata.doppler_estimator``).
 
-    f_Doppler = -(1/2pi) * sum(dphi) / sum(dt), pooled per bucket
+    f_Doppler = +(1/2pi) * sum(dphi) / sum(dt), pooled per bucket
 
     For 10 MHz carrier: 1 Hz Doppler = ~30 m/s ionospheric motion.
     """

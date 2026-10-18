@@ -50,8 +50,22 @@ from station_web.palette import COMPOSITE, STATION_COLORS  # noqa: E402
 #: The ionogram's own per-minute polyfit and the L2 timing_measurements
 #: doppler_hz each answered with different numbers, and with opposite signs.
 DOPPLER_ESTIMATOR = (
-    "f_D = -(1/2pi) * sum(dphi) / sum(dt) over consecutive 1 Hz carrier-phase "
+    "f_D = +(1/2pi) * sum(dphi) / sum(dt) over consecutive 1 Hz carrier-phase "
     "samples (gap <= 10 s) in each bucket, from L2_tick_phase (phase_service)")
+
+def doppler_from_steps(dphi, dt):
+    """Doppler (Hz) from summed carrier-phase steps over their summed span.
+
+    hf-timestd forms ``carrier_phase_rad`` as
+    ``angle(mean(IQ * exp(-2j*pi*f_tone*t)))`` (tick_matched_filter.py), so a
+    tone received f_D above f_tone advances the phase by 2*pi*f_D per second:
+    f_D = +(1/2pi) dphi/dt, the sign hamsci_dsp.dsp.doppler_from_phase uses.
+    Positive Doppler means a shortening path, e.g. a descending reflection
+    height.  Until 2026-10-18 this service carried a minus sign and reported
+    every Doppler inverted.
+    """
+    return (1.0 / (2 * np.pi)) * np.asarray(dphi) / np.asarray(dt)
+
 
 #: A SHARED_<kHz> channel hears one composite carrier: WWV, WWVH and BPM on
 #: one frequency.  Its phase, Doppler and variability belong to that sum,
@@ -286,7 +300,7 @@ class _TraceAcc:
     def _doppler(n, st, dphi, dt) -> Dict[str, Any]:
         dop = dt > 0
         return {'doppler_epochs': st[dop] / n[dop],
-                'doppler_raw_hz': -(1.0 / (2 * np.pi)) * dphi[dop] / dt[dop]}
+                'doppler_raw_hz': doppler_from_steps(dphi[dop], dt[dop])}
 
     def finish(self) -> Dict[str, Any]:
         has = self.n > 0
@@ -694,7 +708,7 @@ class PhaseService:
         smoothing_seconds: float = 30.0,
     ) -> Dict[str, Any]:
         """
-        Doppler shift from phase rate: f_D = -(1/2pi) * dphi/dt.
+        Doppler shift from phase rate: f_D = +(1/2pi) * dphi/dt.
 
         Each bucket's raw value sums the 1 s phase steps in it over their
         time span.  A moving average over ``smoothing_seconds`` follows, when

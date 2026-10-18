@@ -80,7 +80,7 @@ def _build_db(db_path):
                     continue
                 t = m + start_s + 2.5
                 k = (t - t0)
-                phi = -2 * math.pi * fd * k + 0.05 * np.sin(0.7 * k) + PHASE_OFFSET[stn]
+                phi = 2 * math.pi * fd * k + 0.05 * np.sin(0.7 * k) + PHASE_OFFSET[stn]
                 wrapped = (phi + math.pi) % (2 * math.pi) - math.pi
                 snr = 15.0 + 2.0 * np.sin(k / 300.0)
                 for j in range(WINDOWS_PER_MINUTE):
@@ -201,7 +201,7 @@ def test_unwrapped_phase_follows_the_ramp(big_client):
         cut = GAP[0].timestamp()
         for side in (ep < cut, ep >= cut):
             slope = np.polyfit(ep[side], ph[side], 1)[0]
-            assert -slope / (2 * math.pi) == pytest.approx(fd, abs=1e-3)
+            assert slope / (2 * math.pi) == pytest.approx(fd, abs=1e-3)
 
 
 def test_sigma_phi_sees_the_residual(big_client):
