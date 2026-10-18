@@ -673,7 +673,8 @@ function registrationPanelHTML(data, variant = 'compact') {
     if (!data || data.available === false) {
         return `<div class="reg-panel reg-unavailable">` +
                `<div class="reg-tier-value">—</div>` +
-               `<p>Timing authority not available on this station.</p>` +
+               `<p>${data && data.unreadable ? 'Timing authority unreadable.'
+                                             : 'Timing authority not available on this station.'}</p>` +
                `<p class="reg-note">${escapeHtml((data && data.reason) || '')}</p></div>`;
     }
     const parts = [];

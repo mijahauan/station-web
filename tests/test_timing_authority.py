@@ -154,12 +154,42 @@ def test_registration_route(client, authority_files):
     assert j["tier_active"] == "T6" and j["stale"] is False
 
 
-def test_malformed_authority_file_is_an_opaque_500(client, settings):
+@pytest.mark.parametrize("text", ['{"schema": "v1", "a_lev', '[1, 2]', ''])
+def test_malformed_authority_file_reads_unreadable(client, settings, text):
+    """A torn or wrong-shaped file says so: a 200 naming it unreadable,
+    never a 500 and never the file's text."""
     settings.authority_path.parent.mkdir(parents=True, exist_ok=True)
-    settings.authority_path.write_text('{"schema": "v1", "a_lev')
+    settings.authority_path.write_text(text)
     r = client.get("/api/timing/registration")
-    assert r.status_code == 500
-    assert "error id" in r.json()["detail"] and "a_lev" not in r.text
+    assert r.status_code == 200
+    j = r.json()
+    assert j["available"] is False and j["unreadable"] is True
+    assert "unreadable" in j["reason"] and "a_lev" not in r.text
+
+
+def test_nan_in_authority_file_answers_valid_json(client, settings):
+    """hf-timestd's json.dump writes NaN and Infinity bare; they read as null."""
+    snap = dict(T6_SNAPSHOT, sigma_ns=float("nan"),
+                registration=dict(WITNESS_SNAPSHOT["registration"], age_s=float("inf")),
+                host_clock={"verdict": "ok", "witnesses": {
+                    "rate": {"kind": "rate_ppm", "value": float("nan"), "bound": 50}}})
+    write_authority(settings.authority_path, snap,
+                    published=datetime.now(timezone.utc) - timedelta(seconds=3))
+    assert "NaN" in settings.authority_path.read_text()
+    r = client.get("/api/timing/registration")
+    assert r.status_code == 200
+    j = json.loads(r.text, parse_constant=lambda c: pytest.fail(f"bare {c} in the answer"))
+    assert j["available"] is True
+    assert j["sigma"]["field"] == "registration.sigma_ms"
+    assert j["registration"]["age_s"] is None
+    assert j["host_clock"]["witnesses"][0]["value"] is None
+
+
+def test_list_shaped_witnesses_read_as_none(settings):
+    write_authority(settings.authority_path,
+                    dict(T6_SNAPSHOT, host_clock={"verdict": "ok", "witnesses": [1, 2]}))
+    s = ta.registration_snapshot(settings, now=NOW)
+    assert s["host_clock"]["witnesses"] == []
 
 
 # ── history ─────────────────────────────────────────────────────────────

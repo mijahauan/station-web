@@ -296,3 +296,11 @@ def test_status_page_drops_the_retired_views():
 def test_status_page_names_failing_products():
     index = (STATIC / "index.html").read_text()
     assert "applicable" in index and "reason" in index and ".stale" in index
+
+
+@needs_node
+def test_panel_unreadable_says_unreadable():
+    html = _panel({"available": False, "unreadable": True,
+                   "reason": "timing authority unreadable: authority.json did not parse"},
+                  "compact")
+    assert "Timing authority unreadable" in html and "not available on this station" not in html

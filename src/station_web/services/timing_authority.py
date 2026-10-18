@@ -7,7 +7,7 @@ Three sources, all read-only, none in the product database:
   force, the tiers available, the published sigma, the T6 anchor state, the
   host-clock verdict and the registration block.  hf-timestd rewrites it
   about every 30 s by atomic rename, so a file that will not parse marks a
-  fault (HTTP 500), not an empty answer.
+  fault: the answer says ``unreadable``, never "not on this station".
 - ``authority_history.db``, table ``authority_snapshot``: one row per
   authority cycle (about 30 s), keyed by ``utc_published`` (TEXT PRIMARY
   KEY, so SQLite keeps an autoindex on it).  Reads name their columns,
@@ -149,18 +149,25 @@ def explain_flag(flag: str) -> str:
 
 # ── the snapshot ────────────────────────────────────────────────────────
 
+def _nonfinite(_constant: str) -> None:
+    return None
+
+
 def read_authority(path: Path) -> Optional[dict]:
     """The parsed snapshot, or None when the file is absent.
 
-    A file that exists but will not parse raises: hf-timestd writes it by
-    atomic rename, so a torn file is a fault worth a 500.
+    A file that exists but will not parse raises ValueError: hf-timestd
+    writes it by atomic rename, so a torn file is a fault.  hf-timestd's
+    ``json.dump`` keeps its default ``allow_nan=True``, so a value it could
+    not compute arrives as a bare ``NaN`` or ``Infinity``; those read as
+    None, which keeps every answer built from the snapshot valid JSON.
     """
     try:
         with _open(path, "r", encoding="utf-8") as fh:
             text = fh.read(STATUS_BYTES * 4)
     except FileNotFoundError:
         return None
-    data = json.loads(text)
+    data = json.loads(text, parse_constant=_nonfinite)
     if not isinstance(data, dict):
         raise ValueError("authority snapshot is not a JSON object")
     return data
@@ -217,7 +224,8 @@ def _host_clock(snap: dict) -> Optional[dict]:
     if not isinstance(hc, dict):
         return None
     rows = []
-    for name, w in (hc.get("witnesses") or {}).items():
+    witnesses = hc.get("witnesses")
+    for name, w in (witnesses.items() if isinstance(witnesses, dict) else ()):
         if not isinstance(w, dict):
             continue
         kind = w.get("kind")
@@ -230,7 +238,11 @@ def _host_clock(snap: dict) -> Optional[dict]:
 
 def registration_snapshot(settings: Settings, now: Optional[datetime] = None) -> dict:
     """``GET /api/timing/registration``: the current snapshot, normalised."""
-    snap = read_authority(settings.authority_path)
+    try:
+        snap = read_authority(settings.authority_path)
+    except ValueError:
+        return _unavailable("timing authority unreadable: authority.json exists but did not "
+                            "parse as a snapshot", unreadable=True)
     if snap is None:
         return _unavailable("timing authority not available on this station: hf-timestd "
                             "has not published authority.json here")
