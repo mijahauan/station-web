@@ -232,12 +232,22 @@
                 const first = preferredDoc || docs[0];
                 docSelect.value = first;
                 loadDocument(rootName, first).then(() => {
-                    const hash = decodeURIComponent(window.location.hash.slice(1));
+                    const hash = safeHash();
                     if (preferredDoc && hash) scrollToSection(hash);
                 });
             } else {
                 document.getElementById('doc-content').innerHTML =
                     '<div style="color: #64748b; padding: 20px;">No documents in this root.</div>';
+            }
+        }
+
+        // The location hash, decoded; '' when it will not decode (#%E0
+        // makes decodeURIComponent throw URIError).
+        function safeHash() {
+            try {
+                return decodeURIComponent(window.location.hash.slice(1));
+            } catch (e) {
+                return '';
             }
         }
 

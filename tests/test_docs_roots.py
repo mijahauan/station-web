@@ -58,3 +58,13 @@ def test_list_hides_unservable_names(docs_client, tmp_path):
     (root / "LINK.md").symlink_to(outside / "SECRET.md")
     docs = {r["name"]: r["documents"] for r in docs_client.get("/api/living-docs/list").json()["roots"]}["one"]
     assert docs == ["GUIDE.md"]
+
+
+def test_docs_page_survives_a_malformed_hash():
+    """decodeURIComponent throws URIError on a hash like #%E0; the page catches it."""
+    from pathlib import Path
+    text = (Path(__file__).resolve().parents[1] / "src" / "station_web" / "static"
+            / "docs.html").read_text()
+    assert "const hash = decodeURIComponent(" not in text
+    body = text.split("function safeHash", 1)
+    assert len(body) == 2 and "catch" in body[1][:300]
