@@ -83,6 +83,7 @@
             <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">Carrier Phase vs Time</h3>
             <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--spacing-sm);">
                 Unwrapped phase tracks ionospheric path length. Ramps = Doppler drift. Jumps = mode changes.
+                <span id="bucket-note"></span>
             </div>
             <div id="phase-plot" style="width: 100%; height: 400px;"></div>
         </div>
@@ -109,7 +110,7 @@
         <div style="background: var(--bg-surface); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-lg);">
             <h3 style="color: var(--text-primary); margin-bottom: var(--spacing-sm);">DC Carrier Phase (Unambiguous Channels)</h3>
             <div style="color: var(--text-secondary); font-size: 13px; margin-bottom: var(--spacing-sm);">
-                CHU (3.33/7.85/14.67 MHz) and WWV (20/25 MHz): bare carrier phase, independent of tone detection. Cleanest ionospheric observable.
+                Channels that hear a single station (e.g. WWV 20/25 MHz): bare carrier phase, independent of tone detection. Cleanest ionospheric observable.
             </div>
             <div id="dc-phase-plot" style="width: 100%; height: 350px;"></div>
         </div>
@@ -123,7 +124,7 @@
 
         // Station colors for solar traces
         const SOLAR_STATION_COLORS = {
-            'WWV': '#3b82f6', 'WWVH': '#f59e0b', 'CHU': '#10b981', 'BPM': '#ef4444',
+            'WWV': '#3b82f6', 'WWVH': '#f59e0b', 'BPM': '#ef4444',
         };
 
         // Build night-shade shapes from solar elevation for a given station
@@ -324,14 +325,31 @@
             }
         }
 
-        // Update phase plot
+        // Say how many seconds each plotted point averages
+        function showBucket(meta) {
+            const el = document.getElementById('bucket-note');
+            if (!el) return;
+            const b = meta && meta.bucket_seconds;
+            el.textContent = b && b > 1 ? ` Each point averages ${b} s of 1 Hz samples.` : '';
+        }
+
+        // Fetch the phase plot alone (phase-type change); the server's
+        // cache answers it from the pass the combined call already made
         async function updatePhasePlot() {
             try {
                 const params = getParams();
                 params.phase_type = document.getElementById('phase-type-select').value;
                 params.unwrap = true;
+                renderPhasePlot(await api.get('/phase/timeseries', params));
+            } catch (e) {
+                console.error('Phase plot error:', e);
+            }
+        }
 
-                const data = await api.get('/phase/timeseries', params);
+        // Draw the phase plot
+        function renderPhasePlot(data) {
+            try {
+                showBucket(data.metadata);
                 const traces = (data.series || []).map((s, i) => {
                     const g = breakGaps(s.timestamps, s.phase_rad);
                     return {
@@ -368,13 +386,9 @@
             }
         }
 
-        // Update Doppler plot
-        async function updateDopplerPlot() {
+        // Draw the Doppler plot
+        function renderDopplerPlot(data) {
             try {
-                const params = getParams();
-                params.smoothing = 30;
-
-                const data = await api.get('/phase/doppler', params);
                 const traces = (data.series || []).map((s, i) => {
                     const g = breakGaps(s.timestamps, s.doppler_hz);
                     return {
@@ -411,13 +425,9 @@
             }
         }
 
-        // Update scintillation plot
-        async function updateScintillationPlot() {
+        // Draw the scintillation plot
+        function renderScintillationPlot(data) {
             try {
-                const params = getParams();
-                params.window = 60;
-
-                const data = await api.get('/phase/scintillation', params);
                 const xRange = tps.getXRange();
                 const traces = [];
                 (data.series || []).forEach((s, i) => {
@@ -497,21 +507,11 @@
             }
         }
 
-        // Update DC carrier phase plot (unambiguous channels only)
-        async function updateDCPhasePlot() {
+        // Draw the DC carrier phase plot (single-station channels only;
+        // the server marks each series dc_meaningful from its channel name)
+        function renderDCPhasePlot(data) {
             try {
-                const params = getParams();
-                params.phase_type = 'dc_carrier_phase_rad';
-                params.unwrap = true;
-                // Don't filter by channel here - we want all unambiguous channels
-
-                const data = await api.get('/phase/timeseries', params);
-
-                // Filter to only unambiguous channels
-                const unambiguous = new Set([
-                    'CHU_3330', 'CHU_7850', 'CHU_14670', 'WWV_20000', 'WWV_25000'
-                ]);
-                const filtered = (data.series || []).filter(s => unambiguous.has(s.channel));
+                const filtered = (data.series || []).filter(s => s.dc_meaningful);
 
                 const traces = filtered.map((s, i) => {
                     const g = breakGaps(s.timestamps, s.phase_rad);
@@ -528,7 +528,7 @@
 
                 if (traces.length === 0) {
                     document.getElementById('dc-phase-plot').innerHTML =
-                        '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No DC carrier phase data (requires CHU or WWV 20/25 MHz channels)</div>';
+                        '<div style="text-align: center; color: var(--text-secondary); padding: 60px;">No DC carrier phase data (requires a single-station channel, e.g. WWV 20/25 MHz)</div>';
                     return;
                 }
 
@@ -563,16 +563,31 @@
             }
         }
 
+        // Fetch phase, DC phase, Doppler and sigma_phi in one request: the
+        // server computes all four from one read of the tick-phase table
+        async function updateCombinedPlots() {
+            try {
+                const params = getParams();
+                params.phase_type = document.getElementById('phase-type-select').value;
+                params.smoothing = 30;
+                params.window = 60;
+                const data = await api.get('/phase/combined', params);
+                renderPhasePlot(data.phase || {});
+                renderDopplerPlot(data.doppler || {});
+                renderScintillationPlot(data.scintillation || {});
+                renderDCPhasePlot(data.dc_phase || {});
+            } catch (e) {
+                console.error('Phase plots error:', e);
+            }
+        }
+
         // Refresh all plots
         async function refreshAll() {
             document.getElementById('live-indicator').style.display = 'flex';
             await fetchSolarData();
             await Promise.all([
                 updateSummary(),
-                updatePhasePlot(),
-                updateDopplerPlot(),
-                updateScintillationPlot(),
-                updateDCPhasePlot(),
+                updateCombinedPlots(),
             ]);
         }
 
