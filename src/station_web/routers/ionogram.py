@@ -80,12 +80,8 @@ _DISCOVERY_TTL_S = 30.0
 _discovery_cache: dict = {}
 _discovery_lock = threading.Lock()
 
-# Station colour palette (matches Gwyn Griffiths slide aesthetic)
-STATION_COLORS = {
-    "WWV": "#2DD4BF",   # bright teal
-    "WWVH": "#FB923C",  # bright orange
-    "BPM": "#FB7185",   # bright rose
-}
+# Station colours: the site palette (station_web/palette.py, common.js PALETTE)
+from station_web.palette import COMPOSITE, STATION_COLORS  # noqa: E402
 
 #: plausible ToF ceiling per station (ms); farther paths, longer ceilings
 TOF_MAX_MS = {"WWV": 200.0, "WWVH": 500.0, "BPM": 500.0}
@@ -164,7 +160,7 @@ def _discover_uncached() -> list:
             out.append({
                 "channel": channel,
                 "stations": stations,
-                "color": STATION_COLORS.get(stations[0], "#888888") if len(stations) == 1 else "#888888",
+                "color": STATION_COLORS.get(stations[0], COMPOSITE) if len(stations) == 1 else COMPOSITE,
                 "latest": latest,
             })
     except sqlite3.Error as e:
@@ -518,7 +514,7 @@ def _arrivals_view(d, channel, station, t0, t1, min_snr_db, rank, include_kde, d
         "channel": channel,
         "station": label,
         "frequency_mhz": _freq_mhz(channel),
-        "color": STATION_COLORS.get(label, "#888888"),
+        "color": STATION_COLORS.get(label, COMPOSITE),
         "time_range": {"start": _iso(t0), "end": _iso(t1)},
         "n_points": int(tof.size),
         "n_scatter": int(idx.size),
@@ -593,7 +589,7 @@ def _timeseries_view(d, channel, station, t0, t1, min_snr_db):
         "status": "ok",
         "channel": channel,
         "station": label,
-        "color": STATION_COLORS.get(label, "#888888"),
+        "color": STATION_COLORS.get(label, COMPOSITE),
         "time_range": {"start": _iso(t0), "end": _iso(t1)},
         "dominant": {"timestamps": dom_ts, "tof_ms": dom_tof, "snr_db": dom_snr, "n": len(dom_ts)},
         "secondary": {"timestamps": sec_ts, "tof_ms": sec_tof, "snr_db": sec_snr, "n": len(sec_ts)},
@@ -671,7 +667,7 @@ def _doppler_view(d, channel, station, t0, t1, min_snr_db, method, include_kde):
         "status": "ok",
         "channel": channel,
         "station": label,
-        "color": STATION_COLORS.get(label, "#888888"),
+        "color": STATION_COLORS.get(label, COMPOSITE),
         "time_range": {"start": _iso(t0), "end": _iso(t1)},
         "n_points": int(te.size),
         "n_scatter": int(idx.size),

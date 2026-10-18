@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>Chrony Source Comparison - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
@@ -15,22 +16,7 @@
         <div class="header">
             <h1>&#x1F551; Chrony Source Comparison</h1>
             <div class="header-subtitle">NTP/SHM source offsets, reachability, and system tracking</div>
-            <nav class="nav">
-                <a href="/" class="nav-link">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link">&#x23F1;&#xFE0F; Timing</a>
-                <a href="/static/chrony.html" class="nav-link active">&#x1F551; Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link">&#x1F4E1; Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link">&#x1F52C; Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">&#x1F4FB; Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link">&#x26A1; dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">&#x1F4E1; Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">&#x1F4DA; Docs</a>
-            </nav>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
         <div id="error-container" style="display: none;"></div>

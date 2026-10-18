@@ -454,6 +454,317 @@ class TimePeriodSelector {
     }
 }
 
+
+// ════════════════════════════════════════════════════════════════════
+// Palette: the one source of colour for every page.
+//
+// Stations keep a fixed colour everywhere (Okabe-Ito hues, safe for the
+// common colour-vision deficiencies); a SHARED channel, where WWV, WWVH
+// and BPM arrive on one carrier, draws as a neutral "composite".
+// Frequencies and tiers each take one ordered ramp whose steps grow
+// lighter in order, so the order survives in grey.  Status never rides
+// on colour alone: statusBadge() always prints a glyph and a word.
+// The backend's per-series colours (phase_service, routers/ionogram)
+// copy PALETTE.station; tests/test_stage2_frontend.py holds them equal.
+// ════════════════════════════════════════════════════════════════════
+const PALETTE = Object.freeze({
+    station: { WWV: '#56B4E9', WWVH: '#E69F00', BPM: '#CC79A7', composite: '#A0A7B4' },
+    freqOrderMHz: [2.5, 5, 10, 15, 20, 25],
+    // plasma, from its mid-dark end to its light end
+    freqRamp: ['#B12A90', '#CC4778', '#E16462', '#F2844B', '#FCA636', '#F0F921'],
+    tierOrder: ['T6', 'T5', 'T4', 'T3', 'T2', 'T1', 'T0'],
+    // viridis, reversed: the best tier reads lightest
+    tier: { T6: '#FDE725', T5: '#A0DA39', T4: '#4AC16D', T3: '#1FA187',
+            T2: '#277F8E', T1: '#365C8D', T0: '#46327E' },
+    tierNone: '#5B6472',
+    status: { ok: '#009E73', warn: '#F0E442', fault: '#D55E00', unknown: '#8A93A3' },
+    glyph: { ok: '✓', warn: '▲', fault: '✕', unknown: '○' },
+});
+
+/** A station's colour.  Takes 'WWV', a channel name ('WWV_10000'), or
+ *  'SHARED_*' / 'composite' / anything else, which read as the neutral. */
+function stationColor(name) {
+    if (!name) return PALETTE.station.composite;
+    const key = String(name).toUpperCase().split('_')[0];
+    return PALETTE.station[key] || PALETTE.station.composite;
+}
+
+/** A frequency's colour on the ordered ramp: the nearest of 2.5…25 MHz. */
+function freqColor(mhz) {
+    const f = Number(mhz);
+    if (mhz === null || mhz === undefined || !isFinite(f)) return PALETTE.station.composite;
+    let best = 0;
+    PALETTE.freqOrderMHz.forEach((g, i) => {
+        if (Math.abs(g - f) < Math.abs(PALETTE.freqOrderMHz[best] - f)) best = i;
+    });
+    return PALETTE.freqRamp[best];
+}
+
+/** A tier's colour; null (no tier in force) gets its own grey. */
+function tierColor(tier) {
+    return (tier && PALETTE.tier[tier]) || PALETTE.tierNone;
+}
+
+/** '#rrggbb' as 'rgba(r,g,b,a)'. */
+function withAlpha(hex, alpha) {
+    const h = String(hex).replace('#', '');
+    const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+/** Map a verdict, status or state word to ok | warn | fault | unknown. */
+function statusKind(word) {
+    const w = String(word || '').toLowerCase();
+    if (['valid', 'healthy', 'ok', 'active', 'authoritative', 'info'].includes(w)) return 'ok';
+    if (['degraded', 'warn', 'warning', 'stale', 'unwitnessed', 'acquiring', 'silent',
+         'candidate', 'witness'].includes(w)) return 'warn';
+    if (['invalid', 'error', 'fault', 'critical', 'alarm', 'unlocked', 'disagree',
+         'exceeded'].includes(w)) return 'fault';
+    return 'unknown';
+}
+
+/** A status badge: glyph + word, so it never depends on colour alone. */
+function statusBadge(kind, text) {
+    const k = PALETTE.glyph[kind] ? kind : 'unknown';
+    return `<span class="badge st-${k}"><span class="st-glyph" aria-hidden="true">` +
+           `${PALETTE.glyph[k]}</span> ${escapeHtml(text)}</span>`;
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Site navigation: one list, rendered into <nav data-site-nav> on every
+// page.  Add or rename a page here, nowhere else.  Under 768 px the nav
+// folds behind a menu button (styles.css), so a phone's first screen
+// shows data.  ``also`` lists other paths that light up the same entry.
+// ════════════════════════════════════════════════════════════════════
+const NAV_ITEMS = [
+    { href: '/', label: 'Status', also: ['/index.html', '/static/index.html', '/static/health.html'] },
+    { href: '/static/metrology.html', label: 'Timing' },
+    { href: '/static/chrony.html', label: 'Chrony' },
+    { href: '/static/phase.html', label: 'Phase', also: ['/phase'] },
+    { href: '/static/ionosphere.html', label: 'Observatory', also: ['/static/station.html'] },
+    { href: '/static/ionogram.html', label: 'Ionogram' },
+    { href: '/static/dtec.html', label: 'dTEC' },
+    { href: '/static/test_signal.html', label: 'Test signal' },
+    { href: '/static/grape.html', label: 'GRAPE', also: ['/grape'] },
+    { href: '/static/docs.html', label: 'Docs' },
+];
+
+/** The nav links as HTML, the entry for ``pathname`` marked current. */
+function siteNavHTML(pathname) {
+    const path = pathname || '/';
+    return NAV_ITEMS.map(item => {
+        const current = item.href === path || (item.also || []).includes(path);
+        return `<a href="${escapeHtml(item.href)}" class="nav-link${current ? ' active' : ''}"` +
+               `${current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a>`;
+    }).join('');
+}
+
+/** Fill <nav data-site-nav> and give it a menu button for narrow screens. */
+function renderSiteNav() {
+    const nav = document.querySelector('nav[data-site-nav]');
+    if (!nav) return;
+    nav.id = nav.id || 'site-nav';
+    nav.innerHTML = siteNavHTML(window.location.pathname);
+    const header = nav.closest('.header') || nav.parentElement;
+    if (header && !header.querySelector('.nav-toggle')) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nav-toggle';
+        btn.setAttribute('aria-controls', nav.id);
+        btn.setAttribute('aria-expanded', 'false');
+        btn.textContent = '☰ Menu';
+        btn.addEventListener('click', () => {
+            const open = header.classList.toggle('nav-open');
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        nav.parentElement.insertBefore(btn, nav);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderSiteNav);
+} else {
+    renderSiteNav();
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Registration panel: draws GET /api/timing/registration.
+//
+//   registrationPanelHTML(data, 'compact' | 'full')  -> HTML string
+//   renderRegistrationPanel(elOrId, data, variant)   -> sets innerHTML
+//   loadRegistrationPanel(elOrId, variant)           -> fetch + render;
+//                                                       resolves to data
+//
+// Every API value passes through escapeHtml.  A value hf-timestd does not
+// publish prints "not published", never a number.
+// ════════════════════════════════════════════════════════════════════
+const NOT_PUBLISHED = 'not published';
+
+/** A duration in seconds, in the unit that reads best (ns, µs, ms, s). */
+function formatDuration(seconds, digits = 2) {
+    const s = Number(seconds);
+    if (seconds === null || seconds === undefined || !isFinite(s)) return NOT_PUBLISHED;
+    const a = Math.abs(s);
+    if (a === 0) return '0 s';
+    if (a < 1e-6) return `${(s * 1e9).toFixed(0)} ns`;
+    if (a < 1e-3) return `${(s * 1e6).toFixed(digits)} µs`;
+    if (a < 1) return `${(s * 1e3).toFixed(digits)} ms`;
+    return `${s.toFixed(digits)} s`;
+}
+
+const _UNIT_S = { ns: 1e-9, us: 1e-6, 'µs': 1e-6, ms: 1e-3, s: 1 };
+
+/** {value, unit, field} -> "2.30 µs"; a missing value -> "not published". */
+function formatMeasure(m) {
+    if (!m || typeof m !== 'object' || m.value === null || m.value === undefined) return NOT_PUBLISHED;
+    const scale = _UNIT_S[m.unit];
+    const v = Number(m.value);
+    if (!scale || !isFinite(v)) return `${escapeHtml(m.value)} ${escapeHtml(m.unit || '')}`.trim();
+    return formatDuration(v * scale);
+}
+
+function _np(v) {
+    return (v === null || v === undefined || v === '') ? NOT_PUBLISHED : v;
+}
+
+function _list(v) {
+    return Array.isArray(v) && v.length ? v.map(escapeHtml).join(', ') : 'none';
+}
+
+function _fact(label, valueHtml) {
+    return `<div class="reg-fact"><dt>${escapeHtml(label)}</dt><dd>${valueHtml}</dd></div>`;
+}
+
+function _ageText(age) {
+    const a = Number(age);
+    if (age === null || age === undefined || !isFinite(a)) return 'age unknown';
+    return a < 120 ? `${a.toFixed(0)} s old` : `${(a / 60).toFixed(0)} min old`;
+}
+
+function registrationPanelHTML(data, variant = 'compact') {
+    const full = variant === 'full';
+    if (!data || data.available === false) {
+        return `<div class="reg-panel reg-unavailable">` +
+               `<div class="reg-tier-value">—</div>` +
+               `<p>Timing authority not available on this station.</p>` +
+               `<p class="reg-note">${escapeHtml((data && data.reason) || '')}</p></div>`;
+    }
+    const parts = [];
+    if (data.stale) {
+        parts.push(`<div class="reg-stale">${statusBadge('warn', 'STALE')} snapshot ` +
+                   `${escapeHtml(_ageText(data.age_s))}; the values below may no longer hold</div>`);
+    }
+
+    // Tier in force, large; or None with the tiers available beneath.
+    const tier = data.tier_active;
+    parts.push(`<div class="reg-tier" style="border-left-color:${tierColor(tier)}">` +
+        `<div class="reg-tier-label">Tier in force</div>` +
+        `<div class="reg-tier-value">${tier ? escapeHtml(tier) : 'None'}</div>` +
+        `<div class="reg-tier-sub">available: ${_list(data.tiers_available)}` +
+        `${full ? ` · witnesses: ${_list(data.witnesses)}` : ''}</div></div>`);
+
+    const facts = [];
+    const sig = data.sigma || {};
+    facts.push(_fact('Published sigma', `${escapeHtml(formatMeasure(sig))}` +
+        (sig.field ? ` <span class="reg-src">published by <code>${escapeHtml(sig.field)}</code></span>` : '')));
+
+    const reg = data.registration;
+    if (reg) {
+        facts.push(_fact('Registration',
+            `${statusBadge(statusKind(reg.state), _np(reg.state))} source ` +
+            `<code>${escapeHtml(_np(reg.source))}</code> · ${escapeHtml(_ageText(reg.age_s))}`));
+    } else {
+        facts.push(_fact('Registration', NOT_PUBLISHED));
+    }
+
+    const ruler = data.ruler || {};
+    const disc = ruler.disciplined === true ? 'disciplined' : ruler.disciplined === false ? 'not disciplined' : '';
+    facts.push(_fact('Ruler', `${escapeHtml(_np(ruler.a_level))}${disc ? ' ' + disc : ''} · ` +
+        `provenance ${escapeHtml(_np(ruler.provenance))}`));
+
+    const ce = data.counter_epoch_changes_24h || {};
+    const ceText = (ce.count === null || ce.count === undefined)
+        ? `changes in 24 h: ${escapeHtml(ce.reason || NOT_PUBLISHED)}`
+        : `${escapeHtml(ce.count)} change${Number(ce.count) === 1 ? '' : 's'} in 24 h` +
+          `${Number(ce.count) > 0 ? ' (a radiod restart renumbered the samples)' : ''}`;
+    facts.push(_fact('Counter epoch', `<code>${escapeHtml(_np(reg && reg.counter_epoch_id))}</code> · ${ceText}`));
+
+    const hc = data.host_clock;
+    facts.push(_fact('Host clock', hc
+        ? `${statusBadge(statusKind(hc.verdict), _np(hc.verdict))} ${escapeHtml(hc.reason || '')}`
+        : NOT_PUBLISHED));
+
+    const flags = data.disagreement_flags || [];
+    facts.push(_fact('Disagreements', flags.length
+        ? `<ul class="reg-flags">${flags.map(f =>
+            `<li>${statusBadge('warn', 'flag')} ${escapeHtml(f.text || f.flag)}` +
+            `${full && f.text !== f.flag ? ` <code>${escapeHtml(f.flag)}</code>` : ''}</li>`).join('')}</ul>`
+        : 'none'));
+
+    if (full) {
+        const ue = data.u_epoch;
+        facts.push(_fact('Epoch uncertainty', (ue && typeof ue === 'object')
+            ? `${escapeHtml(formatMeasure(ue))} (k=${escapeHtml(_np(ue.k))}, p=${escapeHtml(_np(ue.p))})`
+            : NOT_PUBLISHED));
+        const st = data.stability;
+        facts.push(_fact('Stability', (st && typeof st === 'object')
+            ? `${escapeHtml(formatMeasure(st))} over τ = ${escapeHtml(_np(st.tau_s))} s`
+            : NOT_PUBLISHED));
+        if (reg) {
+            facts.push(_fact('Registration detail',
+                `sigma ${escapeHtml(formatMeasure({ value: reg.sigma_ms, unit: 'ms' }))}` +
+                (reg.residual_vs_t6_ms !== undefined
+                    ? ` · residual vs T6 ${escapeHtml(formatMeasure({ value: reg.residual_vs_t6_ms, unit: 'ms' }))}` : '') +
+                ` · channels: ${_list(reg.contributing)} · stations: ${_list(reg.stations)}`));
+        }
+        const t6 = data.t6;
+        facts.push(_fact('T6 anchor', t6
+            ? `${statusBadge(statusKind(t6.authority_state), _np(t6.authority_state))}` +
+              ` violations: ${_list(t6.violations)}` +
+              (t6.suspect_criteria ? ` · suspect: ${escapeHtml(t6.suspect_criteria)}` : '')
+            : NOT_PUBLISHED));
+        // An unparseable time prints as sent, escaped, rather than "N/A".
+        const lt = data.last_transition_utc;
+        const ltText = !lt ? NOT_PUBLISHED : (formatTimestamp(lt) === 'N/A' ? lt : formatTimestamp(lt));
+        facts.push(_fact('Last transition', escapeHtml(ltText)));
+        facts.push(_fact('Governing radiod', escapeHtml(_np(data.governor_radiod))));
+        facts.push(_fact('Snapshot', `${escapeHtml(formatTimestamp(data.utc_published))} · ${escapeHtml(_ageText(data.age_s))}`));
+    }
+    parts.push(`<dl class="reg-facts">${facts.join('')}</dl>`);
+
+    if (full && hc && Array.isArray(hc.witnesses) && hc.witnesses.length) {
+        parts.push(`<table class="table reg-witnesses"><thead><tr><th>Witness</th><th>Value</th>` +
+            `<th>Bound</th><th>Verdict</th></tr></thead><tbody>` +
+            hc.witnesses.map(w => {
+                const over = w.exceeded === true;
+                const num = (v) => (typeof v === 'number' && isFinite(v)) ? v.toFixed(3) : escapeHtml(_np(v));
+                return `<tr><td>${escapeHtml(w.name)}</td><td>${num(w.value)} ${escapeHtml(w.unit || '')}</td>` +
+                       `<td>${num(w.bound)} ${escapeHtml(w.unit || '')}</td>` +
+                       `<td>${statusBadge(over ? 'fault' : (w.exceeded === false ? 'ok' : 'unknown'),
+                                          over ? 'exceeded' : (w.exceeded === false ? 'within' : 'unknown'))}</td></tr>`;
+            }).join('') + `</tbody></table>`);
+    }
+    return `<div class="reg-panel reg-${full ? 'full' : 'compact'}">${parts.join('')}</div>`;
+}
+
+function renderRegistrationPanel(elOrId, data, variant = 'compact') {
+    const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+    if (el) el.innerHTML = registrationPanelHTML(data, variant);
+}
+
+async function loadRegistrationPanel(elOrId, variant = 'compact') {
+    try {
+        const data = await api.get('/timing/registration');
+        renderRegistrationPanel(elOrId, data, variant);
+        return data;
+    } catch (e) {
+        const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+        if (el) el.innerHTML = `<div class="reg-panel reg-unavailable">` +
+            `${statusBadge('fault', 'ERROR')} ${escapeHtml(e.message)}</div>`;
+        return null;
+    }
+}
+
 // Export for use in other scripts
 window.TimestdAPI = TimestdAPI;
 window.api = api;
@@ -482,3 +793,18 @@ window.AutoRefresh = AutoRefresh;
 window.PLOTLY_CONFIG = PLOTLY_CONFIG;
 window.PLOT_MARGINS = PLOT_MARGINS;
 window.TimePeriodSelector = TimePeriodSelector;
+window.PALETTE = PALETTE;
+window.stationColor = stationColor;
+window.freqColor = freqColor;
+window.tierColor = tierColor;
+window.withAlpha = withAlpha;
+window.statusKind = statusKind;
+window.statusBadge = statusBadge;
+window.NAV_ITEMS = NAV_ITEMS;
+window.siteNavHTML = siteNavHTML;
+window.renderSiteNav = renderSiteNav;
+window.formatDuration = formatDuration;
+window.formatMeasure = formatMeasure;
+window.registrationPanelHTML = registrationPanelHTML;
+window.renderRegistrationPanel = renderRegistrationPanel;
+window.loadRegistrationPanel = loadRegistrationPanel;

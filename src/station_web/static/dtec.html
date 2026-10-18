@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>dTEC — Multi-Station Carrier-Phase TEC — station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
@@ -149,22 +150,7 @@
     <div class="header">
         <h1>dTEC — Multi-Station Carrier-Phase TEC</h1>
         <div class="header-subtitle">Carrier-phase differential TEC rate and integrated TEC across all 17 propagation paths. Correlated signatures indicate Traveling Ionospheric Disturbances (TIDs).</div>
-        <nav class="nav">
-                <a href="/" class="nav-link">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link">⏱️ Timing</a>
-                <a href="/static/chrony.html" class="nav-link">🕑 Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link">📡 Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link">🔬 Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">📻 Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link active">⚡ dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">🔊 Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">📚 Docs</a>
-        </nav>
+        <nav class="nav" data-site-nav aria-label="Site"></nav>
     </div>
 
         <div class="science-note">
@@ -276,13 +262,10 @@
 </div>
 
 <script>
-// Station colour palette
-const STATION_COLORS = {
-    WWV:  ['#2DD4BF', '#5EEAD4', '#99F6E4', '#14B8A6', '#0D9488', '#0F766E'],
-    WWVH: ['#FB923C', '#FDBA74', '#FED7AA', '#F97316', '#EA580C', '#C2410C'],
-    BPM:  ['#FB7185', '#FDA4AF', '#FECDD3', '#F43F5E', '#E11D48', '#BE123C'],
-};
+// Station hue from the shared palette (common.js); frequency by dash pattern,
+// so each (station, frequency) series stays distinct without a second hue table.
 const FREQ_ORDER = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0];
+const FREQ_DASH = ['solid', 'dot', 'dash', 'longdash', 'dashdot', 'longdashdot'];
 
 let _allSeries = null;
 let _activeFreqFilter = 'all';
@@ -308,10 +291,13 @@ function toggleFreq(el) {
     if (_allSeries) renderPlots(_allSeries);
 }
 
-function getSeriesColor(station, freqMhz) {
-    const colors = STATION_COLORS[station] || ['#888'];
-    const idx = FREQ_ORDER.indexOf(freqMhz);
-    return colors[Math.max(0, idx) % colors.length];
+function getSeriesColor(station) {
+    return stationColor(station);
+}
+
+function getSeriesDash(freqMhz) {
+    const idx = FREQ_ORDER.findIndex(f => Math.abs(f - freqMhz) < 0.1);
+    return FREQ_DASH[Math.max(0, idx) % FREQ_DASH.length];
 }
 
 function freqMatches(freqMhz) {
@@ -396,12 +382,10 @@ function updateStats(data) {
         nTotal > 0 ? Math.round(100 * nAnchored / nTotal) + '%' : '—';
 }
 
-// Solar elevation colours (muted, distinct from dTEC station colours)
-const SOLAR_COLORS = {
-    WWV:  'rgba(255, 220, 80, 0.55)',
-    WWVH: 'rgba(255, 180, 60, 0.55)',
-    BPM:  'rgba(255, 160, 40, 0.55)',
-};
+// Solar elevation: each station's palette colour, faded, dotted.
+function solarColor(station) {
+    return withAlpha(stationColor(station), 0.55);
+}
 
 function buildSolarTraces(stationsNeeded) {
     // Plot raw solar elevation degrees on yaxis2.
@@ -420,7 +404,7 @@ function buildSolarTraces(stationsNeeded) {
             type: 'scatter',
             name: `Solar elev. ${st} path`,
             yaxis: 'y2',
-            line: { color: SOLAR_COLORS[st] || 'rgba(255,220,80,0.5)', width: 1.5, dash: 'dot' },
+            line: { color: solarColor(st), width: 1.5, dash: 'dot' },
             opacity: 0.8,
             hovertemplate: `%{y:.1f}°<extra>Solar ${st}</extra>`,
         });
@@ -480,7 +464,8 @@ function renderPlots(series) {
     for (const [key, s] of Object.entries(series)) {
         if (!freqMatches(s.frequency_mhz)) continue;
 
-        const color = getSeriesColor(s.station, s.frequency_mhz);
+        const color = getSeriesColor(s.station);
+        const dash = getSeriesDash(s.frequency_mhz);
         const label = `${s.station} ${s.frequency_mhz.toFixed(1)} MHz`;
         const xs = s.timestamps.map(toDate);
 
@@ -491,7 +476,7 @@ function renderPlots(series) {
             mode: 'lines',
             type: 'scattergl',
             name: label,
-            line: { color, width: 1.2 },
+            line: { color, width: 1.2, dash },
             opacity: 0.55,
         });
         rateStations.add(s.station);

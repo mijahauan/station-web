@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>UTC Offset Dashboard - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
@@ -14,22 +15,7 @@
         <div class="header">
             <h1>⏱️ UTC Offset Dashboard</h1>
             <div class="header-subtitle">Multi-station fusion timing estimate</div>
-            <nav class="nav">
-                <a href="/" class="nav-link">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link active">⏱️ Timing</a>
-                <a href="/static/chrony.html" class="nav-link">🕑 Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link">📡 Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link">🔬 Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">📻 Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link">⚡ dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">🔊 Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">📚 Docs</a>
-            </nav>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
         <div id="error-container" style="display: none;"></div>
@@ -386,9 +372,9 @@
             
             // Station data with colors
             const stationConfig = {
-                'WWV': { color: '#3b82f6', icon: '🇺🇸', location: 'Fort Collins, CO' },
-                'WWVH': { color: '#10b981', icon: '🌺', location: 'Kauai, HI' },
-                'BPM': { color: '#8b5cf6', icon: '🇨🇳', location: 'Pucheng, China' }
+                'WWV': { color: stationColor('WWV'), icon: '🇺🇸', location: 'Fort Collins, CO' },
+                'WWVH': { color: stationColor('WWVH'), icon: '🌺', location: 'Kauai, HI' },
+                'BPM': { color: stationColor('BPM'), icon: '🇨🇳', location: 'Pucheng, China' }
             };
             
             // Build station cards with detailed data
@@ -809,17 +795,17 @@
                                 <div style="font-size: 12px; color: #94a3b8; margin-bottom: 8px;">Per-Station Contributions:</div>
                                 <div style="display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; font-size: 11px;">
                                     ${data.wwv_count ? `
-                                    <span style="color: #3b82f6;">WWV:</span>
+                                    <span style="color: ${stationColor('WWV')};">WWV:</span>
                                     <span style="color: #cbd5e1;">${data.wwv_count} obs</span>
                                     <span style="font-family: 'Courier New', monospace;">${data.wwv_mean_ms !== undefined && data.wwv_mean_ms !== null ? formatNumber(data.wwv_mean_ms, 3) + ' ms' : ''}</span>
                                     ` : ''}
                                     ${data.wwvh_count ? `
-                                    <span style="color: #10b981;">WWVH:</span>
+                                    <span style="color: ${stationColor('WWVH')};">WWVH:</span>
                                     <span style="color: #cbd5e1;">${data.wwvh_count} obs</span>
                                     <span style="font-family: 'Courier New', monospace;">${data.wwvh_mean_ms !== undefined && data.wwvh_mean_ms !== null ? formatNumber(data.wwvh_mean_ms, 3) + ' ms' : ''}</span>
                                     ` : ''}
                                     ${data.bpm_count ? `
-                                    <span style="color: #8b5cf6;">BPM:</span>
+                                    <span style="color: ${stationColor('BPM')};">BPM:</span>
                                     <span style="color: #cbd5e1;">${data.bpm_count} obs</span>
                                     <span style="font-family: 'Courier New', monospace;">${data.bpm_mean_ms !== undefined && data.bpm_mean_ms !== null ? formatNumber(data.bpm_mean_ms, 3) + ' ms' : ''}</span>
                                     ` : ''}

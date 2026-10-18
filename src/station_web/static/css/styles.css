@@ -1,6 +1,11 @@
-/* hf-timestd Web UI Styles */
+/* station-web styles.  Dark only: no light theme exists, and the
+ * color-scheme declaration tells the browser so (form controls,
+ * scrollbars).  Status colours follow common.js PALETTE.status; a badge
+ * always carries a glyph and a word as well (statusBadge). */
 
 :root {
+    color-scheme: dark;
+
     /* Colors */
     --bg-primary: #0a0e27;
     --bg-surface: #1e293b;
@@ -16,9 +21,18 @@
     --quality-c: #f59e0b;  /* orange */
     --quality-d: #ef4444;  /* red */
     
-    --status-healthy: #10b981;
-    --status-degraded: #f59e0b;
-    --status-error: #ef4444;
+    /* PALETTE.station in common.js (tests hold the two equal) */
+    --station-wwv: #56B4E9;
+    --station-wwvh: #E69F00;
+    --station-bpm: #CC79A7;
+    --station-composite: #A0A7B4;
+
+    /* PALETTE.status in common.js */
+    --status-healthy: #009E73;
+    --status-degraded: #F0E442;
+    --status-error: #D55E00;
+    --status-unknown: #8A93A3;
+    --status-ink: #0a0e27;      /* text on a status fill */
     
     /* Spacing */
     --spacing-xs: 4px;
@@ -324,9 +338,20 @@ body {
 .badge.grade-c { background: var(--quality-c); color: #fff; }
 .badge.grade-d { background: var(--quality-d); color: #fff; }
 
-.badge.status-healthy { background: var(--status-healthy); color: #fff; }
-.badge.status-degraded { background: var(--status-degraded); color: #fff; }
-.badge.status-error { background: var(--status-error); color: #fff; }
+.badge.status-healthy { background: var(--status-healthy); color: var(--status-ink); }
+.badge.status-degraded { background: var(--status-degraded); color: var(--status-ink); }
+.badge.status-error { background: var(--status-error); color: var(--status-ink); }
+/* status by word AND shape, never colour alone */
+.badge.status-healthy::before { content: '✓ '; }
+.badge.status-degraded::before { content: '▲ '; }
+.badge.status-error::before { content: '✕ '; }
+
+/* statusBadge(kind, text) in common.js */
+.badge.st-ok { background: var(--status-healthy); color: var(--status-ink); }
+.badge.st-warn { background: var(--status-degraded); color: var(--status-ink); }
+.badge.st-fault { background: var(--status-error); color: var(--status-ink); }
+.badge.st-unknown { background: var(--status-unknown); color: var(--status-ink); }
+.badge[class*="st-"] { text-transform: none; padding: 2px 8px; }
 
 /* Status indicators */
 .status-dot {
@@ -442,18 +467,58 @@ body {
     margin-bottom: var(--spacing-lg);
 }
 
+/* Menu button: shown only on narrow screens (below) */
+.nav-toggle {
+    display: none;
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    cursor: pointer;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .container {
-        padding: var(--spacing-md);
+        padding: var(--spacing-sm);
     }
-    
+
     .header {
-        padding: var(--spacing-md);
+        padding: var(--spacing-sm) var(--spacing-md);
+        margin-bottom: var(--spacing-md);
     }
-    
+
     .header h1 {
-        font-size: 24px;
+        font-size: 20px;
+        margin-bottom: 0;
+    }
+
+    .header-subtitle {
+        font-size: 12px;
+    }
+
+    /* The nav folds behind the menu button so data fills the first screen. */
+    .nav-toggle {
+        display: inline-block;
+    }
+
+    .nav {
+        display: none;
+        flex-direction: column;
+        gap: var(--spacing-xs);
+        margin-top: var(--spacing-sm);
+    }
+
+    .header.nav-open .nav {
+        display: flex;
+    }
+
+    .card {
+        padding: var(--spacing-md);
+        margin-bottom: var(--spacing-md);
     }
     
     .hero-value {
@@ -483,3 +548,53 @@ body {
 .plot-message {
     box-sizing: border-box;
 }
+
+/* ── Registration panel (common.js registrationPanelHTML) ───────────── */
+.reg-panel { display: flex; flex-direction: column; gap: var(--spacing-md); }
+.reg-tier {
+    border-left: 6px solid var(--border-color);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(15, 23, 42, 0.5);
+    border-radius: var(--radius-md);
+}
+.reg-tier-label {
+    font-size: 11px; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.reg-tier-value {
+    font-size: 44px; font-weight: 700; line-height: 1.1; color: #fff;
+    font-family: 'Courier New', monospace;
+}
+.reg-full .reg-tier-value { font-size: 56px; }
+.reg-tier-sub { font-size: 13px; color: var(--text-secondary); }
+.reg-facts { display: grid; grid-template-columns: 1fr; gap: var(--spacing-sm); }
+.reg-full .reg-facts { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.reg-fact { display: grid; grid-template-columns: 9.5em 1fr; gap: var(--spacing-sm); align-items: baseline; }
+.reg-fact dt {
+    font-size: 11px; color: var(--text-secondary);
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.reg-fact dd { font-size: 14px; overflow-wrap: anywhere; }
+.reg-fact code, .reg-src code { font-size: 12px; color: var(--text-secondary); }
+.reg-src { font-size: 12px; color: var(--text-secondary); }
+.reg-flags { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.reg-stale {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--status-degraded);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+}
+.reg-unavailable { color: var(--text-secondary); }
+.reg-note { font-size: 12px; }
+.reg-witnesses td, .reg-witnesses th { padding: var(--spacing-sm); font-size: 13px; }
+@media (max-width: 768px) {
+    .reg-fact { grid-template-columns: 1fr; gap: 0; }
+    .reg-tier-value, .reg-full .reg-tier-value { font-size: 36px; }
+}
+
+/* ── Status page lists (index.html) ─────────────────────────────────── */
+.status-list { list-style: none; display: flex; flex-direction: column; gap: var(--spacing-sm); }
+.status-list li { font-size: 14px; }
+.status-list .status-note { display: block; font-size: 12px; color: var(--text-secondary); }
+.card-link { font-size: 13px; color: #56B4E9; text-decoration: none; }
+.card-link:hover { text-decoration: underline; }

@@ -37,12 +37,8 @@ logger = logging.getLogger(__name__)
 
 TABLE = 'L2_tick_phase'
 
-# Station colors for consistent visualization
-STATION_COLORS = {
-    'WWV': '#3b82f6',    # blue
-    'WWVH': '#f59e0b',   # amber
-    'BPM': '#ef4444',    # red
-}
+# Station colours: the site palette (station_web/palette.py, common.js PALETTE)
+from station_web.palette import COMPOSITE, STATION_COLORS  # noqa: E402
 
 #: Upper bound on points per (channel, station) trace, for every view.
 MAX_POINTS_PER_TRACE = 1500
@@ -481,7 +477,7 @@ class PhaseService:
             series.append({
                 'channel': ch,
                 'station': stn,
-                'color': STATION_COLORS.get(stn, '#94a3b8'),
+                'color': STATION_COLORS.get(stn, COMPOSITE),
                 'timestamps': [_iso(t, fine) for t in ep],
                 'epochs': _round(ep, 3),
                 'phase_rad': _round(ph, 4),
@@ -513,7 +509,7 @@ class PhaseService:
             series.append({
                 'channel': ch,
                 'station': stn,
-                'color': STATION_COLORS.get(stn, '#94a3b8'),
+                'color': STATION_COLORS.get(stn, COMPOSITE),
                 'timestamps': [_iso(t, fine) for t in ep],
                 'epochs': _round(ep, 3),
                 'doppler_hz': _round(smooth, 5),
@@ -532,7 +528,7 @@ class PhaseService:
             series.append({
                 'channel': ch,
                 'station': stn,
-                'color': STATION_COLORS.get(stn, '#94a3b8'),
+                'color': STATION_COLORS.get(stn, COMPOSITE),
                 'timestamps': [_iso(t, False) for t in ep],
                 'epochs': _round(ep, 3),
                 'sigma_phi_rad': _round(tr['sigma_phi_rad'], 4),
@@ -754,7 +750,7 @@ class PhaseService:
             channels.append({
                 'channel': ch,
                 'station': stn,
-                'color': STATION_COLORS.get(stn, '#94a3b8'),
+                'color': STATION_COLORS.get(stn, COMPOSITE),
                 'dc_meaningful': dc_meaningful(ch),
                 'latest_phase_rad': float(phases[-1]),
                 'doppler_hz': float(doppler_hz),

@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>Phase &amp; Doppler Dashboard - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
@@ -15,22 +16,7 @@
         <div class="header">
             <h1>&#x1F4E1; Phase &amp; Doppler Dashboard</h1>
             <div class="header-subtitle">Ionospheric dynamics from carrier phase tracking</div>
-            <nav class="nav">
-                <a href="/" class="nav-link">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link">⏱️ Timing</a>
-                <a href="/static/chrony.html" class="nav-link">🕑 Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link active">📡 Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link">🔬 Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">📻 Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link">⚡ dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">🔊 Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">📚 Docs</a>
-            </nav>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
         <div id="error-container" style="display: none;"></div>
@@ -121,11 +107,6 @@
         let refreshTimer = null;
         let tps = null;  // TimePeriodSelector instance
         let solarData = null;  // cached solar zenith data
-
-        // Station colors for solar traces
-        const SOLAR_STATION_COLORS = {
-            'WWV': '#3b82f6', 'WWVH': '#f59e0b', 'BPM': '#ef4444',
-        };
 
         // Build night-shade shapes from solar elevation for a given station
         function makeNightShapes(station) {

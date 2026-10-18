@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
     <title>Ionospheric Observatory - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
@@ -145,9 +146,9 @@
             border-color: #3b82f6;
             color: #fff;
         }
-        .filter-btn.station-wwv.active  { background: #1e3a8a; border-color: #3b82f6; }
-        .filter-btn.station-wwvh.active { background: #14532d; border-color: #22c55e; }
-        .filter-btn.station-bpm.active  { background: #7f1d1d; border-color: #ef4444; }
+        .filter-btn.station-wwv.active  { background: color-mix(in srgb, var(--station-wwv) 30%, transparent); border-color: var(--station-wwv); }
+        .filter-btn.station-wwvh.active { background: color-mix(in srgb, var(--station-wwvh) 30%, transparent); border-color: var(--station-wwvh); }
+        .filter-btn.station-bpm.active  { background: color-mix(in srgb, var(--station-bpm) 30%, transparent); border-color: var(--station-bpm); }
         @media (max-width: 900px) {
             .grid-2 { grid-template-columns: 1fr; }
         }
@@ -159,22 +160,7 @@
         <div class="header">
             <h1>Ionospheric Observatory</h1>
             <div class="header-subtitle">Multi-frequency oblique ionosonde &mdash; <span id="hdr-stations">WWV, WWVH, BPM</span></div>
-            <nav class="nav">
-                <a href="/" class="nav-link">Overview</a>
-                <a href="/static/health.html" class="nav-link">Health</a>
-                <span class="nav-divider"></span>
-                <a href="/static/metrology.html" class="nav-link">⏱️ Timing</a>
-                <a href="/static/chrony.html" class="nav-link">🕑 Chrony</a>
-                <span class="nav-divider"></span>
-                <a href="/static/phase.html" class="nav-link">📡 Phase</a>
-                <a href="/static/ionosphere.html" class="nav-link active">🔬 Observatory</a>
-                <a href="/static/ionogram.html" class="nav-link">📻 Ionogram</a>
-                <a href="/static/dtec.html" class="nav-link">⚡ dTEC</a>
-                <a href="/static/test_signal.html" class="nav-link">🔊 Test Signal</a>
-                <a href="/static/grape.html" class="nav-link">&#x1F347; GRAPE</a>
-                <span class="nav-divider"></span>
-                <a href="/static/docs.html" class="nav-link">📚 Docs</a>
-            </nav>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
         </div>
 
         <div id="error-container" style="display: none; background: #7f1d1d; border: 1px solid #ef4444; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; color: #fca5a5; font-size: 13px;"></div>
@@ -324,19 +310,6 @@
     // ====================================================================
     // CONFIGURATION
     // ====================================================================
-    const FREQ_COLORS = {
-        2.5:  '#ef4444',  // red
-        5.0:  '#eab308',  // yellow
-        10.0: '#06b6d4',  // cyan
-        15.0: '#8b5cf6',  // violet
-        20.0: '#d946ef',  // magenta
-        25.0: '#f43f5e',  // rose
-    };
-    const STATION_COLORS = {
-        'WWV':  '#3b82f6',
-        'WWVH': '#22c55e',
-        'BPM':  '#ef4444',
-    };
     // Transmitters and receiver come from the API, never from this page:
     // /api/stations/ (broadcast registry) and /api/station/metadata.
     let STATION_COORDS = {};
@@ -550,7 +523,7 @@
             snrTraces.push({
                 x: g.ts, y: g.snr,
                 mode: 'markers',
-                marker: { size: 3, color: FREQ_COLORS[g.freq] || '#888', opacity: 0.8 },
+                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
                 name: key,
                 hovertemplate: '%{x}<br>SNR: %{y:.1f} dB<extra>' + key + '</extra>',
             });
@@ -559,10 +532,10 @@
             const szaSnr = getSolarTrace(currentStation);
             if (szaSnr) snrTraces.push(szaSnr);
         } else {
-            for (const st of Object.keys(STATION_COLORS)) {
+            for (const st of ['WWV', 'WWVH', 'BPM']) {
                 const sza = getSolarTrace(st);
                 if (sza) {
-                    sza.line = { ...sza.line, color: STATION_COLORS[st], dash: 'dot', width: 1.5 };
+                    sza.line = { ...sza.line, color: stationColor(st), dash: 'dot', width: 1.5 };
                     sza.name = `SZA ${st}`;
                     snrTraces.push(sza);
                 }
@@ -584,7 +557,7 @@
             dcTraces.push({
                 x: g.ts, y: g.dc,
                 mode: 'markers',
-                marker: { size: 3, color: FREQ_COLORS[g.freq] || '#888', opacity: 0.8 },
+                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
                 name: key,
                 hovertemplate: '%{x}<br>D_clock: %{y:.2f} ms<extra>' + key + '</extra>',
             });
@@ -613,7 +586,7 @@
             dopTraces.push({
                 x: g.ts, y: g.dop,
                 mode: 'markers',
-                marker: { size: 3, color: FREQ_COLORS[g.freq] || '#888', opacity: 0.8 },
+                marker: { size: 3, color: freqColor(g.freq), opacity: 0.8 },
                 name: key,
                 hovertemplate: '%{x}<br>Doppler: %{y:.3f} Hz<extra>' + key + '</extra>',
             });
@@ -661,7 +634,7 @@
 
         // Station markers and paths
         for (const [station, coords] of Object.entries(STATION_COORDS)) {
-            const color = STATION_COLORS[station] || '#94a3b8';
+            const color = stationColor(station);
             // Path line
             mapTraces.push({
                 type: 'scattergeo',
@@ -846,10 +819,10 @@
                 fitTraces.push({
                     x: xs, y: ys,
                     mode: 'markers+text',
-                    marker: { size: 10, color: STATION_COLORS[station] || '#888' },
+                    marker: { size: 10, color: stationColor(station) },
                     text: labels,
                     textposition: 'top center',
-                    textfont: { size: 10, color: STATION_COLORS[station] || '#888' },
+                    textfont: { size: 10, color: stationColor(station) },
                     name: `${station} (mode=${bestMode}, N=${xs.length})`,
                     hovertemplate: '1/f²=%{x:.4f}<br>D_clock=%{y:.2f} ms<extra>' + station + '</extra>',
                 });
@@ -860,7 +833,7 @@
                     x: [xMin, xMax],
                     y: [slope*xMin + intercept, slope*xMax + intercept],
                     mode: 'lines',
-                    line: { color: STATION_COLORS[station] || '#888', dash: 'dash', width: 1.5 },
+                    line: { color: stationColor(station), dash: 'dash', width: 1.5 },
                     name: `${station}: ${tecLabel}`,
                     showlegend: true,
                 });
@@ -903,7 +876,7 @@
                     x: pdata.timestamps,
                     y: pdata.tec_tecu,
                     mode: 'markers',
-                    marker: { size: 3, color: STATION_COLORS[station] || '#888', opacity: 0.7 },
+                    marker: { size: 3, color: stationColor(station), opacity: 0.7 },
                     name: station,
                     hovertemplate: '%{x}<br>TEC: %{y:.1f} TECU<extra>' + station + '</extra>',
                 });
@@ -939,7 +912,7 @@
                 stTraces.push({
                     x: g.ts, y: g.dc,
                     mode: 'markers',
-                    marker: { size: 2.5, color: FREQ_COLORS[g.freq] || '#888', opacity: 0.6 },
+                    marker: { size: 2.5, color: freqColor(g.freq), opacity: 0.6 },
                     name: key,
                 });
             }
@@ -1049,7 +1022,7 @@
                 evTraces.push({
                     x: g.ts, y: g.snr,
                     mode: 'markers',
-                    marker: { size: 2.5, color: STATION_COLORS[st] || '#888', opacity: 0.5 },
+                    marker: { size: 2.5, color: stationColor(st), opacity: 0.5 },
                     name: st + ' SNR',
                 });
             }
