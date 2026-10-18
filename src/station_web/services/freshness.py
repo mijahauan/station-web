@@ -1,6 +1,24 @@
-"""Health = are the products fresh?  Four verdicts, borrowed from the
-heartbeat schema: VALID (fresh), INVALID (present but older than expected),
-INDETERMINATE (no rows at all).  No process or disk probes: sigmond owns those."""
+"""Health = are the products fresh?  No process or disk probes: sigmond owns those.
+
+Each product gets one of five verdicts (the first three borrowed from the
+heartbeat schema):
+
+- VALID: the newest row is no older than the product's expected cadence.
+- INVALID: the newest row is older than expected, but the producer wrote
+  within the last ``APPLICABLE_WINDOW_DAYS``.  A producer that stopped.
+- INDETERMINATE: there is no table at all (the producing client is not
+  installed here), or no database.
+- SILENT: the table exists but holds no row from the last
+  ``APPLICABLE_WINDOW_DAYS`` ("producer silent").  On B4, hamsci-physics
+  created ``L3_dtec`` and ``L3_physics`` and never filled them.
+- INFORMATIONAL: an event product (``EVENT_PRODUCTS``) with no cadence;
+  only its age is reported.
+
+Only VALID and INVALID products are *applicable* and judge ``status``:
+any INVALID is "error", all VALID is "healthy", and nothing to judge is
+"degraded".  SILENT and INDETERMINATE stay visible in the table, but
+neither one alone holds the station at "degraded".
+"""
 from __future__ import annotations
 
 import logging
@@ -16,7 +34,9 @@ logger = logging.getLogger(__name__)
 EXPECTED = {
     ("L2", "timing_measurements"): 300,  # flushed ~every 2 min; 300 leaves headroom
     ("L3", "fusion_timing"): 120, ("DIAG", "chrony_stats"): 120,
-    ("L3", "tec"): 3600, ("L3", "dtec"): 300, ("L3", "physics"): 300,
+    # L3_tec: the hourly reanalysis writes the previous hour at :05, so its
+    # newest row is ~70 min old just before each run.
+    ("L3", "tec"): 7200, ("L3", "dtec"): 300, ("L3", "physics"): 300,
     ("L3", "gnss_vtec"): 900,
 }
 #: products written under a fixed channel rather than per receiver channel
@@ -24,10 +44,17 @@ EXPECTED = {
 #: for which channel each writer actually uses).  ``L3_gnss_vtec`` carries
 #: channel 'GNSS': both writers that produce it (gnss-vtec's own service and
 #: the hf-timestd bridge) hard-code that literal, so the per-receiver channel
-#: sweep would never have found a row.
+#: sweep would never have found a row.  A tuple names several channels; the
+#: newest row across them counts.  ``L3_tec`` has two writers: the hourly
+#: reanalysis (``REANALYZED``) and physics-fusion (``AGGREGATED``).
 FIXED_CHANNEL = {("L3", "fusion_timing"): "fusion", ("DIAG", "chrony_stats"): "fusion",
-                 ("L3", "physics"): "global", ("L3", "tec"): "AGGREGATED",
+                 ("L3", "physics"): "global", ("L3", "tec"): ("REANALYZED", "AGGREGATED"),
                  ("L3", "dtec"): "AGGREGATED", ("L3", "gnss_vtec"): "GNSS"}
+
+#: A product whose newest row is older than this reads SILENT, not INVALID:
+#: weeks without a row means the producer is not running here, which is not
+#: the same fact as a running producer that fell behind.
+APPLICABLE_WINDOW_DAYS = 7
 
 #: (level, name) -> fixed channel, for products with no cadence expectation at
 #: all: hamsci-physics writes a TID row only when it detects a travelling
@@ -129,29 +156,39 @@ def table(settings: Settings) -> dict:
     now = datetime.now(timezone.utc)
     channels = [c["name"] for c in discover_channels(settings)]
     present = _existing_tables(settings)
+    silent_after = APPLICABLE_WINDOW_DAYS * 86400
     products: dict[str, dict] = {}
     for (level, name), expected in EXPECTED.items():
+        tbl = f"{level}_{name}"
         fixed = FIXED_CHANNEL.get((level, name))
-        if fixed is not None:
+        if tbl not in present:
+            ts, channel = None, (fixed if isinstance(fixed, str) else None)
+        elif isinstance(fixed, str):
             ts, channel = _max_timestamp(settings, level, name, fixed), fixed
         else:
-            ts, channel = _newest_across_channels(settings, level, name, channels)
-        if ts is None:
-            verdict, age = "INDETERMINATE", None
+            ts, channel = _newest_across_channels(settings, level, name,
+                                                  list(fixed) if fixed else channels)
+        age = None if ts is None else (now - _parse_utc(ts)).total_seconds()
+        if tbl not in present:
+            verdict = "INDETERMINATE"
+            reason = f"no {tbl} table — producing client not installed"
+        elif age is None or age > silent_after:
+            verdict = "SILENT"
+            reason = (f"producer silent: {tbl} exists but holds no row from the "
+                      f"last {APPLICABLE_WINDOW_DAYS} days")
         else:
-            age = (now - _parse_utc(ts)).total_seconds()
             verdict = "VALID" if age <= expected else "INVALID"
-        tbl = f"{level}_{name}"
+            reason = None
         entry = {"verdict": verdict, "age_s": None if age is None else round(age, 1),
                  "expected_s": expected, "channel": channel,
-                 "applicable": tbl in present}
-        if not entry["applicable"]:
-            entry["reason"] = f"no {tbl} table — producing client not installed"
+                 "applicable": verdict in ("VALID", "INVALID")}
+        if reason:
+            entry["reason"] = reason
         products[tbl] = entry
     for (level, name), channel in EVENT_PRODUCTS.items():
-        ts = _max_timestamp(settings, level, name, channel)
-        age = None if ts is None else round((now - _parse_utc(ts)).total_seconds(), 1)
         tbl = f"{level}_{name}"
+        ts = _max_timestamp(settings, level, name, channel) if tbl in present else None
+        age = None if ts is None else round((now - _parse_utc(ts)).total_seconds(), 1)
         entry = {"verdict": "INFORMATIONAL", "age_s": age, "expected_s": None,
                  "channel": channel, "applicable": tbl in present,
                  "reason": "event product — written only when an event is "

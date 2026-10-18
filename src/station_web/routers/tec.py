@@ -3,13 +3,15 @@ TEC (Total Electron Content) API endpoints for v6.5.0.
 """
 
 from fastapi import APIRouter, Query, HTTPException
-from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 import logging
 from pathlib import Path
 
+from station_web.broadcast import DEFAULT_STATIONS
+from station_web.errors import internal_error
 from station_web.services.tec_service import TECService
 from station_web.config import config
+from station_web.timeutil import iso_z, parse_window, utcnow
 from hamsci_dsp.io import make_data_product_reader
 
 logger = logging.getLogger(__name__)
@@ -27,28 +29,16 @@ def _service() -> TECService:
     return TECService(config.data_root)
 
 
-def _parse_relative_time(s: str, now: datetime) -> datetime:
-    """Parse ISO8601 or relative time string like '-6h', '-1d'."""
-    if s == "now":
-        return now
-    if s.startswith('-'):
-        val = int(s[1:-1])
-        unit = s[-1]
-        if unit == 'h':
-            return now - timedelta(hours=val)
-        elif unit == 'd':
-            return now - timedelta(days=val)
-        elif unit == 'm':
-            return now - timedelta(minutes=val)
-        raise ValueError(f"Unknown unit in '{s}'")
-    return datetime.fromisoformat(s.replace('Z', ''))
+#: Stations a /tec/station/{station} request may name: the broadcast
+#: catalogue's, not a hand-kept list (which still carried CHU).
+VALID_STATIONS = tuple(st.name for st in DEFAULT_STATIONS)
 
 
 @router.get("/dtec")
 def get_dtec_timeseries(
     start: str = Query("-6h", description="Start time (ISO8601 or relative like '-6h', '-1d')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
-    station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, CHU, BPM)"),
+    station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, BPM)"),
     freq_mhz: Optional[float] = Query(None, description="Filter by frequency in MHz"),
     min_snr_db: float = Query(6.0, description="Minimum mean_snr_db to include"),
     downsample: int = Query(1, description="Keep every Nth point (1=all, 5=every 5th)"),
@@ -63,45 +53,28 @@ def get_dtec_timeseries(
     Each series is keyed as '<STATION>_<freq>MHz', e.g. 'WWV_10.0MHz'.
     """
     try:
-        now = datetime.utcnow()
-        t0 = _parse_relative_time(start, now)
-        t1 = _parse_relative_time(end, now)
+        t0, t1 = parse_window(start, end)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    try:
         ts0 = int(t0.timestamp())
         ts1 = int(t1.timestamp())
 
+        dtec_dir = Path(config.data_root) / 'phase2' / 'science' / 'dtec'
+        reader = make_data_product_reader(
+            data_dir=dtec_dir,
+            product_level='L3',
+            product_name='dtec',
+            channel='AGGREGATED',
+            storage_config=getattr(config, 'storage', {}) or {},
+        )
         # Pass an ISO window to the reader so its (channel, timestamp_utc)
         # index narrows the scan; minute_boundary equality is verified
         # in Python because timestamp_utc carries sub-second slop.
-        t0_iso = t0.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
-        t1_iso = t1.replace(tzinfo=timezone.utc).isoformat().replace('+00:00', 'Z')
-
-        dtec_dir = Path(config.data_root) / 'phase2' / 'science' / 'dtec'
-
         try:
-            reader = make_data_product_reader(
-                data_dir=dtec_dir,
-                product_level='L3',
-                product_name='dtec',
-                channel='AGGREGATED',
-                storage_config=getattr(config, 'storage', {}) or {},
-            )
-        except Exception as e:
-            logger.warning(f"L3_dtec reader init failed: {e}")
-            return {"status": "no_data", "message": "L3_dtec reader unavailable", "series": {}}
-
-        try:
-            try:
-                rows = reader.read_time_range(start=t0_iso, end=t1_iso)
-            except Exception as e:
-                logger.warning(f"L3_dtec read failed: {e}")
-                rows = []
+            rows = reader.read_time_range(start=iso_z(t0), end=iso_z(t1))
         finally:
-            close_fn = getattr(reader, 'close', None)
-            if close_fn is not None:
-                try:
-                    close_fn()
-                except Exception:
-                    pass
+            reader.close()
 
         if not rows:
             return {
@@ -157,36 +130,35 @@ def get_dtec_timeseries(
 
         return {
             "status": "ok",
-            "time_range": {"start": t0.isoformat() + "Z", "end": t1.isoformat() + "Z"},
+            "time_range": {"start": iso_z(t0), "end": iso_z(t1)},
             "n_series": len(series),
             "n_points_total": n_total,
             "series": series,
         }
 
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Error in /tec/dtec: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "dTEC read", e)
 
 
 @router.get("/current")
 def get_current_tec():
     """
     Get the most recent TEC estimates.
-    
-    Returns current TEC values for all monitored propagation paths.
+
+    Returns the newest TEC value per station within the last 2 h, and the
+    ``source`` channel (REANALYZED or AGGREGATED) it came from.
     """
     try:
         data = _service().get_current_tec()
-        
+
         if data is None:
             return {
                 "status": "no_data",
-                "message": "No TEC data available",
-                "timestamp": datetime.utcnow().isoformat() + 'Z'
+                "message": "No TEC row within the last 2 h",
+                "source": None,
+                "timestamp": iso_z(utcnow())
             }
-        
+
         # TECService.get_current_tec() keys its payload by STATION, under
         # 'stations'.  This route used to read 'paths', which the service has
         # never produced, so /current answered 200 with an empty body on a
@@ -197,58 +169,38 @@ def get_current_tec():
         return {
             "status": "ok",
             "timestamp": data.get('timestamp', ''),
+            "source": data.get('source'),
             "stations": stations,
             "n_stations": len(stations)
         }
-    
+
     except Exception as e:
-        logger.error(f"Error getting current TEC: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "Current TEC read", e)
 
 
 @router.get("/history")
 def get_tec_history(
     start: str = Query("-24h", description="Start time (ISO8601 or relative like '-24h')"),
     end: str = Query("now", description="End time (ISO8601 or 'now')"),
-    station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, CHU, BPM)")
+    station: Optional[str] = Query(None, description="Filter by station (WWV, WWVH, BPM)")
 ):
     """
     Get TEC history for a time range.
-    
+
     Returns TEC values over time for all paths or filtered by station.
     """
     try:
-        # Parse time range
-        if end == "now":
-            end_time = datetime.utcnow()
-        else:
-            end_time = datetime.fromisoformat(end.replace('Z', ''))
-        
-        if start.startswith('-'):
-            duration_str = start[1:]
-            if duration_str.endswith('h'):
-                hours = int(duration_str[:-1])
-                start_time = end_time - timedelta(hours=hours)
-            elif duration_str.endswith('d'):
-                days = int(duration_str[:-1])
-                start_time = end_time - timedelta(days=days)
-            else:
-                raise ValueError(f"Invalid duration format: {start}")
-        else:
-            start_time = datetime.fromisoformat(start.replace('Z', ''))
-        
-        data = _service().get_tec_history(start_time, end_time, station=station)
-        
-        return {
-            "status": "ok",
-            **data
-        }
-    
+        start_time, end_time = parse_window(start, end)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    try:
+        data = _service().get_tec_history(start_time, end_time, station=station)
     except Exception as e:
-        logger.error(f"Error getting TEC history: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "TEC history read", e)
+    return {
+        "status": "ok",
+        **data
+    }
 
 
 @router.get("/station/{station}")
@@ -258,27 +210,26 @@ def get_tec_by_station(
 ):
     """
     Get TEC data for a specific station.
-    
+
     Returns TEC values for all frequencies from the specified station.
     """
     try:
         station = station.upper()
-        if station not in ['WWV', 'WWVH', 'CHU', 'BPM']:
+        if station not in VALID_STATIONS:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid station: {station}. Must be WWV, WWVH, CHU, or BPM"
+                detail=f"Invalid station: {station}. Must be one of {', '.join(VALID_STATIONS)}"
             )
-        
+
         data = _service().get_tec_by_station(station, hours)
-        
+
         return {
             "status": "ok",
             "station": station,
             **data
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting TEC for station {station}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, f"TEC read for {station}", e)
