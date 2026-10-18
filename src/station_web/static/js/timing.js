@@ -447,6 +447,51 @@ async function loadTimingChrony() {
     }
 }
 
+// ── WWVB: which minute WWVB named (GET /api/timing/wwvb) ─────────────
+
+function _wwvbNum(v, digits) {
+    const n = _num(v);
+    return n === null ? '—' : n.toFixed(digits);
+}
+
+/** The WWVB ledger as HTML: its role, the last pass and frame, recent frames. */
+function wwvbPanelHTML(data) {
+    if (!data || data.available === false) {
+        return `<p class="timing-note">${escapeHtml((data && data.reason) || 'No WWVB ledger on this station.')}</p>`;
+    }
+    const p = data.passes || {}, f = data.frames || {};
+    const lp = p.last || {}, lf = f.last_plausible || null;
+    const facts = [
+        ['Last decoded minute', lf ? escapeHtml(lf.minute || '—') : 'none in this file'],
+        ['Decoded minute minus host clock', lf ? `${escapeHtml(_wwvbNum(lf.vs_wallclock_s, 2))} s (<code>vs_wallclock_s</code>)` : '—'],
+        ['Frames (plausible / all)', `${escapeHtml(f.plausible ?? 0)} / ${escapeHtml(f.n ?? 0)}`],
+        ['Passes with a frame / all', `${escapeHtml(p.with_frames ?? 0)} / ${escapeHtml(p.n ?? 0)}`],
+        ['Last pass SNR', `${escapeHtml(_wwvbNum(lp.snr_db, 1))} dB at ${escapeHtml(lp.ts || '—')}`],
+        ['Ledger', `${escapeHtml(data.file || '—')}, newest line ${escapeHtml(data.age_s === null || data.age_s === undefined ? '—' : formatDuration(data.age_s))} old`],
+    ].map(([k, v]) => `<div class="reg-fact"><dt>${escapeHtml(k)}</dt><dd>${v}</dd></div>`).join('');
+    const rows = (data.recent_frames || []).map(fr => '<tr>' +
+        `<td>${escapeHtml(fr.ts || '—')}</td><td>${escapeHtml(fr.minute || '—')}</td>` +
+        `<td>${fr.plausible === true ? statusBadge('ok', 'plausible') : statusBadge('warn', 'implausible')}</td>` +
+        `<td class="num">${escapeHtml(_wwvbNum(fr.vs_wallclock_s, 2))}</td>` +
+        `<td class="num">${escapeHtml(fr.parity_errors ?? '—')} / ${escapeHtml(fr.sync_errors ?? '—')}</td></tr>`).join('');
+    const table = rows
+        ? `<div class="chrony-table-wrap"><table class="chrony-table"><thead><tr><th>Decoded at</th>` +
+          `<th>Minute named</th><th>Frame</th><th>Minus host clock (s)</th><th>Parity / sync errors</th>` +
+          `</tr></thead><tbody>${rows}</tbody></table></div>`
+        : '<p class="timing-note">No frames in the newest ledger file.</p>';
+    return `<p class="timing-note">${escapeHtml(data.role || '')}</p><dl class="reg-facts">${facts}</dl>${table}`;
+}
+
+async function loadTimingWwvb() {
+    const el = document.getElementById('wwvb-panel');
+    if (!el) return;
+    try {
+        el.innerHTML = wwvbPanelHTML(await api.get('/timing/wwvb', { n: 10 }));
+    } catch (e) {
+        el.innerHTML = `${statusBadge('fault', 'ERROR')} ${escapeHtml(e.message)}`;
+    }
+}
+
 function loadTimingWindow() {
     return Promise.all([loadTimingStrip(), loadTimingT3(), loadTimingChrony()]);
 }
@@ -465,6 +510,7 @@ function initTimingPage() {
     // deviation costs a long read, so it reloads only on demand.
     new AutoRefresh(loadTimingRegistration, 30000).start();
     new AutoRefresh(loadTimingWindow, 120000).start();
+    new AutoRefresh(loadTimingWwvb, 120000).start();
     loadTimingAdev(timingState.adevRange);
 }
 
