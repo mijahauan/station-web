@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>dTEC — Multi-Station Carrier-Phase TEC — hf-timestd</title>
+    <title>dTEC — Multi-Station Carrier-Phase TEC — station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -171,7 +171,7 @@
             <strong>Detection capability:</strong>
             Carrier-phase dTEC achieves ~6 mTECU/min noise floor (55 ticks/min, ~1 mrad phase noise at 20 dB SNR).
             TIDs produce 100–2000 mTECU perturbations → <strong>17–330× above noise floor</strong>.
-            Correlated signatures across WWV (SW), WWVH (W), CHU (NE), and BPM (W) paths
+            Correlated signatures across the <span id="pathBearings">WWV, WWVH and BPM</span> paths
             constrain the TID wavevector direction and speed.
             <br><br>
             <strong>Note:</strong> Group-delay TEC (from timing residuals) is below the noise floor (~6.5 ms model error
@@ -193,7 +193,6 @@
                     <option value="">All stations</option>
                     <option value="WWV">WWV only</option>
                     <option value="WWVH">WWVH only</option>
-                    <option value="CHU">CHU only</option>
                     <option value="BPM">BPM only</option>
                 </select>
             </div>
@@ -216,11 +215,8 @@
         <div class="freq-filter-row" id="freqChips">
             <span class="freq-chip active" data-freq="all" onclick="toggleFreq(this)">All</span>
             <span class="freq-chip" data-freq="2.5" onclick="toggleFreq(this)">2.5 MHz</span>
-            <span class="freq-chip" data-freq="3.3" onclick="toggleFreq(this)">3.33 MHz</span>
             <span class="freq-chip" data-freq="5.0" onclick="toggleFreq(this)">5 MHz</span>
-            <span class="freq-chip" data-freq="7.8" onclick="toggleFreq(this)">7.85 MHz</span>
             <span class="freq-chip" data-freq="10.0" onclick="toggleFreq(this)">10 MHz</span>
-            <span class="freq-chip" data-freq="14.7" onclick="toggleFreq(this)">14.67 MHz</span>
             <span class="freq-chip" data-freq="15.0" onclick="toggleFreq(this)">15 MHz</span>
             <span class="freq-chip" data-freq="20.0" onclick="toggleFreq(this)">20 MHz</span>
             <span class="freq-chip" data-freq="25.0" onclick="toggleFreq(this)">25 MHz</span>
@@ -284,10 +280,9 @@
 const STATION_COLORS = {
     WWV:  ['#2DD4BF', '#5EEAD4', '#99F6E4', '#14B8A6', '#0D9488', '#0F766E'],
     WWVH: ['#FB923C', '#FDBA74', '#FED7AA', '#F97316', '#EA580C', '#C2410C'],
-    CHU:  ['#A78BFA', '#C4B5FD', '#DDD6FE', '#8B5CF6', '#7C3AED', '#6D28D9'],
     BPM:  ['#FB7185', '#FDA4AF', '#FECDD3', '#F43F5E', '#E11D48', '#BE123C'],
 };
-const FREQ_ORDER = [2.5, 3.33, 5.0, 7.85, 10.0, 14.67, 15.0, 20.0, 25.0];
+const FREQ_ORDER = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0];
 
 let _allSeries = null;
 let _activeFreqFilter = 'all';
@@ -295,6 +290,16 @@ let _timeRange = null;
 
 // TimePeriodSelector instance
 let tps = null;
+
+// Path bearings, computed by the broadcast registry from this receiver
+async function loadBearings() {
+    try {
+        const reg = await api.get('/stations/');
+        const parts = (reg.stations || []).map(st => `${st.station_id} (az ${Math.round(st.azimuth_deg)}°)`);
+        if (parts.length > 0) document.getElementById('pathBearings').textContent = parts.join(', ');
+    } catch (e) { /* caption keeps its station names */ }
+}
+loadBearings();
 
 function toggleFreq(el) {
     document.querySelectorAll('.freq-chip').forEach(c => c.classList.remove('active'));
@@ -338,19 +343,20 @@ async function loadData() {
         const hours = Math.max(1, Math.ceil((new Date(endParam) - new Date(startParam)) / 3600000));
         
         const [resp, solarResp, xrayResp, tidResp] = await Promise.all([
-            fetch(url),
+            api.get(url.replace(/^\/api/, '')),
             fetch(`/api/space-weather/solar/elevation?start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}&interval_minutes=5`),
             fetch(`/api/space-weather/xray?hours=${hours}`),
             fetch(`/api/tid/history?start=${encodeURIComponent(startParam)}&end=${encodeURIComponent(endParam)}`)
         ]);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const data = await resp.json();
+        const data = resp;
         _solarData = solarResp.ok ? await solarResp.json() : null;
         _xrayData = xrayResp.ok ? await xrayResp.json() : null;
         _tidData = tidResp.ok ? await tidResp.json() : null;
 
         if (data.status === 'no_data' || data.n_series === 0) {
-            showError('No dTEC data available for this time window.');
+            const why = noDataReason(data, 'No L3_dtec rows in this window');
+            showPlotMessage('dtecRatePlot', why);
+            showPlotMessage('refPlot', why);
             return;
         }
 
@@ -360,7 +366,8 @@ async function loadData() {
         renderPlots(data.series);
 
     } catch (e) {
-        showError('Failed to load dTEC data: ' + e.message);
+        showPlotMessage('dtecRatePlot', 'Failed to load dTEC data: ' + e.message, 'error');
+        showPlotMessage('refPlot', 'Failed to load dTEC data: ' + e.message, 'error');
     }
 }
 
@@ -377,7 +384,7 @@ function showError(msg) {
 function updateStats(data) {
     document.getElementById('statsGrid').style.display = 'grid';
     document.getElementById('statPaths').textContent = data.n_series;
-    document.getElementById('statRecords').textContent = (data.n_points_total || 0).toLocaleString();
+    document.getElementById('statRecords').textContent = String(data.n_points_total || 0);
 
     // Compute anchored fraction across all series
     let nAnchored = 0, nTotal = 0;
@@ -393,7 +400,6 @@ function updateStats(data) {
 const SOLAR_COLORS = {
     WWV:  'rgba(255, 220, 80, 0.55)',
     WWVH: 'rgba(255, 180, 60, 0.55)',
-    CHU:  'rgba(255, 200, 100, 0.55)',
     BPM:  'rgba(255, 160, 40, 0.55)',
 };
 
@@ -516,7 +522,7 @@ function renderPlots(series) {
     // Add TID markers
     if (typeof _tidData !== 'undefined' && _tidData && _tidData.events) {
         _tidData.events.forEach((evt, idx) => {
-            const ts = new Date(evt.timestamp);
+            const ts = plotTime(evt.timestamp);   // ISO string: plotly draws UTC
             rateTraces.push({
                 x: [ts, ts],
                 y: [-0.003, 0.003], // span a reasonable rate range for UI limits
@@ -541,7 +547,7 @@ function renderPlots(series) {
             const t = _xrayData.timestamps[i];
             if (f && f > 0 && !seen.has(t)) {
                 seen.add(t);
-                xrTs.push(new Date(t));
+                xrTs.push(plotTime(t));
                 xrFlux.push(f);
             }
         }
@@ -559,8 +565,7 @@ function renderPlots(series) {
     }
 
     if (rateTraces.length === 0) {
-        document.getElementById('dtecRatePlot').innerHTML =
-            '<div class="loading-msg">No series match the current frequency filter</div>';
+        showPlotMessage('dtecRatePlot', 'No series match the current frequency filter');
     } else {
         const solar = buildSolarTraces([...rateStations]);
         const rRange = primarySymmetricRange(rateTraces);
@@ -587,8 +592,7 @@ function renderPlots(series) {
 
 
     if (refTraces.length === 0) {
-        document.getElementById('refPlot').innerHTML =
-            '<div class="loading-msg">No 10 MHz paths available (WWV, WWVH, BPM)</div>';
+        showPlotMessage('refPlot', 'No 10 MHz paths available (WWV, WWVH, BPM)');
     } else {
         const solar = buildSolarTraces([...refStations]);
         const fRange = primarySymmetricRange(refTraces);
