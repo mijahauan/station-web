@@ -22,6 +22,8 @@ BUSY = [
     ("stability", "/api/stability/adev?start=-24h&end=now"),
     ("dtec", "/api/tec/dtec?start=-6h&end=now"),
     ("ionogram", "/api/ionogram/combined?start=-6h&end=now"),
+    ("t3 history", "/api/metrology/t3/history?start=-24h&end=now"),
+    ("chrony envelope", "/api/chrony/envelope?start=-24h&end=now"),
 ]
 
 

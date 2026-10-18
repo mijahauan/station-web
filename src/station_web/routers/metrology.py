@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from station_web.models.timing import FusionResponse, FusionHistoryResponse
+from station_web.services import fusion_service
 from station_web.services.fusion_service import FusionService
 from station_web.config import config
 from station_web.errors import internal_error
@@ -59,6 +60,29 @@ def get_latest_fusion():
         raise
     except Exception as e:
         raise internal_error(logger, "get latest fusion", e)
+
+
+@router.get("/t3/history")
+def get_t3_history(
+    start: str = Query("-24h", description="Start time (ISO8601 or relative, e.g. '-6h')"),
+    end: str = Query("now", description="End time (ISO8601 or 'now')"),
+):
+    """The T3 estimate (tick fusion) for the Timing page.
+
+    At most ``MAX_POINTS`` bucket medians of the calibrated and raw values
+    with their sigma, wrong-lock suspects apart, and the calibration offset
+    between raw and calibrated.  Window at most 7 days.
+    """
+    try:
+        start_dt, end_dt = parse_window(start, end, max_span=fusion_service.T3_MAX_WINDOW)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))      # fixed text (timeutil)
+    try:
+        return fusion_service.get_t3_history(start_dt, end_dt)
+    except HTTPException:
+        raise                      # 503 busy
+    except Exception as e:
+        raise internal_error(logger, "get T3 history", e)
 
 
 @router.get("/fusion/history", response_model=FusionHistoryResponse)

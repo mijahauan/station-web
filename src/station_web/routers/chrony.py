@@ -11,9 +11,10 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from station_web.errors import internal_error
+from station_web.services import chrony_service
 from station_web.services.chrony_service import ChronyService, LOOKBACK_S
 from station_web.config import config
-from station_web.timeutil import parse_utc
+from station_web.timeutil import parse_utc, parse_window
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,24 @@ def get_source_comparison() -> Dict[str, Any]:
         return service.get_source_comparison()
     except Exception as e:
         raise internal_error(logger, "chrony comparison", e)
+
+
+@router.get("/envelope")
+def get_envelope(start: str = Query(default="-24h", description="Window start"),
+                 end: str = Query(default="now", description="Window end")) -> Dict[str, Any]:
+    """The Timing page's host-clock chart: FUSE and HPPS as noselect
+    witnesses, the NTP pool as one min/median/max envelope, chrony's
+    system offset; at most ``MAX_POINTS`` buckets over at most 7 days."""
+    try:
+        t0, t1 = parse_window(start, end, max_span=chrony_service.ENVELOPE_MAX_WINDOW)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))      # fixed text (timeutil)
+    try:
+        return chrony_service.get_envelope(t0, t1)
+    except HTTPException:
+        raise                      # 503 busy
+    except Exception as e:
+        raise internal_error(logger, "chrony envelope", e)
 
 
 @router.get("/history")

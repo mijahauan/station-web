@@ -19,6 +19,9 @@ from typing import Dict, Any, List, Optional
 
 from hamsci_dsp.io import make_data_product_reader
 
+from station_web import heavy, projected
+from station_web.timeutil import as_utc, iso_z
+
 logger = logging.getLogger(__name__)
 
 #: fusion writes one row per source per minute; a row older than this
@@ -201,3 +204,129 @@ class ChronyService:
             'end': end_iso,
             'n_sources': len(sources_data),
         }
+
+
+# ════════════════════════════════════════════════════════════════════
+# The chrony envelope (Timing page, "Host clock" section).
+#
+# chrony reports each source's offset as the local clock minus that
+# source.  FUSE and HPPS carry hf-timestd's registration (FUSE from the
+# T3 tick fusion, HPPS from the T6 pulse), so their offsets read as the
+# host clock minus the registration: D_clock.  By the electorate rule
+# (MEASUREMENT_MODEL §7.1.1) a source recovered from the sample stream
+# may not vote on the host clock, so the page draws both as noselect
+# witnesses in fixed colours.  NTP servers and peers fold into one
+# min/median/max envelope, so twenty servers draw as one grey band.
+# ════════════════════════════════════════════════════════════════════
+
+#: points per trace the page receives, at most
+MAX_POINTS = 1500
+#: fusion writes a row per source per minute; no bucket gets narrower
+MIN_BUCKET_S = 60.0
+#: longest window the envelope serves
+ENVELOPE_MAX_WINDOW = timedelta(days=7)
+HEAVY_FAMILY = "chrony envelope"
+#: hf-timestd's refclocks, recovered from the sample stream
+WITNESSES = ("FUSE", "HPPS")
+WITNESS_ROLE = "noselect witness"
+#: other refclocks (a T5 PPS, say) each keep a line; at most this many
+MAX_OTHER_REFCLOCKS = 8
+NTP_MODES = ("^", "=")
+
+_ENVELOPE_COLUMNS = ("unix_time", "source_name", "source_mode", "offset_us", "sys_offset_s")
+
+
+def _med(xs: List[float]) -> Optional[float]:
+    if not xs:
+        return None
+    s = sorted(xs)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def get_envelope(start: datetime, end: datetime, max_points: int = MAX_POINTS) -> Dict[str, Any]:
+    """Bucketed chrony offsets over ``[start, end]``.
+
+    Streams five projected columns of DIAG_chrony_stats in time order and
+    finishes each bucket before the next begins, so memory holds one bucket
+    plus the output arrays.
+    """
+    start, end = as_utc(start), as_utc(end)
+    t0s, t1s = start.timestamp(), end.timestamp()
+    bucket_s = max(MIN_BUCKET_S, (t1s - t0s) / max_points)
+    out: Dict[str, Any] = {
+        "available": False, "start": iso_z(start), "end": iso_z(end),
+        "bucket_s": bucket_s, "n_rows": 0,
+        "label": "host clock minus registration",
+        "sign": "chrony offset: local clock minus source",
+        "time": [],
+        "ntp": {"min_ms": [], "median_ms": [], "max_ms": [], "n_sources": [], "members": []},
+        "witnesses": {w: {"offset_ms": [], "role": WITNESS_ROLE} for w in WITNESSES},
+        "other_refclocks": {},
+        "system_offset_ms": [],
+    }
+    members: set = set()
+    others: Dict[str, List[Optional[float]]] = {}
+    acc: Dict[str, Any] = {"b": None}
+
+    def reset():
+        acc.update(ntp=[], wit={w: [] for w in WITNESSES}, oth={}, sys=[])
+
+    def flush():
+        b = acc["b"]
+        if b is None:
+            return
+        k = len(out["time"])
+        out["time"].append(iso_z(datetime.fromtimestamp(
+            min(t0s + (b + 0.5) * bucket_s, t1s), tz=timezone.utc)))
+        ntp = acc["ntp"]
+        out["ntp"]["min_ms"].append(min(ntp) if ntp else None)
+        out["ntp"]["median_ms"].append(_med(ntp))
+        out["ntp"]["max_ms"].append(max(ntp) if ntp else None)
+        out["ntp"]["n_sources"].append(len(ntp))
+        for w in WITNESSES:
+            out["witnesses"][w]["offset_ms"].append(_med(acc["wit"][w]))
+        for name, series in others.items():
+            series.extend([None] * (k - len(series)))
+            series.append(_med(acc["oth"].get(name, [])))
+        out["system_offset_ms"].append(_med(acc["sys"]))
+        reset()
+
+    reset()
+    with heavy.guard(HEAVY_FAMILY):
+        for part in projected.iter_rows("DIAG_chrony_stats", "fusion", start, end,
+                                        _ENVELOPE_COLUMNS):
+            for unix_time, name, mode, offset_us, sys_s in part:
+                if unix_time is None or not name:
+                    continue
+                out["n_rows"] += 1
+                b = min(max(int((float(unix_time) - t0s) // bucket_s), 0), max_points - 1)
+                if b != acc["b"]:
+                    flush()
+                    acc["b"] = b
+                if sys_s is not None:
+                    acc["sys"].append(float(sys_s) * 1e3)
+                if offset_us is None:
+                    continue
+                ms = float(offset_us) / 1000.0
+                if name in WITNESSES:
+                    acc["wit"][name].append(ms)
+                elif mode in NTP_MODES:
+                    members.add(name)
+                    acc["ntp"].append(ms)
+                elif mode == "#":
+                    if name not in others and len(others) < MAX_OTHER_REFCLOCKS:
+                        others[name] = []
+                    if name in others:
+                        acc["oth"].setdefault(name, []).append(ms)
+        flush()
+
+    n = len(out["time"])
+    for name, series in others.items():
+        series.extend([None] * (n - len(series)))
+        out["other_refclocks"][name] = {"offset_ms": series}
+    out["ntp"]["members"] = sorted(members)
+    out["available"] = n > 0
+    if n == 0:
+        out["reason"] = "no DIAG_chrony_stats rows in this window"
+    return out
