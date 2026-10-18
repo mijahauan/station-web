@@ -312,3 +312,10 @@ def test_alarms_skip_malformed_lines(settings):
 
 def test_alarms_n_is_capped(client, authority_files):
     assert client.get("/api/timing/alarms?n=10000").status_code == 422
+
+
+def test_inventory_names_the_authority_files(settings):
+    from station_web.contract import build_inventory
+    files = build_inventory(settings)["instances"][0]["data_path"]["details"]["timing_authority_files"]
+    assert str(settings.authority_path) in files
+    assert str(settings.authority_history_path) in files

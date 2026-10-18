@@ -12,6 +12,10 @@ description = ""
 [data]
 # Frozen by the 2026-08-24 split: hf-timestd owns this root; station-web reads it.
 root = "/var/lib/timestd"
+# The timing authority hf-timestd publishes, read-only.  Defaults shown.
+# authority_path = "/run/hf-timestd/authority.json"
+# authority_history_path = "/var/lib/timestd/authority_history.db"
+# status_dir = "/var/lib/timestd/status"
 
 [storage]
 # Mirrors hf-timestd's [storage].  Empty = the hamsci_dsp default

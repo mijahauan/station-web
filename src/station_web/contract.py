@@ -62,6 +62,11 @@ def build_inventory(settings: Settings) -> dict:
                 "also_reads": list(ALSO_READS),
                 "description": ("L1-L3 data products, DIAG_chrony_stats and the "
                                 "space-weather cache, read in place"),
+                # the timing authority hf-timestd publishes outside the
+                # product database, read-only (Stage 2 registration views)
+                "timing_authority_files": [str(settings.authority_path),
+                                           str(settings.authority_history_path),
+                                           str(settings.timing_status_dir)],
             },
         },
         "serves": {"http": {"bind": settings.web_bind, "port": settings.web_port}},
