@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ionospheric Observatory - hf-timestd</title>
+    <title>Ionospheric Observatory - station-web</title>
     <link rel="stylesheet" href="/static/css/styles.css">
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
@@ -147,7 +147,6 @@
         }
         .filter-btn.station-wwv.active  { background: #1e3a8a; border-color: #3b82f6; }
         .filter-btn.station-wwvh.active { background: #14532d; border-color: #22c55e; }
-        .filter-btn.station-chu.active  { background: #7c2d12; border-color: #f97316; }
         .filter-btn.station-bpm.active  { background: #7f1d1d; border-color: #ef4444; }
         @media (max-width: 900px) {
             .grid-2 { grid-template-columns: 1fr; }
@@ -159,7 +158,7 @@
     <div class="container">
         <div class="header">
             <h1>Ionospheric Observatory</h1>
-            <div class="header-subtitle">17-path multi-frequency oblique ionosonde &mdash; WWV, WWVH, CHU, BPM</div>
+            <div class="header-subtitle">Multi-frequency oblique ionosonde &mdash; <span id="hdr-stations">WWV, WWVH, BPM</span></div>
             <nav class="nav">
                 <a href="/" class="nav-link">Overview</a>
                 <a href="/static/health.html" class="nav-link">Health</a>
@@ -207,14 +206,13 @@
         <div id="display-diurnal" class="display-content active">
             <div class="info-card">
                 <h3>Solar Diurnal Cycle &mdash; One Path at a Time</h3>
-                <p>Select a station to see how its signal strengths vary with solar illumination. The gold curve shows solar elevation at the path midpoint. Low frequencies (2.5, 3.3, 5 MHz) are absorbed by the D-layer during daytime &mdash; SNR drops when the sun is up. High frequencies (15, 20, 25 MHz) propagate only when the F-layer is ionised &mdash; SNR rises with the sun. The crossover frequency depends on path geometry and season.</p>
+                <p>Select a station to see how its signal strengths vary with solar illumination. The gold curve shows solar elevation at the path midpoint. Low frequencies (2.5, 5 MHz) are absorbed by the D-layer during daytime &mdash; SNR drops when the sun is up. High frequencies (15, 20, 25 MHz) propagate only when the F-layer is ionised &mdash; SNR rises with the sun. The crossover frequency depends on path geometry and season.</p>
             </div>
 
             <div class="filter-bar">
                 <label>Station:</label>
-                <button class="filter-btn station-wwv" data-station="WWV" onclick="setStationFilter('WWV')">WWV</button>
-                <button class="filter-btn station-wwvh active" data-station="WWVH" onclick="setStationFilter('WWVH')">WWVH</button>
-                <button class="filter-btn station-chu" data-station="CHU" onclick="setStationFilter('CHU')">CHU</button>
+                <button class="filter-btn station-wwv active" data-station="WWV" onclick="setStationFilter('WWV')">WWV</button>
+                <button class="filter-btn station-wwvh" data-station="WWVH" onclick="setStationFilter('WWVH')">WWVH</button>
                 <button class="filter-btn station-bpm" data-station="BPM" onclick="setStationFilter('BPM')">BPM</button>
                 <button class="filter-btn" data-station="ALL" onclick="setStationFilter('ALL')">All</button>
                 <span style="width:16px"></span>
@@ -252,13 +250,13 @@
         <!-- ================================================================ -->
         <div id="display-geometry" class="display-content">
             <div class="info-card">
-                <h3>Propagation Geometry &mdash; 17 Simultaneous Sounding Paths</h3>
-                <p>The receiver in central Missouri monitors 4 transmitters across 9 frequencies. Each path samples a different region of the ionosphere at a different elevation angle. Propagation mode assignments (1F2, 2F2, 1E, etc.) track the Maximum Usable Frequency diurnal cycle.</p>
+                <h3>Propagation Geometry &mdash; Simultaneous Sounding Paths</h3>
+                <p>The receiver at <span id="geo-rx">this station</span> monitors <span id="geo-tx">the WWV, WWVH and BPM transmitters</span>. Each path samples a different region of the ionosphere at a different elevation angle. Propagation mode assignments (1F2, 2F2, 1E, etc.) track the Maximum Usable Frequency diurnal cycle.</p>
             </div>
 
             <div class="plot-container">
                 <div class="plot-title">Propagation Path Map</div>
-                <div class="plot-subtitle">Great-circle paths from receiver (EM38) to WWV, WWVH, CHU, BPM</div>
+                <div class="plot-subtitle">Great-circle paths from the receiver to each monitored transmitter</div>
                 <div id="plot-map" style="height: 500px;"></div>
             </div>
 
@@ -328,11 +326,8 @@
     // ====================================================================
     const FREQ_COLORS = {
         2.5:  '#ef4444',  // red
-        3.33: '#f97316',  // orange
         5.0:  '#eab308',  // yellow
-        7.85: '#22c55e',  // green
         10.0: '#06b6d4',  // cyan
-        14.67:'#3b82f6',  // blue
         15.0: '#8b5cf6',  // violet
         20.0: '#d946ef',  // magenta
         25.0: '#f43f5e',  // rose
@@ -340,16 +335,37 @@
     const STATION_COLORS = {
         'WWV':  '#3b82f6',
         'WWVH': '#22c55e',
-        'CHU':  '#f97316',
         'BPM':  '#ef4444',
     };
-    const STATION_COORDS = {
-        'WWV':  { lat: 40.6776, lon: -105.0405, label: 'WWV (Fort Collins, CO)' },
-        'WWVH': { lat: 21.983,  lon: -159.765,  label: 'WWVH (Kekaha, HI)' },
-        'CHU':  { lat: 45.2978, lon: -75.7663,  label: 'CHU (Ottawa, ON)' },
-        'BPM':  { lat: 34.9479, lon: 109.5447,  label: 'BPM (Pucheng, China)' },
-    };
-    const RX_COORDS = { lat: 38.9, lon: -92.1, label: 'Receiver (EM38, MO)' };
+    // Transmitters and receiver come from the API, never from this page:
+    // /api/stations/ (broadcast registry) and /api/station/metadata.
+    let STATION_COORDS = {};
+    let RX_COORDS = null;
+
+    async function loadGeometrySources() {
+        const [meta, reg] = await Promise.all([
+            loadStationMeta(),
+            api.get('/stations/').catch(e => { console.error('stations unavailable:', e); return null; }),
+        ]);
+        if (meta && meta.latitude !== undefined && meta.longitude !== undefined) {
+            RX_COORDS = { lat: meta.latitude, lon: meta.longitude,
+                          label: `Receiver ${meta.callsign || ''} (${meta.grid_square || formatLatLon(meta.latitude, meta.longitude)})`,
+                          short: meta.callsign || 'RX' };
+            document.getElementById('geo-rx').textContent =
+                `${meta.callsign || 'this station'} (${formatLatLon(meta.latitude, meta.longitude)})`;
+        }
+        STATION_COORDS = {};
+        for (const st of (reg && reg.stations) || []) {
+            STATION_COORDS[st.station_id] = { lat: st.coordinates.lat, lon: st.coordinates.lon,
+                                              label: `${st.station_id} (${st.location || ''})` };
+        }
+        const names = Object.keys(STATION_COORDS);
+        if (names.length > 0) {
+            document.getElementById('hdr-stations').textContent = names.join(', ');
+            document.getElementById('geo-tx').textContent =
+                `${names.length} transmitters (${names.join(', ')})`;
+        }
+    }
     const PLOTLY_LAYOUT_BASE = {
         paper_bgcolor: '#1e293b',
         plot_bgcolor: '#0f172a',
@@ -380,7 +396,7 @@
     let timelineData = null;
     let tecData = null;
     let solarData = null;
-    let currentStation = 'WWVH';
+    let currentStation = 'WWV';
     let currentFreq = 'ALL';
 
     // TimePeriodSelector drives the date; selectedDate derived from it
@@ -392,10 +408,9 @@
     // Legacy alias used throughout render functions
     let selectedDate = new Date().toISOString().slice(0, 10);
 
+    // Through api.get, so a failure carries the server's detail
     async function fetchJSON(url) {
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-        return resp.json();
+        return api.get(url.replace(/^\/api/, ''));
     }
 
     function showError(msg) {
@@ -405,7 +420,7 @@
     }
 
     function freqKey(f) {
-        const known = [2.5, 3.33, 5.0, 7.85, 10.0, 14.67, 15.0, 20.0, 25.0];
+        const known = [2.5, 5.0, 10.0, 15.0, 20.0, 25.0];
         let best = known[0];
         for (const k of known) {
             if (Math.abs(f - k) < Math.abs(f - best)) best = k;
@@ -544,7 +559,7 @@
             const szaSnr = getSolarTrace(currentStation);
             if (szaSnr) snrTraces.push(szaSnr);
         } else {
-            for (const st of ['WWV', 'WWVH', 'CHU', 'BPM']) {
+            for (const st of Object.keys(STATION_COLORS)) {
                 const sza = getSolarTrace(st);
                 if (sza) {
                     sza.line = { ...sza.line, color: STATION_COLORS[st], dash: 'dot', width: 1.5 };
@@ -627,6 +642,9 @@
     function renderGeometry(data) {
         // Map
         const mapTraces = [];
+        if (!RX_COORDS) {
+            showPlotMessage('plot-map', 'Receiver location unavailable (/api/station/metadata)');
+        } else {
 
         // Receiver marker
         mapTraces.push({
@@ -634,7 +652,7 @@
             lat: [RX_COORDS.lat], lon: [RX_COORDS.lon],
             mode: 'markers+text',
             marker: { size: 12, color: '#10b981', symbol: 'diamond' },
-            text: ['RX (EM38)'], textposition: 'top center',
+            text: [RX_COORDS.short], textposition: 'top center',
             textfont: { color: '#10b981', size: 11 },
             name: 'Receiver',
             hoverinfo: 'text',
@@ -643,7 +661,7 @@
 
         // Station markers and paths
         for (const [station, coords] of Object.entries(STATION_COORDS)) {
-            const color = STATION_COLORS[station];
+            const color = STATION_COLORS[station] || '#94a3b8';
             // Path line
             mapTraces.push({
                 type: 'scattergeo',
@@ -684,13 +702,14 @@
                 countrycolor: '#334155',
                 bgcolor: '#0f172a',
                 lonaxis: { range: [-180, 130] },
-                lataxis: { range: [10, 60] },
+                lataxis: { range: [0, 80] },   // the BPM great circle runs far north
             },
             paper_bgcolor: '#1e293b',
             font: { color: '#94a3b8' },
             margin: { l: 0, r: 0, t: 0, b: 0 },
             showlegend: false,
         }, PLOTLY_CONFIG);
+        }
 
         // Mode timeline
         if (!data || !data.timestamps || data.count === 0) {
@@ -943,8 +962,8 @@
         // Combined space weather: X-ray (y1, log) + Kp (y2, linear bars)
         try {
             const [xray, kp] = await Promise.all([
-                fetchJSON('/api/space-weather/xray?hours=24').catch(() => null),
-                fetchJSON('/api/space-weather/kp?hours=72').catch(() => null),
+                fetchJSON('/api/space-weather/xray?hours=24').catch(e => ({ reason: e.message })),
+                fetchJSON('/api/space-weather/kp?hours=72').catch(e => ({ reason: e.message })),
             ]);
 
             const swTraces = [];
@@ -983,7 +1002,7 @@
                     marker: { color: colors, opacity: 0.4 },
                     name: 'Kp',
                     yaxis: 'y2',
-                    width: 60000,  // 1-minute bar width in ms
+                    width: 3 * 3600000,  // Kp is a 3-hour index
                 });
                 swShapes.push(
                     { type: 'line', x0: 0, x1: 1, xref: 'paper', y0: 5, y1: 5, yref: 'y2', line: { color: '#ef4444', width: 1, dash: 'dot' } },
@@ -1007,10 +1026,10 @@
                     bargap: 0,
                 }, PLOTLY_CONFIG);
             } else {
-                document.getElementById('plot-space-weather').innerHTML = '<p style="color:#64748b;text-align:center;padding:40px;">Space weather data unavailable</p>';
+                showPlotMessage('plot-space-weather', noDataReason(xray || kp, 'Space weather series unavailable'));
             }
         } catch (e) {
-            document.getElementById('plot-space-weather').innerHTML = '<p style="color:#64748b;text-align:center;padding:20px;">Space weather data unavailable</p>';
+            showPlotMessage('plot-space-weather', 'Space weather series unavailable: ' + e.message, 'error');
         }
 
         // SNR with events overlay — all stations, grouped by station
@@ -1112,7 +1131,7 @@
                 const uniqueFreqs = [...new Set((tl.frequencies || []).map(f => freqKey(f)))].sort((a,b) => a-b);
                 document.getElementById('stat-freqs').textContent = uniqueFreqs.map(f => f + ' MHz').join(', ') || '-';
                 if (tl.timestamps && tl.timestamps.length > 0) {
-                    document.getElementById('stat-time').textContent = tl.timestamps[tl.timestamps.length - 1];
+                    document.getElementById('stat-time').textContent = formatTimestamp(tl.timestamps[tl.timestamps.length - 1]);
                 }
             }
 
@@ -1133,7 +1152,7 @@
 
     // Initialize TimePeriodSelector and load
     tps = new TimePeriodSelector('time-period-selector', loadAll);
-    loadAll();
+    loadGeometrySources().finally(loadAll);
     // Auto-refresh every 5 minutes, but only if viewing today
     setInterval(() => {
         const today = new Date().toISOString().slice(0, 10);
