@@ -2,6 +2,8 @@
 Physics API endpoints.
 """
 
+import logging
+
 from fastapi import APIRouter, Query, HTTPException
 from datetime import datetime
 from typing import Optional, Dict, Any
@@ -11,7 +13,10 @@ from station_web.services.scintillation_service import ScintillationService
 from station_web.services.test_signal_service import TestSignalService
 from station_web.services.event_service import EventService
 from station_web.config import config
+from station_web.errors import internal_error
 from station_web.timeutil import parse_utc, parse_window
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/physics", tags=["physics"])
 
@@ -33,7 +38,7 @@ def get_latest_physics():
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get latest physics", e)
 
 
 @router.get("/history")
@@ -51,7 +56,7 @@ def get_physics_history(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get physics history", e)
 
 
 # ============================================================================
@@ -70,7 +75,7 @@ def get_scintillation_by_path():
         service = ScintillationService(data_root=config.data_root)
         return service.get_latest_by_path()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get scintillation by path", e)
 
 
 @router.get("/scintillation/history")
@@ -88,7 +93,7 @@ def get_scintillation_history(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get scintillation history", e)
 
 
 # ============================================================================
@@ -107,7 +112,7 @@ def get_channel_characterization():
         service = TestSignalService(data_root=config.data_root)
         return service.get_latest()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get channel characterization", e)
 
 
 @router.get("/channels/summary")
@@ -119,7 +124,7 @@ def get_channel_summary():
         service = TestSignalService(data_root=config.data_root)
         return service.get_channel_summary()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get channel summary", e)
 
 
 @router.get("/channels/history")
@@ -138,7 +143,7 @@ def get_channel_history(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get channel history", e)
 
 
 @router.get("/channels/daily")
@@ -167,7 +172,7 @@ def get_channel_daily_comparison(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get channel daily comparison", e)
 
 
 # ============================================================================
@@ -191,7 +196,7 @@ def get_recent_events(
         service = EventService(data_root=config.data_root)
         return service.get_recent_events(hours=hours)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get recent events", e)
 
 
 @router.get("/events/conditions")
@@ -205,4 +210,4 @@ def get_current_conditions():
         service = EventService(data_root=config.data_root)
         return service.get_current_conditions()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get current conditions", e)

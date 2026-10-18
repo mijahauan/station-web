@@ -18,6 +18,7 @@ from hamsci_physics.solar_zenith import calculate_midpoint, solar_position
 from station_web.broadcast import BroadcastRegistry, ReceiverLocation
 from hamsci_dsp.io import make_data_product_reader
 from station_web.config import config
+from station_web.errors import internal_error
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 logger = logging.getLogger(__name__)
@@ -297,8 +298,7 @@ def get_24h_broadcast_data(
         return result
     
     except Exception as e:
-        logger.error(f"Error getting 24h broadcast data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get 24h broadcast data", e)
 
 
 @router.get("/solar-zenith/24h")
@@ -373,8 +373,7 @@ def get_24h_solar_zenith(
         }
     
     except Exception as e:
-        logger.error(f"Error getting solar zenith data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get 24h solar zenith", e)
 
 
 @router.get("/timing-error/24h")
@@ -475,8 +474,7 @@ def get_24h_timing_error(
         })
     
     except Exception as e:
-        logger.error(f"Error getting timing error data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get 24h timing error", e)
 
 
 @router.get("/doppler/24h")
@@ -574,5 +572,4 @@ def get_24h_doppler(
         })
     
     except Exception as e:
-        logger.error(f"Error getting Doppler data: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get 24h doppler", e)

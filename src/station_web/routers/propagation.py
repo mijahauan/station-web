@@ -7,7 +7,8 @@ from typing import Optional
 import logging
 
 from station_web.errors import internal_error
-from station_web.services.propagation_service import PropagationService
+from station_web.services.propagation_service import (PropagationService, TIMELINE_MAX_WINDOW,
+                                                      known_stations)
 from station_web.config import config
 from station_web.timeutil import parse_window
 
@@ -67,6 +68,14 @@ def get_mode_timeline(
     Returns time series of propagation modes observed across all channels.
     """
     start_time, end_time = _window(start, end)
+    if end_time - start_time > TIMELINE_MAX_WINDOW:
+        raise HTTPException(status_code=400,
+                            detail=f"Window longer than {TIMELINE_MAX_WINDOW.days} days")
+    if station is not None:
+        station = station.upper()
+        if station not in known_stations():
+            raise HTTPException(status_code=400,
+                                detail=f"Unknown station; use one of {', '.join(known_stations())}")
     try:
         timeline = _service().get_mode_timeline(start_time, end_time, station)
     except Exception as e:

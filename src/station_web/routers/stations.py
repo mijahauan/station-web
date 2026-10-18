@@ -20,6 +20,7 @@ from station_web.broadcast import (
     BroadcastRegistry, ReceiverLocation, create_registry_from_config
 )
 from station_web.config import config
+from station_web.errors import internal_error
 
 router = APIRouter(prefix="/stations", tags=["stations"])
 logger = logging.getLogger(__name__)
@@ -120,8 +121,7 @@ def list_stations():
             "stations": stations,
         }
     except Exception as e:
-        logger.error(f"Error listing stations: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "list stations", e)
 
 
 @router.get("/broadcasts")
@@ -156,8 +156,7 @@ def list_broadcasts():
             "broadcasts": broadcasts,
         }
     except Exception as e:
-        logger.error(f"Error listing broadcasts: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "list broadcasts", e)
 
 
 @router.get("/channels")
@@ -189,8 +188,7 @@ def list_channels():
             "channels": channels,
         }
     except Exception as e:
-        logger.error(f"Error listing channels: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "list channels", e)
 
 
 @router.get("/{station_id}")
@@ -276,8 +274,7 @@ def get_station_dashboard(station_id: str):
         return sanitize_for_json(response)
 
     except Exception as e:
-        logger.error(f"Error serving station dashboard for {station_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get station dashboard", e)
 
 @router.get("/{station_id}/history")
 def get_station_history(
@@ -352,8 +349,7 @@ def get_station_history(
         return sanitize_for_json(response)
 
     except Exception as e:
-        logger.error(f"Error serving station history for {station_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get station history", e)
 
 def get_station_info(station_id: str) -> Dict[str, Any]:
     """

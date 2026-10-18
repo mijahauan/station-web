@@ -14,6 +14,7 @@ from functools import partial
 from station_web.services.correlation_service import CorrelationService
 from station_web.services.space_weather_cache import SpaceWeatherCache
 from station_web.config import config
+from station_web.errors import internal_error
 
 logger = logging.getLogger(__name__)
 
@@ -104,8 +105,7 @@ def get_snr_solar_correlation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error analyzing SNR-solar correlation: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "get snr solar correlation", e)
 
 
 @router.get("/sid-detection")
@@ -137,8 +137,7 @@ def get_sid_correlation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error detecting SID correlation: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "get sid correlation", e)
 
 
 @router.get("/tec-f107")
@@ -174,8 +173,7 @@ def get_tec_f107_correlation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error analyzing TEC-F10.7 correlation: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "get tec f107 correlation", e)
 
 
 @router.get("/propagation-kp")
@@ -209,8 +207,7 @@ def get_propagation_kp_correlation(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error analyzing propagation-Kp correlation: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "get propagation kp correlation", e)
 
 
 @router.get("/summary")
@@ -293,7 +290,8 @@ def get_correlation_summary(
             })
         
         return summary
-    
+
+    except HTTPException:
+        raise                      # a 504 timeout is its own answer
     except Exception as e:
-        logger.error(f"Error generating correlation summary: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise internal_error(logger, "get correlation summary", e)

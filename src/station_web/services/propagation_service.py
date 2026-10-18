@@ -5,7 +5,7 @@ Propagation analysis service for ionospheric and propagation mode data.
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
-from collections import Counter
+from collections import Counter, OrderedDict
 import logging
 import re
 import sqlite3
@@ -32,8 +32,25 @@ TIMELINE_TTL_S = 60.0
 #: A row is written within seconds of its minute; 120 s covers that.
 TICK_PHASE_SLACK_S = 120
 
-_timeline_cache: Dict[tuple, Tuple[float, Dict[str, Any]]] = {}
+#: At most this many timelines are kept.  Any client can mint new keys
+#: (arbitrary windows), so the cache is a bounded LRU, not a growing dict.
+TIMELINE_CACHE_MAX = 16
+#: The longest window the timeline route serves.  station.html asks for at
+#: most 168 h; a longer request is refused rather than read.
+TIMELINE_MAX_WINDOW = timedelta(days=7)
+
+_timeline_cache: "OrderedDict[tuple, Tuple[float, Optional[Dict[str, Any]]]]" = OrderedDict()
 _timeline_lock = threading.Lock()
+
+
+def known_stations() -> List[str]:
+    """Broadcast stations a timeline may be filtered by (the catalogue)."""
+    return [st.name for st in DEFAULT_STATIONS]
+
+
+def timeline_cache_size() -> int:
+    with _timeline_lock:
+        return len(_timeline_cache)
 
 
 def clear_timeline_cache() -> None:
@@ -392,6 +409,7 @@ class PropagationService:
         with _timeline_lock:
             hit = _timeline_cache.get(key)
             if hit and now_mono - hit[0] < TIMELINE_TTL_S:
+                _timeline_cache.move_to_end(key)
                 return hit[1]
 
         result = self._compute_mode_timeline(db, start, end, station)
@@ -401,6 +419,9 @@ class PropagationService:
                       if now_mono - t >= TIMELINE_TTL_S]:
                 del _timeline_cache[k]
             _timeline_cache[key] = (now_mono, result)
+            _timeline_cache.move_to_end(key)
+            while len(_timeline_cache) > TIMELINE_CACHE_MAX:
+                _timeline_cache.popitem(last=False)
         return result
 
     def _compute_mode_timeline(self, db: Path, start: datetime, end: datetime,

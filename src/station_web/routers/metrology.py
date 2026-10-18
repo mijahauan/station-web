@@ -2,6 +2,8 @@
 Metrology API endpoints.
 """
 
+import logging
+
 from fastapi import APIRouter, Query, HTTPException
 from datetime import datetime
 from typing import Optional
@@ -9,7 +11,10 @@ from typing import Optional
 from station_web.models.timing import FusionResponse, FusionHistoryResponse
 from station_web.services.fusion_service import FusionService
 from station_web.config import config
+from station_web.errors import internal_error
 from station_web.timeutil import parse_utc, parse_window
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/metrology", tags=["metrology"])
 
@@ -50,7 +55,7 @@ def get_latest_fusion():
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get latest fusion", e)
 
 
 @router.get("/fusion/history", response_model=FusionHistoryResponse)
@@ -86,4 +91,4 @@ def get_fusion_history(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise internal_error(logger, "get fusion history", e)

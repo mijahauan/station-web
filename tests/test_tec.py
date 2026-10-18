@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from error_assert import assert_opaque_500
 from conftest import PROC_VERSION, _iso, _minute_boundary, _write_rows
 
 from station_web.services import freshness
@@ -128,5 +129,4 @@ def test_tec_read_failure_is_a_500(seeded_client, monkeypatch):
     monkeypatch.setattr(tec_service, "make_data_product_reader", boom)
     for path in ("/api/tec/current", "/api/tec/history", "/api/propagation/tec"):
         r = seeded_client.get(path)
-        assert r.status_code == 500, path
-        assert "reader exploded" in r.json()["detail"], path
+        assert_opaque_500(r, "reader exploded")

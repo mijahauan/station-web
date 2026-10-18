@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from error_assert import assert_opaque_500
 from conftest import PROC_VERSION, _iso, _write_rows
 from shared_fixture import (BASE_SNR, N_MINUTES, SHARED, STATIONS, shared_seeded,  # noqa: F401
                             snr_at, minute_times)
@@ -82,8 +83,23 @@ def test_timeline_read_failure_is_a_500_not_no_data(shared_client, monkeypatch):
         raise RuntimeError("disk on fire")
     monkeypatch.setattr(propagation_service, "make_data_product_reader", boom)
     r = shared_client.get("/api/propagation/timeline?start=-2h&end=now")
-    assert r.status_code == 500
-    assert "disk on fire" in r.json()["detail"]
+    assert_opaque_500(r, "disk on fire")
+
+
+def test_the_journal_carries_the_cause_under_the_same_id(shared_client, monkeypatch, caplog):
+    """The page gets only an id; the journal gets the id, the exception
+    text and the traceback, so an operator can match one to the other."""
+    import re
+
+    def boom(*a, **k):
+        raise RuntimeError("disk on fire at /var/lib/timestd")
+    monkeypatch.setattr(propagation_service, "make_data_product_reader", boom)
+    with caplog.at_level("ERROR"):
+        r = shared_client.get("/api/propagation/timeline?start=-2h&end=now")
+    detail = assert_opaque_500(r, "/var/lib/timestd")
+    eid = re.search(r"error id ([0-9a-f]{8})", detail).group(1)
+    rec = [x for x in caplog.records if eid in x.getMessage()]
+    assert rec and "disk on fire" in rec[0].getMessage() and rec[0].exc_info
 
 
 def test_timeline_empty_window_is_404(shared_client):
@@ -102,6 +118,28 @@ def test_timeline_is_cached_briefly(shared_seeded, monkeypatch):
                         lambda *a, **k: calls.append(1))
     again = svc.get_mode_timeline(t0, t1 + timedelta(seconds=5))
     assert again == first and not calls
+
+
+def test_timeline_cache_is_bounded(shared_seeded):
+    """Any client can mint keys (arbitrary windows); the cache must not grow
+    past TIMELINE_CACHE_MAX however many distinct windows arrive."""
+    svc = propagation_service.PropagationService(shared_seeded.data_root)
+    end = datetime.now(timezone.utc)
+    for k in range(3 * propagation_service.TIMELINE_CACHE_MAX):
+        svc.get_mode_timeline(end - timedelta(minutes=120 + k), end)
+    assert propagation_service.timeline_cache_size() == propagation_service.TIMELINE_CACHE_MAX
+
+
+def test_timeline_refuses_unknown_station(shared_client):
+    r = shared_client.get("/api/propagation/timeline?start=-2h&end=now&station=XYZZY")
+    assert r.status_code == 400
+    assert shared_client.get(
+        "/api/propagation/timeline?start=-2h&end=now&station=bpm").status_code == 200
+
+
+def test_timeline_refuses_an_over_long_window(shared_client):
+    assert shared_client.get("/api/propagation/timeline?start=-8d&end=now").status_code == 400
+    assert shared_client.get("/api/propagation/timeline?start=-7d&end=now").status_code == 200
 
 
 # ── volume: a day of tick_phase on one SHARED channel ────────────────
