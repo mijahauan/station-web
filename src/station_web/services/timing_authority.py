@@ -62,9 +62,12 @@ HEAVY_FAMILY = "authority history"
 
 ESTIMATORS = ("t6", "t5", "t4", "t3")
 HISTORY_COLUMNS = (["utc_published", "t_level_active", "sigma_ns"]
-                   + [f"{e}_{f}" for e in ESTIMATORS for f in ("offset_ms", "sigma_ms")])
-#: History columns that might one day carry the registration's counter epoch.
-EPOCH_COLUMNS = ("registration_counter_epoch_id", "counter_epoch_id")
+                   + [f"{e}_{f}" for e in ESTIMATORS for f in ("offset_ms", "sigma_ms")]
+                   + ["counter_epoch_id"])
+#: History columns that carry the registration's counter epoch.  hf-timestd
+#: writes ``counter_epoch_id`` from v3.73; older rows hold NULL there, and an
+#: older database lacks the column until hf-timestd next opens it.
+EPOCH_COLUMNS = ("counter_epoch_id",)
 
 _SLACK = timedelta(seconds=2)
 _WITNESS_UNITS = {"pair_ms": "ms", "gps_second_s": "s"}
@@ -336,9 +339,9 @@ def epoch_sql(column: str, start: datetime, end: datetime):
 def counter_epoch_changes(settings: Settings, now: datetime) -> dict:
     """How often the registration's counter epoch changed in the last 24 h.
 
-    A change means a radiod restart renumbered the samples.  The history
-    table records no epoch id today; when it gains one of
-    ``EPOCH_COLUMNS``, this counts the changes.
+    A change means a radiod restart renumbered the samples.  hf-timestd
+    records the epoch id in ``counter_epoch_id`` from v3.73.  A database
+    without that column, or a day whose rows all predate it, has no count.
     """
     # The count must never take the snapshot down: an unreadable history
     # costs this one field, with a reason.
@@ -359,6 +362,9 @@ def counter_epoch_changes(settings: Settings, now: datetime) -> dict:
         for _, eid in conn.execute(sql, params):
             if eid is not None and (not ids or ids[-1] != eid):
                 ids.append(eid)
+        if not ids:
+            return {"count": None,
+                    "reason": "no row of the last 24 h records counter_epoch_id"}
         return {"count": max(0, len(ids) - 1), "ids": ids[-20:], "field": col}
     except sqlite3.Error:
         return {"count": None, "reason": UNREADABLE}
@@ -376,8 +382,8 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
     and every estimator's offset and sigma over ``[start, end]``.
 
     Windows longer than ``MAX_POINTS`` rows are decimated into equal time
-    buckets: each bucket carries the median of each number and the tier in
-    force at its last row.  Transitions come from every row, so decimation
+    buckets: each bucket carries the median of each number, and the tier and
+    counter epoch in force at its last row.  Transitions come from every row, so decimation
     never hides one.
     """
     start, end = as_utc(start), as_utc(end)
@@ -407,7 +413,7 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
                 "SELECT COUNT(*) FROM authority_snapshot WHERE utc_published BETWEEN ? AND ?",
                 params).fetchone()[0]
             bucket_s = None if n_in_range <= MAX_POINTS else span_s / MAX_POINTS
-            out_t, out_tier, out_sigma = [], [], []
+            out_t, out_tier, out_sigma, out_epoch = [], [], [], []
             est = {e: {"offset_ms": [], "sigma_ms": []} for e in ESTIMATORS}
             transitions: List[dict] = []
             n_rows = 0
@@ -422,6 +428,7 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
                 out_t.append(iso_z(last[0]) if bucket_s is None else
                              iso_z(start + timedelta(seconds=(bucket_key + 0.5) * bucket_s)))
                 out_tier.append(last[1])
+                out_epoch.append(last[-1])
                 out_sigma.append(last[2] if bucket_s is None else _med([r[2] for r in bucket]))
                 for i, e in enumerate(ESTIMATORS):
                     for j, f in enumerate(("offset_ms", "sigma_ms")):
@@ -462,7 +469,8 @@ def history(settings: Settings, start: datetime, end: datetime) -> dict:
         "available": True, "start": iso_z(start), "end": iso_z(end),
         "n_rows": n_rows, "bucket_s": None if bucket_s is None else round(bucket_s, 3),
         "n_points": len(out_t), "time": out_t, "tier_active": out_tier,
-        "sigma_ns": out_sigma, "estimators": est, "transitions": transitions,
+        "sigma_ns": out_sigma, "counter_epoch_id": out_epoch,
+        "estimators": est, "transitions": transitions,
         "transitions_truncated": len(transitions) >= MAX_TRANSITIONS,
     }
 

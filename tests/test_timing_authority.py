@@ -115,28 +115,42 @@ def test_missing_authority_file_is_honest(settings):
 
 
 def test_counter_epoch_changes_need_a_column(settings):
+    """A database from before hf-timestd v3.73 lacks the column: no count."""
     write_authority(settings.authority_path, T6_SNAPSHOT)
     write_history(settings.authority_history_path, [history_row(NOW, 0)])
+    con = sqlite3.connect(settings.authority_history_path)
+    con.execute("ALTER TABLE authority_snapshot DROP COLUMN counter_epoch_id")
+    con.commit()
+    con.close()
     s = ta.registration_snapshot(settings, now=NOW)
     assert s["counter_epoch_changes_24h"]["count"] is None
     assert "does not record" in s["counter_epoch_changes_24h"]["reason"]
 
 
-def test_counter_epoch_changes_counted_when_recorded(settings):
-    """A future history column carrying the epoch id gets counted."""
+def test_counter_epoch_changes_none_when_no_row_records_one(settings):
+    """The column exists but every row of the day predates it (NULL): no count,
+    never a count of 0."""
     write_authority(settings.authority_path, T6_SNAPSHOT)
     write_history(settings.authority_history_path,
                   [history_row(NOW - timedelta(minutes=k), k) for k in range(10)])
-    con = sqlite3.connect(settings.authority_history_path)
-    con.execute("ALTER TABLE authority_snapshot ADD COLUMN registration_counter_epoch_id TEXT")
-    con.execute("UPDATE authority_snapshot SET registration_counter_epoch_id = "
-                "CASE WHEN utc_published < ? THEN 'ep-1' ELSE 'ep-2' END",
-                (iso_z(NOW - timedelta(minutes=4, seconds=30)),))
-    con.commit()
-    con.close()
+    s = ta.registration_snapshot(settings, now=NOW)
+    assert s["counter_epoch_changes_24h"] == {
+        "count": None, "reason": "no row of the last 24 h records counter_epoch_id"}
+
+
+def test_counter_epoch_changes_counted_when_recorded(settings):
+    """hf-timestd's counter_epoch_id column, written through hamsci-dsp's
+    store, gets counted; rows from before it (NULL) are skipped."""
+    write_authority(settings.authority_path, T6_SNAPSHOT)
+    rows = []
+    for k in range(10):
+        r = history_row(NOW - timedelta(minutes=k), k)
+        r["counter_epoch_id"] = None if k >= 8 else ("ep-1" if k >= 5 else "ep-2")
+        rows.append(r)
+    write_history(settings.authority_history_path, rows)
     s = ta.registration_snapshot(settings, now=NOW)
     assert s["counter_epoch_changes_24h"] == {"count": 1, "ids": ["ep-1", "ep-2"],
-                                              "field": "registration_counter_epoch_id"}
+                                              "field": "counter_epoch_id"}
 
 
 # ── routes ──────────────────────────────────────────────────────────────
@@ -217,6 +231,7 @@ def test_history_decimates_and_projects(client, authority_files):
     # the fixture switches T4 -> T6 once, 1200 rows (10 h) back
     assert len(j["transitions"]) == 1
     assert (j["transitions"][0]["from"], j["transitions"][0]["to"]) == ("T4", "T6")
+    assert len(j["counter_epoch_id"]) == j["n_points"]
     # projection: nothing outside the named columns reaches the answer
     assert "rf_gain" not in json.dumps(j)
 
@@ -225,6 +240,18 @@ def test_history_short_window_not_decimated(client, authority_files):
     j = client.get("/api/timing/registration/history?start=-1h&end=now").json()
     assert j["bucket_s"] is None
     assert 110 <= j["n_points"] <= 121
+
+
+def test_history_carries_the_counter_epoch(client, settings):
+    rows = []
+    for k in range(4):
+        r = history_row(datetime.now(timezone.utc) - timedelta(minutes=k), k)
+        r["counter_epoch_id"] = "ep-1" if k >= 2 else "ep-2"
+        rows.append(r)
+    write_authority(settings.authority_path, T6_SNAPSHOT)
+    write_history(settings.authority_history_path, rows)
+    j = client.get("/api/timing/registration/history?start=-1h&end=now").json()
+    assert j["counter_epoch_id"] == ["ep-1", "ep-1", "ep-2", "ep-2"]
 
 
 def test_history_window_cap(client, authority_files):
