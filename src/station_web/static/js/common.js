@@ -502,7 +502,7 @@ function statusKind(word) {
     if (['valid', 'healthy', 'ok', 'active', 'authoritative', 'info'].includes(w)) return 'ok';
     if (['degraded', 'warn', 'warning', 'stale', 'unwitnessed', 'acquiring', 'silent',
          'candidate', 'witness'].includes(w)) return 'warn';
-    if (['invalid', 'error', 'fault', 'critical', 'alarm', 'unlocked', 'disagree',
+    if (['invalid', 'error', 'fault', 'fail', 'critical', 'alarm', 'unlocked', 'disagree',
          'exceeded'].includes(w)) return 'fault';
     return 'unknown';
 }

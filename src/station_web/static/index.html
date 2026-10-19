@@ -165,7 +165,7 @@
         function alarmKind(severity) {
             const s = String(severity || '').toLowerCase();
             return s === 'warn' || s === 'warning' ? 'warn'
-                : (s === 'critical' || s === 'error' || s === 'alarm') ? 'fault'
+                : (s === 'fail' || s === 'critical' || s === 'error' || s === 'alarm') ? 'fault'
                 : s === 'info' ? 'ok' : 'unknown';
         }
 
