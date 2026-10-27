@@ -53,12 +53,16 @@ sudo systemctl enable --now sigmond-snapshot.timer \
 
 `groupadd` fails harmlessly if the group already exists.
 
-You can instead re-run sigmond's installer, `sudo ./install.sh`, which does
-all of the above.  It also re-enables and starts the IRQ-affinity units
-(`sigmond-rx888-irq-affinity.service` and `sigmond-guest-irq-affinity.service`),
-which move interrupts between CPUs.  On AC0G-B4, announce that on the
-claude-bus before you run it, because it changes IRQ placement on a station
-that hosts live experiments.  The hand-install above avoids that.
+Do not re-run sigmond's installer, `sudo ./install.sh`, for this step on a
+station already in service.  It does all of the above, but it does much more.
+It re-enables and starts every sigmond timer and watchdog (among them the T6
+stuck watchdog, SDR recovery, storage trim, gap-hourly and timing reconcile),
+starts the IRQ-affinity units, which move interrupts between CPUs, and
+rewrites radiod's drop-in files.  On a station where someone stopped a timer
+or a watchdog on purpose, the installer starts it again.  On AC0G-B4, read
+`/etc/sigmond/CLAUDE-COORDINATION.md` first, and announce on the claude-bus
+before running the installer for any reason.  The hand-install above touches
+only the new group, directories and units.
 
 The new units also belong in sigmond's CPU-affinity map, so the snapshot jobs
 stay off radiod's CPUs.  The drop-ins for them arrive with the next
