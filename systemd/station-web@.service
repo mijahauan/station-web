@@ -10,9 +10,12 @@ Type=notify
 NotifyAccess=main
 WatchdogSec=60
 User=stationweb
-Group=stationweb
-# Supplementary groups (timestd, sigmond-status) come from the user's own
-# memberships, which setup-station.sh grants where those groups exist.
+# No Group=: systemd uses the user's passwd primary group (timestd on older
+# stations, stationweb on newer ones), so a unit pulled by `smd update` never
+# names a group the station lacks.  Supplementary groups (timestd,
+# sigmond-status) come from the user's memberships; ensure-groups.sh grants
+# them, as root, where those groups exist.  It always exits 0.
+ExecStartPre=+/opt/git/sigmond/station-web/scripts/ensure-groups.sh
 # CLIENT-CONTRACT §4: station identity and per-instance env, both optional.
 EnvironmentFile=-/etc/sigmond/coordination.env
 EnvironmentFile=-/etc/station-web/env/%i.env

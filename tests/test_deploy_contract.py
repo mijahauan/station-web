@@ -44,10 +44,13 @@ def test_build_produces_the_console_script(deploy):
     script = (ROOT / "scripts" / "build-venv.sh").read_text()
     assert "cpython-3.11-linux-x86_64-gnu" in script               # minor-series symlink
     # The core always installs; the science siblings and extra only where
-    # both checkouts exist, hs-uploader before hamsci-physics.
-    assert script.index('install -e "$REPO"') < script.index("hamsci-dsp && -d")
-    assert (script.index('"$SIBLINGS/hs-uploader"') < script.index('"$SIBLINGS/hamsci-physics"')
-            < script.index('"$REPO[science]"'))
+    # both checkouts exist, hs-uploader before hamsci-physics.  This package
+    # installs LAST on either branch: it creates `produces`, so a science
+    # build that fails part-way leaves no console script.
+    assert (script.index('"$SIBLINGS/hamsci-dsp"') < script.index('"$SIBLINGS/hs-uploader"')
+            < script.index('"$SIBLINGS/hamsci-physics"') < script.index('"$REPO[science]"')
+            < script.index("\nelse\n") < script.index('install -e "$REPO"\n'))
+    assert script.count('install -e "$REPO"\n') == 1
 
 
 def test_units_declared_and_shipped(deploy):
@@ -65,7 +68,8 @@ def test_templated_unit_sources_both_env_files():
     assert "ExecReload=/bin/kill -HUP $MAINPID" in text
     assert "ProtectSystem=strict" in text
     assert "ReadWritePaths=-/var/lib/timestd/phase2" in text
-    assert "User=stationweb" in text and "Group=stationweb" in text
+    assert "User=stationweb" in text
+    assert not any(line.startswith("Group=") for line in text.splitlines())   # passwd primary
 
 
 def test_config_scripts_exist_and_are_executable(deploy):

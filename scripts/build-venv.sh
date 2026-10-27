@@ -20,8 +20,10 @@ PIP=$VENV/bin/pip
 
 "$PYTHON" -m venv "$VENV"
 "$PIP" install --upgrade pip setuptools wheel
-"$PIP" install -e "$REPO"
-
+# venv/bin/station-web (deploy.toml's `produces`) comes from installing this
+# package, so that install runs LAST on either branch.  A science build that
+# fails part-way then leaves no console script, and sigmond reports the build
+# as failed instead of passing it as core-only.
 if [[ -d $SIBLINGS/hamsci-dsp && -d $SIBLINGS/hamsci-physics ]]; then
     # hamsci-physics depends on hs-uploader, also not on PyPI, so that
     # sibling installs before hamsci-physics.
@@ -30,9 +32,10 @@ if [[ -d $SIBLINGS/hamsci-dsp && -d $SIBLINGS/hamsci-physics ]]; then
         "$PIP" install -e "$SIBLINGS/hs-uploader"
     fi
     "$PIP" install -e "$SIBLINGS/hamsci-physics"
-    "$PIP" install -e "$REPO[science]"
+    "$PIP" install -e "$REPO[science]"          # installs the core too
     echo "station-web: built with the science pages"
 else
+    "$PIP" install -e "$REPO"
     echo "station-web: built core only — $SIBLINGS/hamsci-dsp and hamsci-physics" \
          "not both present, so the science pages stay off"
 fi

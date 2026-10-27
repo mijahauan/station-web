@@ -105,17 +105,30 @@ CORE_ROUTERS = ("docs", "grape", "timing", "status", "features")
 SCIENCE_ROUTERS = ("station", "stations", "health", "metrology", "stability", "propagation",
                    "space_weather", "correlations", "physics", "tec", "tid", "dashboard", "phase",
                    "ionogram", "chrony")
+#: The top-level packages the ``science`` extra installs.
+SCIENCE_PACKAGES = frozenset({"hamsci_dsp", "hamsci_physics", "numpy", "scipy"})
+
+
+def science_missing(exc: BaseException) -> bool:
+    """True when ``exc`` says a science package is absent.  Any other import
+    failure (a renamed function, a typo in station_web) is a defect."""
+    return (isinstance(exc, ModuleNotFoundError) and bool(exc.name)
+            and exc.name.split(".")[0] in SCIENCE_PACKAGES)
 
 
 def _register_routers(app: FastAPI) -> list[str]:
-    """Include the core routers, then each science router whose imports
-    succeed.  Returns the science routers it skipped; ``/api/features``
-    reports the same list."""
+    """Include each science router whose science packages are installed,
+    then the core routers.  Returns the science routers it skipped;
+    ``/api/features`` reports the same list.  Any import failure other than
+    an absent science package is fatal, science router or core."""
     skipped: list[str] = []
     for name in SCIENCE_ROUTERS:
         try:
             mod = importlib.import_module(f"station_web.routers.{name}")
-        except ImportError as exc:
+        except Exception as exc:
+            if not science_missing(exc):
+                logger.error("science router %r failed to import: %s", name, exc)
+                raise
             logger.warning("science router %r not loaded (%s) — its pages stay off "
                            "on this station", name, exc)
             skipped.append(name)

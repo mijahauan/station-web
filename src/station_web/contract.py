@@ -25,6 +25,8 @@ CONTRACT_VERSION = "0.8"
 UPSTREAM_CLIENT = "hf-timestd"
 ALSO_READS = ["hamsci-physics", "gnss-vtec"]
 DEPLOY_TOML_PATH = "/opt/git/sigmond/station-web/deploy.toml"
+#: Where scripts/build-venv.sh looks for the science sibling checkouts.
+SCIENCE_SIBLINGS = Path("/opt/git/sigmond")
 VENDOR_DIR = Path(__file__).resolve().parent / "static" / "vendor"
 CONTROL_SOCKET = "/run/station-web/control.sock"
 
@@ -173,6 +175,30 @@ def build_validate(settings: Settings) -> dict:
     }
 
 
+def _science_issues() -> list[dict]:
+    """The science extra is optional: a magnetometer-only or WSPR-only
+    station serves the core pages without it (info).  Where the sibling
+    checkouts exist, build-venv.sh should have installed it, so an absent
+    package there means a failed build (warn).  Any other import failure is
+    a broken install (fail)."""
+    from station_web.app import science_missing
+    checked_out = all((SCIENCE_SIBLINGS / name).is_dir() for name in ("hamsci-dsp", "hamsci-physics"))
+    issues: list[dict] = []
+    for mod in ("hamsci_dsp", "hamsci_physics"):
+        try:
+            __import__(mod)
+        except Exception as exc:        # noqa: BLE001
+            if not science_missing(exc):
+                issues.append(_issue("fail", f"cannot import {mod}: {exc}"))
+            elif checked_out:
+                issues.append(_issue("warn", f"cannot import {mod} ({exc}) although "
+                                             f"{SCIENCE_SIBLINGS}/hamsci-dsp and hamsci-physics "
+                                             f"exist — the science build failed; rebuild the venv"))
+            else:
+                issues.append(_issue("info", f"science pages not installed: cannot import {mod} ({exc})"))
+    return issues
+
+
 def _issue(severity: str, message: str, instance: str = "default") -> dict:
     return {"severity": severity, "instance": instance, "message": message}
 
@@ -217,16 +243,8 @@ def collect_issues(settings: Settings, deploy_toml: Path | None = None) -> list[
         if not Path(r["path"]).is_dir():
             issues.append(_issue("warn", f"docs root {r['name']} at {r['path']} does not exist"))
 
-    # The science extra is optional: a magnetometer-only or WSPR-only station
-    # serves the core pages without it.  A broken install (an import that
-    # fails for any reason other than absence) still fails.
-    for mod in ("hamsci_dsp", "hamsci_physics"):
-        try:
-            __import__(mod)
-        except ImportError as exc:
-            issues.append(_issue("info", f"science pages not installed: cannot import {mod} ({exc})"))
-        except Exception as exc:        # noqa: BLE001
-            issues.append(_issue("fail", f"cannot import {mod}: {exc}"))
+    issues.extend(_science_issues())
+
 
     if not (VENDOR_DIR / "plotly-2.27.0.min.js").exists():
         issues.append(_issue("fail", f"vendored plotly missing from {VENDOR_DIR}"))

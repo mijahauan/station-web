@@ -14,33 +14,18 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TEMPLATE=$REPO/config/station-web.toml.template
 TIMESTD_CONFIG=${TIMESTD_CONFIG:-/etc/hf-timestd/timestd-config.toml}
 
-# The user's primary group is its own, so the core installs where hf-timestd
-# (and its timestd group) does not.  Supplementary groups grant the reads:
-# timestd for hf-timestd's products, sigmond-status for sigmond's snapshots.
-# Each joins only where that group exists.
+# A new user's primary group is its own, so the core installs where
+# hf-timestd (and its timestd group) does not.  An existing user keeps its
+# primary group: the unit names no Group=, and older stations run as timestd.
+# ensure-groups.sh grants the supplementary reads (timestd, sigmond-status)
+# where those groups exist; the unit runs it again on every start.
 if [[ $EUID -eq 0 ]]; then
-    if ! getent group stationweb >/dev/null; then
-        groupadd --system stationweb
-        echo "station-web: created group stationweb"
-    fi
     if ! id -u stationweb >/dev/null 2>&1; then
+        getent group stationweb >/dev/null || groupadd --system stationweb
         useradd --system --no-create-home --shell /usr/sbin/nologin -g stationweb stationweb
         echo "station-web: created user stationweb (group stationweb)"
-    elif [[ $(id -gn stationweb) != stationweb ]]; then
-        # An older setup made timestd the primary group; the loop below
-        # keeps timestd as a supplementary group.
-        usermod -g stationweb stationweb
-        echo "station-web: primary group of stationweb is now stationweb"
     fi
-    # Read the group's member list, not `id -nG`: systemd's initgroups()
-    # grants only the listed memberships, never the passwd primary group.
-    for grp in timestd sigmond-status; do
-        if getent group "$grp" >/dev/null &&
-           ! getent group "$grp" | cut -d: -f4 | tr ',' '\n' | grep -x stationweb >/dev/null; then
-            usermod -aG "$grp" stationweb
-            echo "station-web: added stationweb to group $grp"
-        fi
-    done
+    "$REPO/scripts/ensure-groups.sh"
 fi
 
 install -d -m 0755 "$CONFIG_DIR" "$CONFIG_DIR/env"
