@@ -14,14 +14,18 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.0",
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "hamsci-dsp>=0.7.0",      # readers, registry, station catalog, stability (editable sibling)
-    "hamsci-physics>=0.1.0",  # solar_zenith (editable sibling)
     "systemd-python>=235",    # Type=notify + WatchdogSec
 ]
 
 [project.optional-dependencies]
+# The science pages (app.SCIENCE_ROUTERS).  scripts/build-venv.sh installs
+# this extra only where the sibling checkouts exist.
+science = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "hamsci-dsp>=0.7.0",      # readers, registry, station catalog, stability (editable sibling)
+    "hamsci-physics>=0.1.0",  # solar_zenith (editable sibling)
+]
 dev = ["pytest>=7.0.0", "httpx>=0.25.0"]
 
 [project.scripts]

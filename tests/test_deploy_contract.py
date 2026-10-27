@@ -40,10 +40,14 @@ def test_only_link_steps_execute():
 
 def test_build_produces_the_console_script(deploy):
     assert deploy["build"]["produces"] == ["/opt/git/sigmond/station-web/venv/bin/station-web"]
-    steps = deploy["build"]["steps"]
-    assert "cpython-3.11-linux-x86_64-gnu" in steps[0]           # minor-series symlink
-    assert any("hamsci-dsp" in s for s in steps) and any("hamsci-physics" in s for s in steps)
-    assert steps[-1].endswith("pip install -e .")
+    assert deploy["build"]["steps"] == ["bash scripts/build-venv.sh"]
+    script = (ROOT / "scripts" / "build-venv.sh").read_text()
+    assert "cpython-3.11-linux-x86_64-gnu" in script               # minor-series symlink
+    # The core always installs; the science siblings and extra only where
+    # both checkouts exist, hs-uploader before hamsci-physics.
+    assert script.index('install -e "$REPO"') < script.index("hamsci-dsp && -d")
+    assert (script.index('"$SIBLINGS/hs-uploader"') < script.index('"$SIBLINGS/hamsci-physics"')
+            < script.index('"$REPO[science]"'))
 
 
 def test_units_declared_and_shipped(deploy):
@@ -60,8 +64,8 @@ def test_templated_unit_sources_both_env_files():
     assert "EnvironmentFile=-/etc/station-web/env/%i.env" in text
     assert "ExecReload=/bin/kill -HUP $MAINPID" in text
     assert "ProtectSystem=strict" in text
-    assert "ReadWritePaths=/var/lib/timestd/phase2" in text
-    assert "User=stationweb" in text and "Group=timestd" in text
+    assert "ReadWritePaths=-/var/lib/timestd/phase2" in text
+    assert "User=stationweb" in text and "Group=stationweb" in text
 
 
 def test_config_scripts_exist_and_are_executable(deploy):

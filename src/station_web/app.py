@@ -3,6 +3,7 @@ side effects, no writes.  Routers register here (Task 7 onward)."""
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -96,13 +97,35 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
     return app
 
 
-def _register_routers(app: FastAPI) -> None:
-    from station_web.routers import (chrony, correlations, dashboard, docs, grape, health,
-                                     ionogram, metrology, phase, physics, propagation,
-                                     space_weather, stability, station, stations, tec, tid,
-                                     timing)
-    for mod in (station, stations, health, metrology, stability, propagation, space_weather,
-                correlations, physics, tec, tid, dashboard, phase, grape, ionogram, chrony,
-                timing):
+#: Routers every station serves.  They need nothing scientific, so an import
+#: failure among them is a defect and stays fatal.
+CORE_ROUTERS = ("docs", "grape", "timing", "status", "features")
+#: Routers that need hamsci-dsp, hamsci-physics and numpy/scipy (the
+#: ``science`` extra).  A station without them skips these routers.
+SCIENCE_ROUTERS = ("station", "stations", "health", "metrology", "stability", "propagation",
+                   "space_weather", "correlations", "physics", "tec", "tid", "dashboard", "phase",
+                   "ionogram", "chrony")
+
+
+def _register_routers(app: FastAPI) -> list[str]:
+    """Include the core routers, then each science router whose imports
+    succeed.  Returns the science routers it skipped; ``/api/features``
+    reports the same list."""
+    skipped: list[str] = []
+    for name in SCIENCE_ROUTERS:
+        try:
+            mod = importlib.import_module(f"station_web.routers.{name}")
+        except ImportError as exc:
+            logger.warning("science router %r not loaded (%s) — its pages stay off "
+                           "on this station", name, exc)
+            skipped.append(name)
+            continue
         app.include_router(mod.router, prefix="/api")
-    app.include_router(docs.router)          # carries its own /api/living-docs prefix
+    app.state.skipped_routers = skipped
+    for name in CORE_ROUTERS:
+        mod = importlib.import_module(f"station_web.routers.{name}")
+        if name == "docs":
+            app.include_router(mod.router)       # carries its own /api/living-docs prefix
+        else:
+            app.include_router(mod.router, prefix="/api")
+    return skipped

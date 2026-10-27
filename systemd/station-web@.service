@@ -10,7 +10,9 @@ Type=notify
 NotifyAccess=main
 WatchdogSec=60
 User=stationweb
-Group=timestd
+Group=stationweb
+# Supplementary groups (timestd, sigmond-status) come from the user's own
+# memberships, which setup-station.sh grants where those groups exist.
 # CLIENT-CONTRACT §4: station identity and per-instance env, both optional.
 EnvironmentFile=-/etc/sigmond/coordination.env
 EnvironmentFile=-/etc/station-web/env/%i.env
@@ -20,13 +22,16 @@ ExecReload=/bin/kill -HUP $MAINPID
 
 # Read-only client.  The one writable path under the data root is the
 # directory holding timestd.db: a WAL reader in another uid needs to create
-# the -wal/-shm sidecars.  The control socket lives in RuntimeDirectory.
+# the -wal/-shm sidecars.  The other is sigmond's snapshot-request directory,
+# where station-web drops an empty file asking for a fresh check snapshot.
+# The control socket lives in RuntimeDirectory.  The "-" prefix lets the unit
+# start where a path is absent (no hf-timestd, no sigmond snapshots yet).
 RuntimeDirectory=station-web
 RuntimeDirectoryMode=0750
 ProtectSystem=strict
 ProtectHome=yes
-ReadOnlyPaths=/var/lib/timestd /opt/git/sigmond
-ReadWritePaths=/var/lib/timestd/phase2
+ReadOnlyPaths=-/var/lib/timestd /opt/git/sigmond
+ReadWritePaths=-/var/lib/timestd/phase2 -/run/sigmond/snapshot-request
 PrivateTmp=yes
 NoNewPrivileges=yes
 

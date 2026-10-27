@@ -4,8 +4,8 @@
 # CONTRACT §14.3: sigmond exports STATION_* so the operator answers nothing
 # twice.  STATION_CALL is canonical; STATION_CALLSIGN is the compat alias.
 # Also seeds [storage] sqlite_path from hf-timestd's config when present, and
-# creates the stationweb user (group timestd) because only link-kind install
-# steps execute in sigmond today.
+# creates the stationweb user and group because only link-kind install steps
+# execute in sigmond today.
 set -euo pipefail
 
 CONFIG_DIR=${CONFIG_DIR:-/etc/station-web}
@@ -14,9 +14,33 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 TEMPLATE=$REPO/config/station-web.toml.template
 TIMESTD_CONFIG=${TIMESTD_CONFIG:-/etc/hf-timestd/timestd-config.toml}
 
-if [[ $EUID -eq 0 ]] && ! id -u stationweb >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin -g timestd stationweb
-    echo "station-web: created user stationweb (group timestd)"
+# The user's primary group is its own, so the core installs where hf-timestd
+# (and its timestd group) does not.  Supplementary groups grant the reads:
+# timestd for hf-timestd's products, sigmond-status for sigmond's snapshots.
+# Each joins only where that group exists.
+if [[ $EUID -eq 0 ]]; then
+    if ! getent group stationweb >/dev/null; then
+        groupadd --system stationweb
+        echo "station-web: created group stationweb"
+    fi
+    if ! id -u stationweb >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin -g stationweb stationweb
+        echo "station-web: created user stationweb (group stationweb)"
+    elif [[ $(id -gn stationweb) != stationweb ]]; then
+        # An older setup made timestd the primary group; the loop below
+        # keeps timestd as a supplementary group.
+        usermod -g stationweb stationweb
+        echo "station-web: primary group of stationweb is now stationweb"
+    fi
+    # Read the group's member list, not `id -nG`: systemd's initgroups()
+    # grants only the listed memberships, never the passwd primary group.
+    for grp in timestd sigmond-status; do
+        if getent group "$grp" >/dev/null &&
+           ! getent group "$grp" | cut -d: -f4 | tr ',' '\n' | grep -x stationweb >/dev/null; then
+            usermod -aG "$grp" stationweb
+            echo "station-web: added stationweb to group $grp"
+        fi
+    done
 fi
 
 install -d -m 0755 "$CONFIG_DIR" "$CONFIG_DIR/env"
@@ -39,7 +63,7 @@ fi
 
 # The one directory station-web needs to WRITE in: SQLite's -wal and -shm
 # sidecars are created by whichever process opens the database, so a reader
-# running as stationweb (group timestd) needs group write on the directory
+# running as stationweb (a member of timestd) needs group write on the directory
 # holding timestd.db.  hf-timestd creates that directory 0755 root:timestd,
 # and `station-web validate` then fails it.  setgid so a sidecar created by
 # either uid keeps group timestd.  Nothing else under the data root is

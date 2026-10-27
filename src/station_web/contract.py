@@ -217,9 +217,14 @@ def collect_issues(settings: Settings, deploy_toml: Path | None = None) -> list[
         if not Path(r["path"]).is_dir():
             issues.append(_issue("warn", f"docs root {r['name']} at {r['path']} does not exist"))
 
+    # The science extra is optional: a magnetometer-only or WSPR-only station
+    # serves the core pages without it.  A broken install (an import that
+    # fails for any reason other than absence) still fails.
     for mod in ("hamsci_dsp", "hamsci_physics"):
         try:
             __import__(mod)
+        except ImportError as exc:
+            issues.append(_issue("info", f"science pages not installed: cannot import {mod} ({exc})"))
         except Exception as exc:        # noqa: BLE001
             issues.append(_issue("fail", f"cannot import {mod}: {exc}"))
 

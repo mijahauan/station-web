@@ -15,25 +15,18 @@ license          = "MIT"
 init = "scripts/setup-station.sh"
 edit = "scripts/config-review.sh"
 
-# The interpreter path names the MINOR series (uv's stable symlink), never a
-# patch release — see hamsci-physics/deploy.toml for the breakage that taught it.
-# Siblings are not on PyPI: install them editable BEFORE this package.
-# hamsci-physics itself depends on hs-uploader, also not on PyPI, so that
-# sibling installs before hamsci-physics.
+# scripts/build-venv.sh builds the venv: the core always, the science pages
+# (hamsci-dsp, hamsci-physics and their siblings, the [science] extra) only
+# where those sibling checkouts exist.  The script names the interpreter.
 [build]
 steps = [
-    "/opt/uv/python/cpython-3.11-linux-x86_64-gnu/bin/python3.11 -m venv /opt/git/sigmond/station-web/venv",
-    "/opt/git/sigmond/station-web/venv/bin/pip install --upgrade pip setuptools wheel",
-    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hamsci-dsp",
-    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hs-uploader",
-    "/opt/git/sigmond/station-web/venv/bin/pip install -e /opt/git/sigmond/hamsci-physics",
-    "/opt/git/sigmond/station-web/venv/bin/pip install -e .",
+    "bash scripts/build-venv.sh",
 ]
 produces = ["/opt/git/sigmond/station-web/venv/bin/station-web"]
 
 [install]
 user  = "stationweb"
-group = "timestd"
+group = "stationweb"
 
 # Only kind = "link" executes in sigmond today.  Directory and config creation
 # belong to [contract.config].init (setup-station.sh), which also creates the
@@ -57,23 +50,9 @@ dst  = "/etc/systemd/system/station-web.service"
 units           = ["station-web.service"]
 templated_units = ["station-web@.service"]
 
-[[deps.git]]
-name       = "hamsci-dsp"
-url        = "https://github.com/HamSCI/hamsci-dsp"
-install_to = "/opt/git/sigmond/hamsci-dsp"
-why        = "data-product readers, registry, station catalog, stability"
-
-[[deps.git]]
-name       = "hamsci-physics"
-url        = "https://github.com/mijahauan/hamsci-physics"
-install_to = "/opt/git/sigmond/hamsci-physics"
-why        = "solar geometry for the dashboards"
-
-[[deps.git]]
-name       = "hs-uploader"
-url        = "https://github.com/HamSCI/hs-uploader"
-install_to = "/opt/git/sigmond/hs-uploader"
-why        = "hamsci-physics dependency (not on PyPI)"
+# No [[deps.git]]: the core needs no sibling checkout.  The science
+# siblings (hamsci-dsp, hamsci-physics, hs-uploader) arrive with the clients
+# that own them; scripts/build-venv.sh uses them when present.
 
 [[deps.pypi]]
 name    = "fastapi"
