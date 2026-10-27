@@ -77,7 +77,11 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
 
     @app.get("/", response_class=HTMLResponse)
     async def root():
-        return page("index.html")
+        return page("home.html")
+
+    @app.get("/check", response_class=HTMLResponse)
+    async def check_page():
+        return page("check.html")
 
     @app.get("/phase")
     async def phase_page():

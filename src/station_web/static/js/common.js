@@ -521,7 +521,14 @@ function statusBadge(kind, text) {
 // shows data.  ``also`` lists other paths that light up the same entry.
 // ════════════════════════════════════════════════════════════════════
 const NAV_ITEMS = [
-    { href: '/', label: 'Status', also: ['/index.html', '/static/index.html', '/static/health.html'] },
+    { href: '/', label: 'Station', also: ['/index.html', '/static/home.html'] },
+    { href: '/check', label: 'Check', also: ['/static/check.html'] },
+];
+
+/** The science pages.  A station without the science extra has none of them,
+ *  so renderSiteNav adds these only after /api/features says ``science``. */
+const SCIENCE_NAV_ITEMS = [
+    { href: '/static/index.html', label: 'Status', also: ['/static/health.html'] },
     { href: '/static/metrology.html', label: 'Timing', also: ['/static/chrony.html'] },
     { href: '/static/propagation.html', label: 'Propagation',
       also: ['/static/station.html', '/static/ionogram.html'] },
@@ -537,9 +544,10 @@ const SITE_FOOTER_LINKS = [
 ];
 
 /** The nav links as HTML, the entry for ``pathname`` marked current. */
-function siteNavHTML(pathname) {
+function siteNavHTML(pathname, withScience = true) {
     const path = pathname || '/';
-    return NAV_ITEMS.map(item => {
+    const items = withScience ? NAV_ITEMS.concat(SCIENCE_NAV_ITEMS) : NAV_ITEMS;
+    return items.map(item => {
         const current = item.href === path || (item.also || []).includes(path);
         return `<a href="${escapeHtml(item.href)}" class="nav-link${current ? ' active' : ''}"` +
                `${current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a>`;
@@ -551,7 +559,16 @@ function renderSiteNav() {
     const nav = document.querySelector('nav[data-site-nav]');
     if (!nav) return;
     nav.id = nav.id || 'site-nav';
-    nav.innerHTML = siteNavHTML(window.location.pathname);
+    nav.innerHTML = siteNavHTML(window.location.pathname, false);
+    // The science pages join once this station says it serves them.  A failed
+    // call leaves the core pages: no link to a page that may not exist.
+    if (typeof fetch === 'function') {
+        fetch('/api/features').then(r => (r.ok ? r.json() : null)).then(f => {
+            if (f && f.science === true) {
+                nav.innerHTML = siteNavHTML(window.location.pathname, true);
+            }
+        }).catch(() => {});
+    }
     const header = nav.closest('.header') || nav.parentElement;
     if (header && !header.querySelector('.nav-toggle')) {
         const btn = document.createElement('button');
@@ -827,6 +844,7 @@ window.withAlpha = withAlpha;
 window.statusKind = statusKind;
 window.statusBadge = statusBadge;
 window.NAV_ITEMS = NAV_ITEMS;
+window.SCIENCE_NAV_ITEMS = SCIENCE_NAV_ITEMS;
 window.siteNavHTML = siteNavHTML;
 window.renderSiteNav = renderSiteNav;
 window.SITE_FOOTER_LINKS = SITE_FOOTER_LINKS;

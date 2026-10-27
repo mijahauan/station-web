@@ -166,10 +166,13 @@ def test_nav_present_once_and_rendered_by_common_js(page):
 
 
 def test_nav_items_point_at_shipped_pages():
-    m = re.search(r"const NAV_ITEMS = \[(.*?)\];", COMMON.read_text(), re.S)
-    hrefs = re.findall(r"href:\s*'([^']+)'", m.group(1))
-    assert hrefs[0] == "/"
-    for h in hrefs[1:]:
+    text = COMMON.read_text()
+    hrefs = []
+    for const in ("NAV_ITEMS", "SCIENCE_NAV_ITEMS"):
+        m = re.search(rf"const {const} = \[(.*?)\];", text, re.S)
+        hrefs += re.findall(r"href:\s*'([^']+)'", m.group(1))
+    assert hrefs[:2] == ["/", "/check"]
+    for h in hrefs[2:]:
         assert (STATIC / h.removeprefix("/static/")).exists(), h
 
 
@@ -180,7 +183,7 @@ def test_nav_marks_the_current_page():
     chrony, health, root = out
     # chrony.html folded into Timing; its old URL lights up Timing
     assert re.search(r'href="/static/metrology.html"[^>]*aria-current="page"', chrony)
-    assert re.search(r'href="/"[^>]*aria-current="page"', health)   # Health sits under Status
+    assert re.search(r'href="/static/index.html"[^>]*aria-current="page"', health)   # Health sits under Status
     assert re.search(r'href="/"[^>]*aria-current="page"', root)
     assert chrony.count('aria-current') == 1
 

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Station - station-web</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/status.js" defer></script>
+</head>
+
+<body data-page="station">
+    <div class="container">
+        <div class="header">
+            <h1>Station</h1>
+            <div class="header-subtitle" id="identity">Loading...</div>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
+        </div>
+
+        <div id="error-container" class="error-banner" style="display: none;"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Viewers</div>
+                    <div class="card-subtitle">Live displays this station runs</div>
+                </div>
+            </div>
+            <div id="viewers"></div>
+            <div id="viewer-conflicts"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Clients</div>
+                    <div class="card-subtitle">What is installed, and whether it matches the release</div>
+                </div>
+                <label class="sp-toggle"><input type="checkbox" id="installed-only"> installed only</label>
+            </div>
+            <table class="table sp-table" id="clients">
+                <thead>
+                    <tr>
+                        <th>Client</th><th>Installed</th><th>Version</th><th>Manifest</th>
+                        <th>Behind main</th><th>Instances</th><th>Check</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <div id="heartbeat" class="sp-note"></div>
+        </div>
+
+        <div id="snapshot-footer" class="sp-note"></div>
+    </div>
+</body>
+
+</html>

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Is it working? - station-web</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/status.js" defer></script>
+</head>
+
+<body data-page="check">
+    <div class="container">
+        <div class="header">
+            <h1>Is it working?</h1>
+            <div class="header-subtitle" id="check-summary">Loading...</div>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
+        </div>
+
+        <div id="error-container" class="error-banner" style="display: none;"></div>
+
+        <div class="card">
+            <div class="sp-verdict-row">
+                <span id="verdict" class="badge st-unknown">...</span>
+                <span id="check-age" class="sp-note"></span>
+                <button type="button" id="check-now" class="sp-button">Check now</button>
+                <span id="check-now-msg" class="sp-note" role="status"></span>
+            </div>
+        </div>
+
+        <div id="stages"></div>
+
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Configuration validation</div>
+                    <div class="card-subtitle">Failures first, then warnings</div>
+                </div>
+            </div>
+            <div id="validate"></div>
+        </div>
+
+        <div id="science-link" class="sp-note"></div>
+    </div>
+</body>
+
+</html>

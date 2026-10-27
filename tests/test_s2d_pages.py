@@ -46,7 +46,7 @@ def _run(expr_js: str, *extra: str):
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-SIX = ["Status", "Timing", "Propagation", "Ionosphere", "Test signal", "GRAPE"]
+SIX = ["Station", "Check", "Status", "Timing", "Propagation", "Ionosphere", "Test signal", "GRAPE"]
 
 # old URL -> (where it lands, the nav label it lights up)
 RETIRED = {
@@ -62,10 +62,10 @@ RETIRED = {
 
 @needs_node
 def test_nav_holds_exactly_the_six_pages():
-    items = _run("NAV_ITEMS.map(i => [i.label, i.href])")
+    items = _run("NAV_ITEMS.concat(SCIENCE_NAV_ITEMS).map(i => [i.label, i.href])")
     assert [label for label, _ in items] == SIX
     for _, href in items:
-        assert href == "/" or (STATIC / href.removeprefix("/static/")).is_file(), href
+        assert href in ("/", "/check") or (STATIC / href.removeprefix("/static/")).is_file(), href
 
 
 @needs_node
@@ -145,7 +145,7 @@ def test_every_static_page_is_served(client, page):
 def test_no_orphan_pages():
     """Each page has a nav entry, redirects, or is linked from a page that has one."""
     nav_src = COMMON.read_text()
-    nav_hrefs = set(re.findall(r"href: '/static/([\w.]+)'", nav_src)) | {"index.html"}
+    nav_hrefs = set(re.findall(r"href: '/static/([\w.]+)'", nav_src)) | {"index.html", "home.html", "check.html"}
     footer = set(re.findall(r"href: '/static/([\w.]+)'", nav_src.split("SITE_FOOTER_LINKS")[1]))
     linked = set()
     for p in nav_hrefs:

@@ -147,7 +147,7 @@ def test_chrony_page_points_at_timing():
     assert 'url=/static/metrology.html#chrony' in chrony
     assert 'href="/static/metrology.html#chrony"' in chrony
     assert 'id="chrony"' in PAGE.read_text()
-    nav = re.search(r"const NAV_ITEMS = \[(.*?)\];", COMMON.read_text(), re.S).group(1)
+    nav = re.search(r"const SCIENCE_NAV_ITEMS = \[(.*?)\];", COMMON.read_text(), re.S).group(1)
     assert "label: 'Chrony'" not in nav
     assert "also: ['/static/chrony.html']" in nav
 
