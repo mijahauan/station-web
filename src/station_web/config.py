@@ -27,6 +27,7 @@ DEFAULT_DOCS_ROOTS = [
     {"name": "hamsci-physics", "path": "/opt/git/sigmond/hamsci-physics/docs"},
     {"name": "hamsci-dsp",     "path": "/opt/git/sigmond/hamsci-dsp/docs"},
     {"name": "sigmond",        "path": "/opt/git/sigmond/sigmond/docs/scientist"},
+    {"name": "checks",         "path": "/opt/git/sigmond/sigmond/docs/operator/checks"},
 ]
 
 

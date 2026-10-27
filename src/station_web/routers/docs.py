@@ -1,6 +1,6 @@
 """Documentation router: markdown files from the configured docs roots.
 
-Serves ``.md`` files from ``config.docs_roots`` (four fixed roots — see
+Serves ``.md`` files from ``config.docs_roots`` (five fixed roots — see
 ``station_web.config.DEFAULT_DOCS_ROOTS``), confined to each root's
 directory.  Documents may sit in subdirectories (hf-timestd keeps
 ``design/MEASUREMENT_MODEL.md`` one level down); a document's name is then

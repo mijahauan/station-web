@@ -68,3 +68,9 @@ def test_docs_page_survives_a_malformed_hash():
     assert "const hash = decodeURIComponent(" not in text
     body = text.split("function safeHash", 1)
     assert len(body) == 2 and "catch" in body[1][:300]
+
+
+def test_default_roots_carry_the_check_explanations():
+    from station_web.config import DEFAULT_DOCS_ROOTS
+    roots = {r["name"]: r["path"] for r in DEFAULT_DOCS_ROOTS}
+    assert roots["checks"] == "/opt/git/sigmond/sigmond/docs/operator/checks"

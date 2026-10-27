@@ -252,6 +252,12 @@
             el('span', { text: ` ${text}` }),
         ];
         if (!na && ln.fix) kids.push(el('pre', {}, [el('code', { text: ln.fix })]));
+        // The explanation page for this check id, in the "checks" docs root.
+        if (ln.id) {
+            kids.push(el('div', {}, [el('a', {
+                href: `/static/docs.html?root=checks&doc=${encodeURIComponent(ln.id + '.md')}`,
+                text: 'What this means' })]));
+        }
         const row = el('div', { cls: 'sp-line', id: ln.id || undefined }, kids);
         return row;
     }

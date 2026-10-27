@@ -72,3 +72,11 @@ def test_viewer_port_is_coerced_with_number():
 def test_check_now_polls_without_overlap():
     js = (STATIC / "js" / "status.js").read_text()
     assert "setInterval" not in js and "setTimeout(poll" in js
+
+
+def test_each_check_line_links_its_explanation_page():
+    js = (STATIC / "js" / "status.js").read_text()
+    line = js.split("function checkLine", 1)[1].split("function renderCheck", 1)[0]
+    assert "What this means" in line
+    assert "/static/docs.html?root=checks&doc=${encodeURIComponent(ln.id + '.md')}" in line
+    assert "innerHTML" not in line
