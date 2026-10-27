@@ -61,7 +61,7 @@ RETIRED = {
 # ── the nav and the footer ───────────────────────────────────────────────
 
 @needs_node
-def test_nav_holds_exactly_the_six_pages():
+def test_nav_holds_the_core_and_science_pages():
     items = _run("NAV_ITEMS.concat(SCIENCE_NAV_ITEMS).map(i => [i.label, i.href])")
     assert [label for label, _ in items] == SIX
     for _, href in items:

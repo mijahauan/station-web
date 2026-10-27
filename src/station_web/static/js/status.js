@@ -91,10 +91,12 @@
             fill('viewers', el('div', { cls: 'sp-note', text: 'no viewers on this station' }));
         } else {
             fill('viewers', ...list.map(w => {
+                const port = Number(w.port);
+                const linkable = Number.isInteger(port) && port > 0;
                 const running = w.active === 'active';
                 const name = w.label || w.name;
-                const head = running
-                    ? el('a', { href: `http://${location.hostname}:${w.port}/`, text: name })
+                const head = running && linkable
+                    ? el('a', { href: `http://${location.hostname}:${port}/`, text: name })
                     : el('span', { text: name });
                 const state = el('span', {
                     cls: running ? 'sp-green' : 'sp-amber',
@@ -111,7 +113,7 @@
     }
 
     function manifestCell(status) {
-        if (status === null || status === undefined) return el('span', { cls: 'sp-muted', text: '' });
+        if (status === null || status === undefined) return el('span', { cls: 'sp-amber', text: 'unknown' });
         if (status === 'match') return el('span', { cls: 'sp-green', text: 'match' });
         if (status === 'no_manifest') return el('span', { cls: 'sp-muted', text: 'no manifest' });
         return el('span', { cls: 'sp-amber', text: String(status).replace(/_/g, ' ') });
@@ -125,11 +127,12 @@
 
     function instancesText(c) {
         if (!c) return 'unknown';
-        return `${c.configured} configured · ${c.enabled} enabled · ${c.active} running`;
+        const n = v => (v === null || v === undefined ? 'unknown' : v);
+        return `${n(c.configured)} configured · ${n(c.enabled)} enabled · ${n(c.active)} running`;
     }
 
     function checkCell(chk) {
-        if (!chk || !chk.id) return el('span', { cls: 'sp-muted', text: '' });
+        if (!chk || !chk.id || !chk.mark) return el('span', { cls: 'sp-muted', text: '–' });
         const glyph = { ok: '✓ ok', wait: '… wait', FAIL: '✕ FAIL', '--': '– n/a' }[chk.mark] || chk.mark;
         const cls = { ok: 'sp-green', wait: 'sp-amber', FAIL: 'sp-red' }[chk.mark] || 'sp-muted';
         return el('a', { href: `/check#${encodeURIComponent(chk.id)}`, cls, text: glyph });
@@ -187,6 +190,28 @@
         fill('snapshot-footer', ...lines);
     }
 
+    const TABLE_SNAPSHOTS = ['catalog', 'components', 'instances', 'manifest'];
+
+    /** A warning above the client table when a snapshot it draws is stale or
+     *  missing; the table dims.  Returns true when anything is out of date. */
+    function renderTableWarning(snaps) {
+        const lines = [];
+        TABLE_SNAPSHOTS.forEach(n => {
+            const sn = (snaps || {})[n];
+            if (!sn || !sn.available) {
+                lines.push(`${n} snapshot unavailable (command: ${sn ? sn.command : 'unknown'})`);
+            } else if (sn.stale) {
+                lines.push(`${n} snapshot is stale, ${ageText(sn.age_s)} old (command: ${sn.command})`);
+            }
+        });
+        fill('clients-warning', ...lines.map(t => el('div', { text: t })));
+        const box = document.getElementById('clients-warning');
+        if (box) box.style.display = lines.length ? 'block' : 'none';
+        const table = document.getElementById('clients');
+        if (table) table.classList.toggle('sp-stale', lines.length > 0);
+        return lines.length > 0;
+    }
+
     async function loadStation() {
         const box = document.getElementById('installed-only');
         if (box) {
@@ -198,6 +223,7 @@
             fail('');
             fill('identity', document.createTextNode(identityText(d.identity || {})));
             renderViewers(d.viewers);
+            renderTableWarning(d.snapshots);
             renderClients(d.rows || []);
             renderHeartbeat(d.heartbeat);
             renderSnapshotFooter(d.snapshots);
@@ -291,7 +317,10 @@
         const msg = document.getElementById('check-now-msg');
         button.disabled = true;
         msg.textContent = 'asking for a fresh check...';
+        // ``before`` comes only from a successful read; without it, success
+        // needs a ran_at newer than the moment of the request.
         const before = await getJSON('/api/status/check').then(d => d.ran_at).catch(() => null);
+        const requestedAt = Date.now();
         try {
             const r = await fetch('/api/status/check-now', { method: 'POST' });
             if (r.status !== 202) {
@@ -306,20 +335,27 @@
             button.disabled = false;
             return;
         }
-        msg.textContent = 'waiting for the new result...';
+        msg.textContent = before ? 'waiting for the new result...' : 'requested; waiting for a fresh result';
+        const isNew = ran => {
+            if (!ran) return false;
+            if (before) return ran !== before;
+            const t = Date.parse(ran);
+            return !isNaN(t) && t > requestedAt;
+        };
         const t0 = Date.now();
-        const timer = setInterval(async () => {
+        const poll = async () => {
             const d = await loadCheck();
-            if (d && d.ran_at !== before) {
-                clearInterval(timer);
+            if (d && isNew(d.ran_at)) {
                 msg.textContent = 'updated';
                 button.disabled = false;
             } else if (Date.now() - t0 > POLL_LIMIT_MS) {
-                clearInterval(timer);
                 msg.textContent = 'no new result after 2 minutes; sigmond may be busy';
                 button.disabled = false;
+            } else {
+                setTimeout(poll, POLL_MS);
             }
-        }, POLL_MS);
+        };
+        setTimeout(poll, POLL_MS);
     }
 
     async function loadCheckPage() {

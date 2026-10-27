@@ -731,3 +731,6 @@ body {
     .sp-table td[data-label]::before { content: attr(data-label) ': '; color: var(--text-secondary); font-size: 12px; }
     .sp-line pre { margin-left: 0; }
 }
+
+.sp-table.sp-stale { opacity: 0.6; }
+.sp-table.sp-stale::after { content: 'out of date'; display: block; padding: 4px 8px; font-size: 12px; color: var(--status-degraded); }

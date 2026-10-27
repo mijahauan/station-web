@@ -49,3 +49,26 @@ def test_pages_render_server_strings_without_innerhtml():
     js = (STATIC / "js" / "status.js").read_text()
     assert "innerHTML" not in js
     assert "toLocale" not in js
+
+
+def test_counts_never_concatenate_null():
+    js = (STATIC / "js" / "status.js").read_text()
+    assert "${c.configured}" not in js and "${c.enabled}" not in js and "${c.active}" not in js
+    assert "'unknown'" in js.split("function instancesText", 1)[1].split("}", 1)[0]
+
+
+def test_station_page_has_the_stale_snapshot_banner():
+    assert 'id="clients-warning"' in (STATIC / "home.html").read_text()
+    js = (STATIC / "js" / "status.js").read_text()
+    assert "renderTableWarning" in js and "sp-stale" in js
+
+
+def test_viewer_port_is_coerced_with_number():
+    js = (STATIC / "js" / "status.js").read_text()
+    assert "Number(w.port)" in js
+    assert "${w.port}" not in js
+
+
+def test_check_now_polls_without_overlap():
+    js = (STATIC / "js" / "status.js").read_text()
+    assert "setInterval" not in js and "setTimeout(poll" in js
