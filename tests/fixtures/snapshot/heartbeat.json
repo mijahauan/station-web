@@ -6,7 +6,7 @@
   "data": {
     "emitted_at": "2026-10-27T11:58:00Z",
     "rollup": {
-      "verdict": "degraded",
+      "verdict": "INVALID",
       "reason": "uploads: last upload 3 h ago"
     }
   },

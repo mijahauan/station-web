@@ -6,7 +6,7 @@
   "data": [
     {
       "name": "sigmond",
-      "kind": "core",
+      "kind": "self",
       "local": "a1b2c3d",
       "behind": 0,
       "fetched_at": "2026-10-27T04:10:00Z"

@@ -19,6 +19,8 @@ from station_web.config import Settings
 #: A snapshot older than this counts as stale (sigmond writes every 5 min).
 STALE_S = 900.0
 #: Bytes read of one snapshot file, at most.
+#: A ran_at further ahead of the clock than this reads as stale.
+FUTURE_SKEW_S = 60.0
 MAX_BYTES = 4 * 1024 * 1024
 
 #: Name -> command, matching sigmond's ``SNAPSHOT_COMMANDS``.  Used when the
@@ -77,9 +79,12 @@ def read_snapshot(name: str, settings: Settings,
     ran = _parse_ts(env.get("ran_at"))
     if ran is None:
         return _absent(name, "snapshot has no usable ran_at")
-    age = max(0.0, (time.time() if now is None else now) - ran)
+    raw_age = (time.time() if now is None else now) - ran
+    age = max(0.0, raw_age)
+    # A ran_at well ahead of the clock cannot be trusted to be fresh.
+    stale = age > STALE_S or raw_age < -FUTURE_SKEW_S
     return {"available": True, "name": name,
             "command": env.get("command") or COMMANDS[name],
-            "ran_at": env.get("ran_at"), "age_s": age, "stale": age > STALE_S,
+            "ran_at": env.get("ran_at"), "age_s": age, "stale": stale,
             "exit": env.get("exit"), "data": env.get("data"),
             "error": env.get("error")}

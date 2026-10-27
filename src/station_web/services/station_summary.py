@@ -22,7 +22,9 @@ def _list(data: Any, key: Optional[str] = None) -> List[dict]:
     return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
 
 
-def _instance_counts(instances: Any, client: str) -> Dict[str, int]:
+def _instance_counts(instances: Any, client: str) -> Optional[Dict[str, int]]:
+    if not isinstance(instances, dict):
+        return None                 # no snapshot: zero would be a claim
     rows = [r for r in _list(instances, "instances") if r.get("client") == client]
     return {"configured": sum(1 for r in rows if r.get("has_config")),
             "enabled": sum(1 for r in rows if r.get("enabled") == "enabled"),
@@ -52,6 +54,8 @@ def build_rows(catalog, components, instances, manifest, check) -> List[Dict[str
         fetched = comp.get("fetched_at")
         if not installed:
             mstatus = None
+        elif not isinstance(manifest, dict):
+            mstatus = "unknown"     # snapshot unavailable, nothing compared
         elif not man_ok:
             mstatus = "no_manifest"
         else:
@@ -104,7 +108,8 @@ def station_summary(settings: Settings, now: Optional[float] = None) -> Dict[str
         "viewers": viewers,
         "heartbeat": _heartbeat(envs["heartbeat"]),
         "snapshots": {n: {k: e[k] for k in
-                          ("available", "ran_at", "age_s", "stale", "error")}
+                          ("available", "command", "ran_at", "age_s", "stale",
+                                 "error")}
                       for n, e in envs.items()},
     }
 
@@ -124,10 +129,16 @@ def check_view(settings: Settings, now: Optional[float] = None) -> Dict[str, Any
         in_stage = [ln for ln in lines if ln.get("stage") == stage]
         if in_stage:
             stages.append({"stage": stage, "lines": in_stage})
-    val = snap.read_snapshot("validate", settings, now)["data"]
-    results = _list(val, "results")
-    validate = ([r for r in results if r.get("severity") == "fail"]
-                + [r for r in results if r.get("severity") == "warn"])
+    venv = snap.read_snapshot("validate", settings, now)
+    # No rules run is not "no rule failed": null says the answer is missing.
+    if venv["available"] and not venv["stale"] and isinstance(venv["data"], dict):
+        results = _list(venv["data"], "results")
+        validate = ([r for r in results if r.get("severity") == "fail"]
+                    + [r for r in results if r.get("severity") == "warn"])
+    else:
+        validate = None
     return {"verdict": verdict, "stale": env["stale"], "ran_at": env["ran_at"],
             "age_s": env["age_s"], "stages": stages, "validate": validate,
+            "validate_snapshot": {k: venv[k] for k in
+                                  ("available", "stale", "age_s", "error")},
             "available": env["available"], "error": env["error"]}

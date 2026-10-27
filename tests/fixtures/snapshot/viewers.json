@@ -10,7 +10,7 @@
         "label": "Receiver",
         "port": 8081,
         "unit": "ka9q-web.service",
-        "active": true,
+        "active": "active",
         "description": "Live receiver spectrum"
       }
     ],
