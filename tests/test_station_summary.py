@@ -24,7 +24,7 @@ def test_rows_from_fixture_snapshots():
     psk = rows["psk-recorder"]
     assert psk["installed"] is True
     assert psk["manifest_status"] == "match"
-    assert psk["instances"] == {"configured": 1, "enabled": 1, "active": 1}
+    assert psk["instances"] == {"rows": 1, "configured": 1, "enabled": 1, "active": 1}
     assert psk["check"] == {"id": "decode.psk", "mark": "ok"}
     assert psk["behind"] == 2
     assert rows["wspr-recorder"]["manifest_status"] == "moved"
@@ -63,6 +63,63 @@ def test_worst_mark_wins_for_a_client():
         {"mark": "wait", "id": "c", "client": "x"}]}
     rows = ss.build_rows([{"name": "x", "installed": True}], [], [], None, check)
     assert rows[0]["check"] == {"id": "b", "mark": "FAIL"}
+
+
+def test_no_instance_rows_is_said_not_counted():
+    """A single-unit service or a library has no per-reporter instances;
+    the row says so with rows 0, which the page shows in words."""
+    rows = {r["name"]: r for r in ss.build_rows(
+        _load("catalog"), _load("components"), {"instances": []},
+        _load("manifest"), _load("check"))}
+    assert rows["psk-recorder"]["instances"]["rows"] == 0
+
+
+def test_failed_components_snapshot_is_unknown_not_never_fetched():
+    rows = {r["name"]: r for r in ss.build_rows(
+        _load("catalog"), None, _load("instances"), _load("manifest"),
+        _load("check"))}
+    psk = rows["psk-recorder"]
+    assert psk["repo_known"] is False
+    assert psk["behind"] is None and psk["fetched_at"] is None
+    assert _rows()["psk-recorder"]["repo_known"] is True
+
+
+def test_failed_check_snapshot_is_unknown_not_blank():
+    rows = {r["name"]: r for r in ss.build_rows(
+        _load("catalog"), _load("components"), _load("instances"),
+        _load("manifest"), None)}
+    assert rows["psk-recorder"]["check"] is None          # unknown
+    blank = ss.build_rows([{"name": "x", "installed": True}], [], [], None,
+                          {"lines": []})
+    assert blank[0]["check"] == {"id": None, "mark": None}  # no line for it
+
+
+def _hb(available=True, data=None, error=None, stale=False):
+    return {"available": available, "data": data, "error": error,
+            "stale": stale}
+
+
+def test_heartbeat_unavailable():
+    hb = ss._heartbeat(_hb(available=False, error="snapshot not written yet"))
+    assert hb["state"] == "unavailable"
+
+
+def test_heartbeat_no_tick_is_not_not_running():
+    err = "admin heartbeat show: no heartbeat ticks in /var/spool/x"
+    hb = ss._heartbeat(_hb(error=err))
+    assert hb == {"state": "no_tick", "stale": False}
+
+
+def test_heartbeat_tick_carries_verdict_reason_time():
+    hb = ss._heartbeat(_hb(data=_load("heartbeat")))
+    assert hb["state"] == "tick" and hb["verdict"] == "INVALID"
+    assert hb["reason"].startswith("uploads:")
+    assert hb["emitted_at"] == "2026-10-27T11:58:00Z"
+
+
+def test_heartbeat_other_failure_is_failed():
+    hb = ss._heartbeat(_hb(error="timed out"))
+    assert hb == {"state": "failed", "error": "timed out"}
 
 
 def test_read_snapshot_ages_and_goes_stale(settings, tmp_path):

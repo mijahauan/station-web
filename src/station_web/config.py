@@ -120,7 +120,15 @@ class Settings:
     @property
     def docs_roots(self) -> list[dict[str, Any]]:
         roots = (self.raw.get("docs", {}) or {}).get("roots")
-        return [dict(r) for r in roots] if roots else [dict(r) for r in DEFAULT_DOCS_ROOTS]
+        if not roots:
+            return [dict(r) for r in DEFAULT_DOCS_ROOTS]
+        out = [dict(r) for r in roots]
+        # The Check page links every line into "checks".  A config rendered
+        # before that root existed never re-renders, so supply it here.
+        if not any(r.get("name") == "checks" for r in out):
+            out.append(next(dict(r) for r in DEFAULT_DOCS_ROOTS
+                            if r["name"] == "checks"))
+        return out
 
     @property
     def log_level(self) -> str:

@@ -42,7 +42,7 @@ def test_no_snapshot_dir_is_not_an_error(client, settings, tmp_path):
     body = client.get("/api/status/station").json()
     assert set(body["snapshots"]) == set(snap.NAMES)
     assert all(not s["available"] for s in body["snapshots"].values())
-    assert body["heartbeat"] is None and body["viewers"] is None
+    assert body["heartbeat"]["state"] == "unavailable" and body["viewers"] is None
     assert body["rows"] == []
     chk = client.get("/api/status/check").json()
     assert chk["available"] is False and chk["verdict"] == "NONE"
@@ -90,6 +90,27 @@ def test_station_from_fixtures(client, snapdir):
     psk = next(r for r in body["rows"] if r["name"] == "psk-recorder")
     assert psk["manifest_status"] == "match"
     assert psk["check"] == {"id": "decode.psk", "mark": "ok"}
+
+
+def test_failed_snapshot_is_marked_failed_with_its_exit(client, snapdir):
+    _install(snapdir, components={"data": None, "exit": 1, "error": "boom"})
+    body = client.get("/api/status/station").json()
+    comps = body["snapshots"]["components"]
+    assert comps["failed"] is True and comps["exit"] == 1
+    assert comps["error"] == "boom"
+    assert body["snapshots"]["check"]["failed"] is False
+    assert body["snapshots"]["check"]["exit"] == 1
+    psk = next(r for r in body["rows"] if r["name"] == "psk-recorder")
+    assert psk["repo_known"] is False
+
+
+def test_empty_heartbeat_spool_reads_no_tick(client, snapdir):
+    _install(snapdir, heartbeat={
+        "data": None, "exit": 1,
+        "error": "admin heartbeat show: no heartbeat ticks in /var/spool/hb"})
+    body = client.get("/api/status/station").json()
+    assert body["heartbeat"]["state"] == "no_tick"
+    assert body["snapshots"]["heartbeat"]["failed"] is False
 
 
 def test_stale_validate_is_null_not_empty(client, snapdir):

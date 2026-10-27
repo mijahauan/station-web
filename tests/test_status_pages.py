@@ -80,3 +80,78 @@ def test_each_check_line_links_its_explanation_page():
     assert "What this means" in line
     assert "/static/docs.html?root=checks&doc=${encodeURIComponent(ln.id + '.md')}" in line
     assert "innerHTML" not in line
+
+
+def _js():
+    return (STATIC / "js" / "status.js").read_text()
+
+
+def _fn(name, js=None):
+    """The source of one function in status.js, up to the next function."""
+    body = (js or _js()).split(f"function {name}", 1)[1]
+    return body.split("\n    function ", 1)[0]
+
+
+def test_heartbeat_empty_spool_never_reads_not_running():
+    js = _js()
+    assert "not running" not in js
+    hb = _fn("renderHeartbeat", js)
+    assert "no_tick" in hb
+    assert "no heartbeat tick waiting (ticks leave the station once uploaded)" in hb
+    no_tick = hb.split("'no_tick'", 1)[1].split("} else", 1)[0]
+    assert "sp-muted" in no_tick
+    assert "'tick'" in hb and "h.verdict" in hb and "h.reason" in hb and "h.emitted_at" in hb
+    assert "unavailable" in hb
+
+
+def test_failed_snapshots_warn_in_table_and_footer():
+    js = _js()
+    m = re.search(r"const TABLE_SNAPSHOTS = \[(.*?)\];", js)
+    assert "'check'" in m.group(1)
+    assert "snapFailed(sn)" in _fn("renderTableWarning", js)
+    footer = _fn("renderSnapshotFooter", js)
+    assert "snapFailed" in footer and "failed" in footer and ".exit" in footer
+    failed = _fn("snapFailed", js)
+    assert "sn.failed" in failed and "sn.error" in failed
+
+
+def test_unknown_columns_never_read_never_fetched_or_blank():
+    js = _js()
+    behind = _fn("behindText", js)
+    assert behind.index("repo_known === false") < behind.index("never fetched")
+    assert "`unknown, ${ago}`" in behind
+    cell = _fn("checkCell", js)
+    assert cell.index("if (!chk) return el('span', { cls: 'sp-amber', text: 'unknown' })") \
+        < cell.index("'–'")
+
+
+def test_no_instance_rows_reads_as_words_not_zeros():
+    js = _js()
+    assert "const NO_INSTANCES = 'no per-reporter instances';" in js
+    assert "c.rows === 0" in _fn("instancesText", js)
+    assert "sp-muted" in _fn("instancesCell", js)
+
+
+def test_manifest_superset_is_green_and_not_listed_neutral():
+    cell = _fn("manifestCell")
+    assert "status === 'superset') return el('span', { cls: 'sp-green'" in cell
+    assert "status === 'not_listed') return el('span', { cls: 'sp-muted'" in cell
+
+
+def test_other_check_ids_get_no_explanation_link():
+    line = _fn("checkLine")
+    assert "!String(ln.id).startsWith('other.')" in line
+
+
+def test_pages_refresh_every_minute_without_overlapping_check_now():
+    js = _js()
+    assert "const REFRESH_MS = 60000;" in js
+    assert "setInterval" not in js
+    every = _fn("refreshEvery", js)
+    assert "setTimeout(" in every and "refreshEvery(load)" in every
+    assert "if (!checkNowPolling)" in every
+    assert "refreshEvery(loadStation)" in js and "refreshEvery(loadCheck)" in js
+    now = _fn("checkNow", js)
+    assert "checkNowPolling = true" in now and "checkNowPolling = false" in now
+    assert "button.disabled = false;" not in now.replace(
+        "const done = () => { button.disabled = false; checkNowPolling = false; };", "")

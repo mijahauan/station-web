@@ -74,3 +74,48 @@ def test_default_roots_carry_the_check_explanations():
     from station_web.config import DEFAULT_DOCS_ROOTS
     roots = {r["name"]: r["path"] for r in DEFAULT_DOCS_ROOTS}
     assert roots["checks"] == "/opt/git/sigmond/sigmond/docs/operator/checks"
+
+
+OLD_FOUR_ROOTS = [
+    {"name": "hf-timestd",     "path": "/opt/git/sigmond/hf-timestd/docs"},
+    {"name": "hamsci-physics", "path": "/opt/git/sigmond/hamsci-physics/docs"},
+    {"name": "hamsci-dsp",     "path": "/opt/git/sigmond/hamsci-dsp/docs"},
+    {"name": "sigmond",        "path": "/opt/git/sigmond/sigmond/docs/scientist"},
+]
+
+
+def test_an_old_four_root_config_still_serves_checks(settings, tmp_path):
+    """A config rendered before the checks root existed never re-renders;
+    the Check page's links must still land."""
+    from unittest import mock
+    from station_web import config as cfgmod
+    from station_web.app import create_app
+    from fastapi.testclient import TestClient
+    settings.raw["docs"] = {"roots": [dict(r) for r in OLD_FOUR_ROOTS]}
+    roots = {r["name"]: r["path"] for r in settings.docs_roots}
+    assert list(roots)[:4] == [r["name"] for r in OLD_FOUR_ROOTS]
+    assert roots["checks"] == "/opt/git/sigmond/sigmond/docs/operator/checks"
+    # Served, not just listed: aim the supplied root at a temp dir.
+    chk = tmp_path / "checks"; chk.mkdir()
+    (chk / "decode.psk.md").write_text("# psk\n")
+    cfgmod.config.use(settings)
+    patched = [dict(r, path=str(chk)) if r["name"] == "checks" else r
+               for r in cfgmod.DEFAULT_DOCS_ROOTS]
+    with mock.patch.object(cfgmod, "DEFAULT_DOCS_ROOTS", patched), \
+            TestClient(create_app(settings, control_socket=None)) as c:
+        r = c.get("/api/living-docs/checks/decode.psk.md")
+    assert r.status_code == 200 and "# psk" in r.json()["content"]
+
+
+def test_a_configured_checks_root_is_kept(settings):
+    settings.raw["docs"] = {"roots": [{"name": "checks", "path": "/elsewhere"}]}
+    assert settings.docs_roots == [{"name": "checks", "path": "/elsewhere"}]
+
+
+def test_the_template_lists_the_checks_root():
+    import tomllib
+    from pathlib import Path
+    t = (Path(__file__).resolve().parents[1] / "config"
+         / "station-web.toml.template").read_text()
+    roots = {r["name"]: r["path"] for r in tomllib.loads(t)["docs"]["roots"]}
+    assert roots["checks"] == "/opt/git/sigmond/sigmond/docs/operator/checks"

@@ -38,7 +38,10 @@ def test_storage_and_docs_roots(tmp_path, monkeypatch):
     s = cfgmod.load_settings()
     assert s.data_root == tmp_path
     assert s.storage == {"sqlite_path": str(tmp_path / "db.sqlite")}
-    assert s.docs_roots == [{"name": "a", "path": str(tmp_path)}]
+    # The configured root, then the checks root the Check page links into.
+    assert s.docs_roots == [{"name": "a", "path": str(tmp_path)},
+                            {"name": "checks",
+                             "path": "/opt/git/sigmond/sigmond/docs/operator/checks"}]
 
 
 def test_empty_sqlite_path_yields_empty_storage(tmp_path, monkeypatch):

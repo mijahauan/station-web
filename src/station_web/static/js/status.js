@@ -11,6 +11,10 @@
     const SHORT_WIDTH = 700;
     const POLL_MS = 5000;
     const POLL_LIMIT_MS = 120000;
+    // Both pages re-read their data this often, so the ages shown move on.
+    const REFRESH_MS = 60000;
+    // True while a Check-now poll runs; the 60 s refresh then stands aside.
+    let checkNowPolling = false;
 
     // ── small DOM helpers ───────────────────────────────────────────────
     function el(tag, opts, kids) {
@@ -73,7 +77,8 @@
         const sm = id.sigmond || {};
         if (sm.local) {
             let s = `sigmond ${sm.local}`;
-            if (sm.behind === null || sm.behind === undefined) s += ' (never fetched)';
+            if (!sm.fetched_at) s += ' (never fetched)';
+            else if (sm.behind === null || sm.behind === undefined) s += ' (behind unknown)';
             else if (sm.behind > 0) s += ` (${sm.behind} behind)`;
             parts.push(s);
         }
@@ -115,24 +120,43 @@
     function manifestCell(status) {
         if (status === null || status === undefined) return el('span', { cls: 'sp-amber', text: 'unknown' });
         if (status === 'match') return el('span', { cls: 'sp-green', text: 'match' });
+        // superset: the checkout contains the pinned commit, a sanctioned case.
+        if (status === 'superset') return el('span', { cls: 'sp-green', text: 'superset' });
         if (status === 'no_manifest') return el('span', { cls: 'sp-muted', text: 'no manifest' });
+        // not_listed: the manifest does not pin this component; nothing to compare.
+        if (status === 'not_listed') return el('span', { cls: 'sp-muted', text: 'not listed' });
         return el('span', { cls: 'sp-amber', text: String(status).replace(/_/g, ' ') });
     }
 
+    /** Behind main: unknown when no components row backs it (a failed or
+     *  missing snapshot), "never fetched" only when the row says so, and
+     *  unknown again when the row was fetched but git could not count. */
     function behindText(row) {
-        if (row.fetched_at === null || row.fetched_at === undefined || row.behind === null
-            || row.behind === undefined) return 'never fetched';
-        return `${row.behind} behind, fetched ${ageText(ageSince(row.fetched_at))} ago`;
+        if (row.repo_known === false) return 'unknown';
+        if (row.fetched_at === null || row.fetched_at === undefined) return 'never fetched';
+        const ago = `fetched ${ageText(ageSince(row.fetched_at))} ago`;
+        if (row.behind === null || row.behind === undefined) return `unknown, ${ago}`;
+        return `${row.behind} behind, ${ago}`;
     }
+
+    const NO_INSTANCES = 'no per-reporter instances';
 
     function instancesText(c) {
         if (!c) return 'unknown';
+        if (c.rows === 0) return NO_INSTANCES;
         const n = v => (v === null || v === undefined ? 'unknown' : v);
         return `${n(c.configured)} configured · ${n(c.enabled)} enabled · ${n(c.active)} running`;
     }
 
+    function instancesCell(c) {
+        const text = instancesText(c);
+        return el('span', { cls: text === NO_INSTANCES ? 'sp-muted' : '', text });
+    }
+
     function checkCell(chk) {
-        if (!chk || !chk.id || !chk.mark) return el('span', { cls: 'sp-muted', text: '–' });
+        // null: the check snapshot holds no answer.  No line: nothing to show.
+        if (!chk) return el('span', { cls: 'sp-amber', text: 'unknown' });
+        if (!chk.id || !chk.mark) return el('span', { cls: 'sp-muted', text: '–' });
         const glyph = { ok: '✓ ok', wait: '… wait', FAIL: '✕ FAIL', '--': '– n/a' }[chk.mark] || chk.mark;
         const cls = { ok: 'sp-green', wait: 'sp-amber', FAIL: 'sp-red' }[chk.mark] || 'sp-muted';
         return el('a', { href: `/check#${encodeURIComponent(chk.id)}`, cls, text: glyph });
@@ -151,7 +175,7 @@
                 el('td', { label: 'Version', text: r.local || '' }),
                 el('td', { label: 'Manifest' }, [manifestCell(r.manifest_status)]),
                 el('td', { label: 'Behind main', text: r.installed ? behindText(r) : '' }),
-                el('td', { label: 'Instances', text: r.installed ? instancesText(r.instances) : '' }),
+                el('td', { label: 'Instances' }, [r.installed ? instancesCell(r.instances) : null]),
                 el('td', { label: 'Check' }, [checkCell(r.check)]),
             ]);
             tr.setAttribute('data-installed', r.installed ? '1' : '0');
@@ -168,29 +192,54 @@
         });
     }
 
+    /** hs-uploader deletes each tick once it ships, so an empty spool is the
+     *  usual healthy state; the page never calls it a stopped heartbeat. */
     function renderHeartbeat(hb) {
-        if (!hb) {
-            fill('heartbeat', el('div', { text: 'heartbeat not running on this station' }));
-            return;
+        const h = hb || { state: 'unavailable' };
+        const stale = h.stale ? ' (snapshot out of date)' : '';
+        let line;
+        if (h.state === 'tick') {
+            const when = h.emitted_at ? ` at ${utcText(h.emitted_at)}` : '';
+            const reason = h.reason ? `: ${h.reason}` : '';
+            line = el('div', { text: `Last heartbeat verdict ${h.verdict || 'unknown'}${reason}${when}${stale}` });
+        } else if (h.state === 'no_tick') {
+            line = el('div', { cls: 'sp-muted',
+                text: `no heartbeat tick waiting (ticks leave the station once uploaded)${stale}` });
+        } else if (h.state === 'failed') {
+            line = el('div', { cls: 'sp-warn', text: `heartbeat snapshot failed: ${h.error || 'no reason given'}` });
+        } else {
+            line = el('div', { cls: 'sp-warn', text: 'heartbeat snapshot unavailable' });
         }
-        const when = hb.emitted_at ? ` at ${utcText(hb.emitted_at)}` : '';
-        const reason = hb.reason ? `: ${hb.reason}` : '';
-        fill('heartbeat', el('div', { text: `Last heartbeat verdict ${hb.verdict || 'unknown'}${reason}${when}` }));
+        fill('heartbeat', line);
+    }
+
+    /** A snapshot that ran but holds no data: the command failed.  The
+     *  server's ``failed`` decides; an answer without it falls back to the
+     *  error.  (An empty heartbeat spool carries an error, not a failure.) */
+    function snapFailed(sn) {
+        if (!sn || !sn.available) return false;
+        return sn.failed === undefined ? !!sn.error : !!sn.failed;
     }
 
     function renderSnapshotFooter(snaps) {
         const names = Object.keys(snaps || {});
         const ages = names.filter(n => snaps[n].available).map(n =>
-            `${n} ${ageText(snaps[n].age_s)}${snaps[n].stale ? ' (stale)' : ''}`);
+            `${n} ${ageText(snaps[n].age_s)}${snaps[n].stale ? ' (stale)' : ''}`
+            + `${snapFailed(snaps[n]) ? ' (failed)' : ''}`);
         const lines = [];
         if (ages.length) lines.push(el('div', { text: `Snapshot ages: ${ages.join(' · ')}` }));
         names.filter(n => !snaps[n].available).forEach(n =>
             lines.push(el('div', { cls: 'sp-warn',
                                    text: `${n} snapshot unavailable; the command is ${snaps[n].command}` })));
+        names.filter(n => snapFailed(snaps[n])).forEach(n => {
+            const ex = snaps[n].exit === null || snaps[n].exit === undefined ? '' : `, exit ${snaps[n].exit}`;
+            lines.push(el('div', { cls: 'sp-warn',
+                text: `${n} snapshot failed${ex}: ${snaps[n].error || 'no data'} (command: ${snaps[n].command})` }));
+        });
         fill('snapshot-footer', ...lines);
     }
 
-    const TABLE_SNAPSHOTS = ['catalog', 'components', 'instances', 'manifest'];
+    const TABLE_SNAPSHOTS = ['catalog', 'components', 'instances', 'manifest', 'check'];
 
     /** A warning above the client table when a snapshot it draws is stale or
      *  missing; the table dims.  Returns true when anything is out of date. */
@@ -200,6 +249,8 @@
             const sn = (snaps || {})[n];
             if (!sn || !sn.available) {
                 lines.push(`${n} snapshot unavailable (command: ${sn ? sn.command : 'unknown'})`);
+            } else if (snapFailed(sn)) {
+                lines.push(`${n} snapshot failed: ${sn.error || 'no data'} (command: ${sn.command})`);
             } else if (sn.stale) {
                 lines.push(`${n} snapshot is stale, ${ageText(sn.age_s)} old (command: ${sn.command})`);
             }
@@ -212,12 +263,26 @@
         return lines.length > 0;
     }
 
-    async function loadStation() {
+    /** Re-run `load` every REFRESH_MS, each run after the last one ends
+     *  (recursive setTimeout, so runs never overlap); skip a turn while a
+     *  Check-now poll is reading the same data. */
+    function refreshEvery(load) {
+        setTimeout(async () => {
+            if (!checkNowPolling) await load();
+            refreshEvery(load);
+        }, REFRESH_MS);
+    }
+
+    function loadStationPage() {
         const box = document.getElementById('installed-only');
         if (box) {
             box.checked = window.innerWidth < SHORT_WIDTH;
             box.addEventListener('change', applyInstalledOnly);
         }
+        loadStation().then(() => refreshEvery(loadStation));
+    }
+
+    async function loadStation() {
         try {
             const d = await getJSON('/api/status/station');
             fail('');
@@ -253,7 +318,8 @@
         ];
         if (!na && ln.fix) kids.push(el('pre', {}, [el('code', { text: ln.fix })]));
         // The explanation page for this check id, in the "checks" docs root.
-        if (ln.id) {
+        // "other." ids name checks with no page of their own.
+        if (ln.id && !String(ln.id).startsWith('other.')) {
             kids.push(el('div', {}, [el('a', {
                 href: `/static/docs.html?root=checks&doc=${encodeURIComponent(ln.id + '.md')}`,
                 text: 'What this means' })]));
@@ -298,8 +364,12 @@
                 el('span', { text: ` ${r.message || ''}` }),
             ])));
         }
-        scrollToHash();
+        // Only on the first draw: a refresh must not yank the reader back.
+        if (!checkRendered) scrollToHash();
+        checkRendered = true;
     }
+
+    let checkRendered = false;
 
     function scrollToHash() {
         if (!location.hash) return;
@@ -322,6 +392,8 @@
     async function checkNow(button) {
         const msg = document.getElementById('check-now-msg');
         button.disabled = true;
+        checkNowPolling = true;
+        const done = () => { button.disabled = false; checkNowPolling = false; };
         msg.textContent = 'asking for a fresh check...';
         // ``before`` comes only from a successful read; without it, success
         // needs a ran_at newer than the moment of the request.
@@ -333,12 +405,12 @@
                 let detail = '';
                 try { detail = (await r.json()).detail || ''; } catch (e) { /* not JSON */ }
                 msg.textContent = `could not request a check (HTTP ${r.status}${detail ? ': ' + detail : ''})`;
-                button.disabled = false;
+                done();
                 return;
             }
         } catch (e) {
             msg.textContent = `could not request a check: ${e.message}`;
-            button.disabled = false;
+            done();
             return;
         }
         msg.textContent = before ? 'waiting for the new result...' : 'requested; waiting for a fresh result';
@@ -353,10 +425,10 @@
             const d = await loadCheck();
             if (d && isNew(d.ran_at)) {
                 msg.textContent = 'updated';
-                button.disabled = false;
+                done();
             } else if (Date.now() - t0 > POLL_LIMIT_MS) {
                 msg.textContent = 'no new result after 2 minutes; sigmond may be busy';
-                button.disabled = false;
+                done();
             } else {
                 setTimeout(poll, POLL_MS);
             }
@@ -368,6 +440,7 @@
         const btn = document.getElementById('check-now');
         if (btn) btn.addEventListener('click', () => checkNow(btn));
         await loadCheck();
+        refreshEvery(loadCheck);
         try {
             const f = await getJSON('/api/features');
             if (f && f.science === true) {
@@ -378,7 +451,7 @@
 
     function start() {
         const page = document.body.getAttribute('data-page');
-        if (page === 'station') loadStation();
+        if (page === 'station') loadStationPage();
         else if (page === 'check') loadCheckPage();
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
