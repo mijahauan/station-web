@@ -1,0 +1,20 @@
+{
+  "name": "viewers",
+  "command": "smd admin viewers --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": {
+    "viewers": [
+      {
+        "name": "ka9q-web",
+        "label": "Receiver",
+        "port": 8081,
+        "unit": "ka9q-web.service",
+        "active": true,
+        "description": "Live receiver spectrum"
+      }
+    ],
+    "conflicts": []
+  },
+  "error": null
+}

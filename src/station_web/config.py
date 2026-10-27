@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/station-web/config.toml")
 DEFAULT_DATA_ROOT = Path("/var/lib/timestd")
 DEFAULT_AUTHORITY_PATH = Path("/run/hf-timestd/authority.json")
+DEFAULT_SNAPSHOT_DIR = Path("/run/sigmond/snapshot")
+DEFAULT_SNAPSHOT_REQUEST_DIR = Path("/run/sigmond/snapshot-request")
 DEFAULT_DOCS_ROOTS = [
     {"name": "hf-timestd",     "path": "/opt/git/sigmond/hf-timestd/docs"},
     {"name": "hamsci-physics", "path": "/opt/git/sigmond/hamsci-physics/docs"},
@@ -83,6 +85,17 @@ class Settings:
         """hf-timestd's WWVB decode ledger, one JSONL file per UTC day."""
         p = (self.raw.get("data", {}) or {}).get("wwvb_dir")
         return Path(p) if p else self.data_root / "wwvb"
+
+    # ── sigmond's snapshots, and the one request file station-web writes ──
+    @property
+    def snapshot_dir(self) -> Path:
+        return Path((self.raw.get("status", {}) or {}).get("snapshot_dir",
+                                                            DEFAULT_SNAPSHOT_DIR))
+
+    @property
+    def snapshot_request_dir(self) -> Path:
+        return Path((self.raw.get("status", {}) or {}).get(
+            "snapshot_request_dir", DEFAULT_SNAPSHOT_REQUEST_DIR))
 
     @property
     def fusion_dir(self) -> Path:

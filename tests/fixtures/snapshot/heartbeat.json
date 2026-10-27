@@ -1,0 +1,14 @@
+{
+  "name": "heartbeat",
+  "command": "smd admin heartbeat show --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": {
+    "emitted_at": "2026-10-27T11:58:00Z",
+    "rollup": {
+      "verdict": "degraded",
+      "reason": "uploads: last upload 3 h ago"
+    }
+  },
+  "error": null
+}

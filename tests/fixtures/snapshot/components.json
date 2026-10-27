@@ -1,0 +1,37 @@
+{
+  "name": "components",
+  "command": "smd component list --json --no-fetch",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": [
+    {
+      "name": "sigmond",
+      "kind": "core",
+      "local": "a1b2c3d",
+      "behind": 0,
+      "fetched_at": "2026-10-27T04:10:00Z"
+    },
+    {
+      "name": "psk-recorder",
+      "kind": "client",
+      "local": "b2c3d4e",
+      "behind": 2,
+      "fetched_at": "2026-10-27T04:10:00Z"
+    },
+    {
+      "name": "wspr-recorder",
+      "kind": "client",
+      "local": "c3d4e5f",
+      "behind": 0,
+      "fetched_at": null
+    },
+    {
+      "name": "hs-uploader",
+      "kind": "client",
+      "local": "d4e5f6a",
+      "behind": 0,
+      "fetched_at": "2026-10-27T04:10:00Z"
+    }
+  ],
+  "error": null
+}

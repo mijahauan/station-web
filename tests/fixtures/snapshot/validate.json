@@ -1,0 +1,28 @@
+{
+  "name": "validate",
+  "command": "smd admin validate --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": {
+    "results": [
+      {
+        "rule": "disk-space",
+        "severity": "warn",
+        "message": "/var is 80% full",
+        "affected": [
+          "storage"
+        ]
+      },
+      {
+        "rule": "config-parse",
+        "severity": "fail",
+        "message": "bad TOML in wspr-recorder",
+        "affected": [
+          "wspr-recorder"
+        ]
+      }
+    ],
+    "worst": "fail"
+  },
+  "error": null
+}

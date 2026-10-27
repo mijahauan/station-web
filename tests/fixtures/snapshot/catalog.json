@@ -1,0 +1,49 @@
+{
+  "name": "catalog",
+  "command": "smd component list --catalog --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": [
+    {
+      "name": "psk-recorder",
+      "kind": "client",
+      "description": "Decode FT8/FT4 and report to PSKReporter",
+      "repo": "https://github.com/example/psk-recorder",
+      "uses": [],
+      "contract": null,
+      "install_script": "install.sh",
+      "installed": true
+    },
+    {
+      "name": "wspr-recorder",
+      "kind": "client",
+      "description": "Decode WSPR",
+      "repo": "https://github.com/example/wspr-recorder",
+      "uses": [],
+      "contract": null,
+      "install_script": "install.sh",
+      "installed": true
+    },
+    {
+      "name": "hs-uploader",
+      "kind": "client",
+      "description": "Upload science products",
+      "repo": "https://github.com/example/hs-uploader",
+      "uses": [],
+      "contract": null,
+      "install_script": "install.sh",
+      "installed": true
+    },
+    {
+      "name": "meteor-scatter",
+      "kind": "client",
+      "description": "Meteor scatter MSK144 decode",
+      "repo": "https://github.com/example/meteor-scatter",
+      "uses": [],
+      "contract": null,
+      "install_script": "install.sh",
+      "installed": false
+    }
+  ],
+  "error": null
+}

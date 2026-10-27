@@ -1,0 +1,33 @@
+{
+  "name": "instances",
+  "command": "smd admin instance list --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 0,
+  "data": {
+    "instances": [
+      {
+        "client": "psk-recorder",
+        "reporter_id": "AC0G",
+        "display_id": "AC0G",
+        "unit": "psk-recorder@AC0G.service",
+        "has_config": true,
+        "has_env": true,
+        "has_sources": true,
+        "enabled": "enabled",
+        "active": "active"
+      },
+      {
+        "client": "wspr-recorder",
+        "reporter_id": "AC0G",
+        "display_id": "AC0G",
+        "unit": "wspr-recorder@AC0G.service",
+        "has_config": true,
+        "has_env": true,
+        "has_sources": true,
+        "enabled": "enabled",
+        "active": "inactive"
+      }
+    ]
+  },
+  "error": null
+}

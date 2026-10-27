@@ -1,0 +1,67 @@
+{
+  "name": "check",
+  "command": "smd check --json",
+  "ran_at": "2026-10-27T12:00:00Z",
+  "exit": 1,
+  "data": {
+    "lines": [
+      {
+        "mark": "ok",
+        "label": "bring-up",
+        "text": "bring-up complete",
+        "id": "platform.bringup",
+        "stage": "platform",
+        "client": null,
+        "fix": null
+      },
+      {
+        "mark": "ok",
+        "label": "storage",
+        "text": "disk 41% used",
+        "id": "platform.storage",
+        "stage": "platform",
+        "client": null,
+        "fix": null
+      },
+      {
+        "mark": "--",
+        "label": "magnetometer",
+        "text": "no magnetometer on this station",
+        "id": "sensor.magnetometer",
+        "stage": "sensor",
+        "client": "mag-recorder",
+        "fix": null
+      },
+      {
+        "mark": "ok",
+        "label": "PSK",
+        "text": "412 spots in the last hour",
+        "id": "decode.psk",
+        "stage": "decode",
+        "client": "psk-recorder",
+        "fix": null
+      },
+      {
+        "mark": "wait",
+        "label": "WSPR",
+        "text": "waiting for the first even minute",
+        "id": "decode.wspr",
+        "stage": "decode",
+        "client": "wspr-recorder",
+        "fix": null
+      },
+      {
+        "mark": "FAIL",
+        "label": "uploads",
+        "text": "last upload 3 h ago  Fix: smd admin uploads retry",
+        "id": "upload.uploads",
+        "stage": "upload",
+        "client": "hs-uploader",
+        "fix": "smd admin uploads retry"
+      }
+    ],
+    "verdict": "FAIL",
+    "exit": 1
+  },
+  "error": null
+}

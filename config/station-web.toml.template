@@ -24,6 +24,12 @@ root = "/var/lib/timestd"
 # (/var/lib/timestd/phase2/timestd.db).
 sqlite_path = ""
 
+[status]
+# sigmond's snapshots (read-only) and the request directory where station-web
+# drops an empty file to ask for a fresh check.  Defaults shown.
+# snapshot_dir = "/run/sigmond/snapshot"
+# snapshot_request_dir = "/run/sigmond/snapshot-request"
+
 [web]
 bind = "0.0.0.0"
 port = 8000
