@@ -9,6 +9,7 @@
     <script src="/static/vendor/plotly-2.27.0.min.js"></script>
     <script src="/static/js/common.js"></script>
     <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/js/docs-browser.js"></script>
     <style>
         .doc-container {
             max-width: 950px;
@@ -89,6 +90,27 @@
         }
         .doc-selector select:focus { outline: none; border-color: #3b82f6; }
         
+        /* Document browser (js/docs-browser.js) */
+        .doc-browser { background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; border-radius: 12px;
+            padding: 12px 20px; margin-bottom: 24px; max-height: 420px; overflow-y: auto; font-size: 14px; }
+        .db-toggle { color: #cbd5e1; font-size: 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+        .db-banner { background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); color: #fbbf24;
+            border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+        .db-group-head { font-size: 15px; color: #60a5fa; margin: 12px 0 4px; }
+        .db-section-head { font-size: 13px; color: #94a3b8; margin: 8px 0 2px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .db-note { color: #64748b; font-size: 13px; margin: 2px 0 6px; }
+        .db-list { list-style: none; margin: 0 0 4px; padding: 0 0 0 12px; }
+        .db-entry { padding: 3px 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+        .db-entry a { color: #cbd5e1; text-decoration: none; overflow-wrap: anywhere; }
+        .db-entry a:hover { color: #60a5fa; text-decoration: underline; }
+        .db-current a { color: #f1f5f9; font-weight: 600; }
+        .db-current::before { content: '▸'; color: #3b82f6; }
+        .db-star { color: #fbbf24; }
+        .db-root, .db-status, .db-age { font-size: 12px; color: #94a3b8; }
+        .db-status { border: 1px solid #334155; border-radius: 4px; padding: 0 5px; }
+        .db-muted { color: #64748b; opacity: 0.8; }
+        .db-age { color: #f59e0b; }
+
         /* Section navigation */
         .section-nav {
             position: fixed;
@@ -141,11 +163,10 @@
         
         <div class="doc-container">
             <div class="doc-selector">
-                <select id="root-select" onchange="selectRoot(this.value)">
-                    <option value="">Loading roots...</option>
-                </select>
-                <select id="doc-select" onchange="loadDocument(currentRoot, this.value)">
-                    <option value="">Loading documents...</option>
+                <label class="db-toggle"><input type="checkbox" id="docs-show-all"> Show everything</label>
+                <select id="docs-group-by" aria-label="Group documents by">
+                    <option value="component">Group by component</option>
+                    <option value="audience">Group by audience</option>
                 </select>
                 <select id="section-select" onchange="scrollToSection(this.value)">
                     <option value="">Jump to section...</option>
@@ -156,6 +177,10 @@
                 </div>
             </div>
             
+            <div class="doc-browser" id="doc-browser">
+                <p class="db-note">Loading the document list...</p>
+            </div>
+
             <div class="doc-content" id="doc-content">
                 <div style="text-align: center; padding: 60px; color: #64748b;">
                     <div class="loading"></div>
@@ -174,72 +199,85 @@
         // State
         let currentDoc = null;
         let currentRoot = null;
-        let docsByRoot = {};       // { rootName: [doc names] }
+        let currentName = null;
+        let listing = null;        // GET /api/living-docs/list answer
+        let prefs = DocsBrowser.loadPrefs();
         let liveData = { fusion: null };
 
-        // Escape untrusted text before it goes into option markup (root/doc
-        // names come from config or the filesystem listing — treat as data).
+        // Escape untrusted text before it goes into markup (error messages).
         function esc(text) {
             return escapeHtml(text);     // common.js: escapes quotes too, safe in attributes
         }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
+            const showAll = document.getElementById('docs-show-all');
+            const groupBy = document.getElementById('docs-group-by');
+            showAll.checked = prefs.showAll;
+            groupBy.value = prefs.groupBy;
+            showAll.addEventListener('change', () => { prefs.showAll = showAll.checked; prefsChanged(); });
+            groupBy.addEventListener('change', () => { prefs.groupBy = groupBy.value; prefsChanged(); });
             await loadDocumentList();
             await fetchLiveData();
             setInterval(fetchLiveData, 5000);
         });
 
-        // Load the root list, then the documents for the first present root
-        async function loadDocumentList() {
-            try {
-                const res = await fetch('/api/living-docs/list');
-                const data = await res.json();
-                docsByRoot = {};
-                (data.roots || []).forEach(r => {
-                    docsByRoot[r.name] = (r.documents || []).map(d => (typeof d === 'string' ? d : d.name));
-                });
-
-                const rootSelect = document.getElementById('root-select');
-                rootSelect.innerHTML = (data.roots || []).map(r =>
-                    `<option value="${esc(r.name)}"${r.present ? '' : ' disabled'}>${esc(r.name)}${r.present ? '' : ' (unavailable)'}</option>`
-                ).join('');
-
-                // A link may name its document: ?root=<root>&doc=<path>#<section>.
-                // Only a name the listing offers gets loaded.
-                const params = new URLSearchParams(window.location.search);
-                const linked = (data.roots || []).find(r => r.present && r.name === params.get('root'));
-                const defaultRoot = linked || (data.roots || []).find(r => r.present) || (data.roots || [])[0];
-                if (defaultRoot) {
-                    rootSelect.value = defaultRoot.name;
-                    const doc = linked && (docsByRoot[linked.name] || []).includes(params.get('doc'))
-                        ? params.get('doc') : null;
-                    selectRoot(defaultRoot.name, doc);
-                }
-            } catch (e) {
-                console.error('Failed to load document list:', e);
-            }
+        function prefsChanged() {
+            DocsBrowser.savePrefs(prefs);
+            drawBrowser();
         }
 
-        // Populate the document selector for a chosen root, then load its first doc
-        function selectRoot(rootName, preferredDoc = null) {
-            if (!rootName) return;
+        function drawBrowser() {
+            if (!listing) return;
+            DocsBrowser.render(document.getElementById('doc-browser'), listing, prefs, openDocument,
+                               currentRoot ? { root: currentRoot, doc: currentName } : null);
+        }
+
+        // Open a page from the list, and let the address bar link to it.
+        function openDocument(rootName, docName, hash = '') {
             currentRoot = rootName;
-            const docs = docsByRoot[rootName] || [];
-            const docSelect = document.getElementById('doc-select');
-            docSelect.innerHTML = docs.length
-                ? docs.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')
-                : '<option value="">No documents</option>';
-            if (docs.length) {
-                const first = preferredDoc || docs[0];
-                docSelect.value = first;
-                loadDocument(rootName, first).then(() => {
-                    const hash = safeHash();
-                    if (preferredDoc && hash) scrollToSection(hash);
-                });
+            currentName = docName;
+            drawBrowser();
+            try {
+                const q = new URLSearchParams({ root: rootName, doc: docName }).toString();
+                history.replaceState(null, '', '?' + q + (hash ? window.location.hash : ''));
+            } catch (e) { /* the page still works without it */ }
+            return loadDocument(rootName, docName);
+        }
+
+        // Load the listing, then the linked page, else the first page the view shows.
+        // A link may name its document: ?root=<root>&doc=<path>#<section>.  It opens
+        // whatever the switch says, but only a name the listing offers gets loaded.
+        async function loadDocumentList() {
+            const box = document.getElementById('doc-browser');
+            try {
+                const res = await fetch('/api/living-docs/list');
+                listing = await res.json();
+            } catch (e) {
+                console.error('Failed to load document list:', e);
+                const p = document.createElement('p');
+                p.className = 'db-note';
+                p.textContent = 'The document list did not load.';
+                box.replaceChildren(p);
+                return;
+            }
+            const roots = listing.roots || [];
+            const params = new URLSearchParams(window.location.search);
+            const linked = roots.find(r => r.present && r.name === params.get('root'));
+            const names = linked ? (linked.documents || []).map(d => d.name) : [];
+            if (linked && names.includes(params.get('doc'))) {
+                const hash = safeHash();
+                await openDocument(linked.name, params.get('doc'), hash);
+                if (hash) scrollToSection(hash);
+                return;
+            }
+            const first = DocsBrowser.firstEntry(listing, prefs);
+            if (first) {
+                await openDocument(first.root, first.doc);
             } else {
+                drawBrowser();
                 document.getElementById('doc-content').innerHTML =
-                    '<div style="color: #64748b; padding: 20px;">No documents in this root.</div>';
+                    '<div style="color: #64748b; padding: 20px;">No documents to show.</div>';
             }
         }
 

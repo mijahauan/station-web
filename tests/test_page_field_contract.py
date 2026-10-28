@@ -187,6 +187,9 @@ CONTRACT = [
      ["paths{}.timestamps", "paths{}.tec_tecu"]),
     ("docs.html", "/api/living-docs/list",
      ["roots[].name", "roots[].present", "roots[].documents"]),
+    ("js/docs-browser.js", "/api/living-docs/list",
+     ["source", "reason", "stale_days", "roots[].name", "roots[].present", "roots[].listed",
+      "roots[].has_index", "roots[].documents"]),
 ]
 
 
