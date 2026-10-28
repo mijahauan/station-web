@@ -146,7 +146,9 @@ like and what to do next.  The TUI shows the same facts on the console.
   function; four build their parser inside `main()`.
 - **Viewers.**  ka9q-web serves on port 8081 for the first radiod and 8082,
   8083 and so on for further ones.  gmag-webui serves on 8082.  These ports
-  appear hard-coded in sigmond, not in configuration.
+  appear hard-coded in sigmond, not in configuration.  *(Confirmed
+  2026-10-28: `_ka9q_web_targets()` in `bin/smd` and `PORT` in
+  `lib/sigmond/gmag_webui.py`.)*
 
 ## Design
 
@@ -170,16 +172,21 @@ How the split gets packaged (one repository with an optional extra, or two
 components in the catalog) stays with the builder.  Either way, a fresh
 install of any kind of station gets the core.
 
-**One front port.**  Remote access forwards one web port today, 8081, the
-first ka9q-web.  station-web (8000), gmag-webui (8082) and further ka9q-web
-instances never reach the gateway.  station-web becomes the single front
-door instead.  It reverse-proxies each viewer by path, for example
-`/viewer/ka9q-web/1/` and `/viewer/gmag/`, so every link works the same on
-the LAN and through remote access.  sigmond's remote-access setup forwards
-station-web's port, beside 8081 for as long as anything still relies on it.
-The fleetboard's deep links (`/check#<id>`) then reach any station.  Project
-B's radiod control will sit behind the same door, which gives it one place
-for authentication.
+**One front port.**  *(Corrected 2026-10-28, Plan 2 survey.  The first draft of
+this paragraph said remote access forwards one web port, 8081.  That holds
+only for stations that run sigmond without the appliance.)*  Each appliance
+station already relays four channels from its host to the VM: ssh (22), web
+(8081), station-web (8000) and gmag (8082), on gw2 bands 48800+N and 49800+N.
+The relay copies raw TCP, so WebSockets pass.  Plan 2 therefore changes no
+remote-access code.  A station that runs sigmond-rac forwards ssh and at most
+one admin-assigned web port.  Giving it station-web's port needs a gw2 port
+from Rob; Plan 2 asks him and does not build it.
+
+station-web serves as the single front door.  It reverse-proxies each viewer
+by path, for example `/viewer/ka9q-web/1/` and `/viewer/gmag/`, so every link
+works the same on the LAN and through remote access.  The fleetboard's deep
+links (`/check#<id>`) then reach any station.  Project B's radiod control
+will sit behind the same door, which gives it one place for authentication.
 
 The proxy has to carry WebSockets.  gmag-webui's page talks to mag-usb's
 WebSocket on port 8765, and ka9q-web streams over a WebSocket too.  The
@@ -315,7 +322,9 @@ with no link.
 
 The survey found a port conflict: a second radiod's ka9q-web takes port
 8082, which gmag-webui also uses.  The builder files that against sigmond
-and does not work around it in station-web.
+and does not work around it in station-web.  *(Filed 2026-10-28 as row 9 of
+sigmond's `tasks/release-v383.md`.  The front door answers 409 for either
+viewer while both claim the port.)*
 
 ### 6. The Commands page
 

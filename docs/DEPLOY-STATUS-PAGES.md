@@ -113,6 +113,63 @@ after Step 1, not before.
   deletes each tick once it ships, so an empty spool usually means the
   heartbeat works.
 
+## Viewers through the front door
+
+station-web serves each viewer on the station at `/viewer/<name>/`, for
+example `/viewer/ka9q-web/` and `/viewer/gmag/`.  The Station page links each
+viewer this way.  Because the viewer rides on station-web's own port, the link
+works on the LAN and through remote access alike.
+
+What the proxy does:
+
+- It reads the viewer list and each viewer's port from the `viewers`
+  snapshot.  It never probes ports, and it always connects to `127.0.0.1`.
+- It carries HTTP and WebSockets.  A POST, PUT, PATCH or DELETE, and every
+  WebSocket, must come from the same origin as station-web; the proxy
+  refuses anything else.
+- It adds no control of its own.  It passes the viewer's traffic through.
+- It answers 404 for an unknown viewer, 503 when the snapshot is
+  unavailable, and 409 when two viewers claim one port.
+
+Two viewers open their WebSocket at the server root, which under a prefix
+would reach station-web's own `/` or `/ws`.  The proxy rewrites one line in
+each, as the file passes through:
+
+| Viewer | File | Pinned upstream commit |
+|---|---|---|
+| ka9q-web | `html/radio.js` | 2c6303f |
+| gmag-webui | `js/feed.js` | bc1328b |
+
+The proxy replaces the line only when it appears exactly once.  If the line
+is missing, because the viewer changed upstream, the file passes through
+unchanged and station-web logs one WARNING per viewer and file:
+
+```
+viewer <name>: <path> lacks the line the front door rewrites; its live data will not work through /viewer/<name>/ — use the direct port
+```
+
+Find it with `journalctl -u station-web@default | grep 'lacks the line'`.
+The page itself still loads; only its live data stops.
+
+gmag-webui also asks for `/site.webmanifest` by an absolute path.  Under the
+prefix that request reaches station-web and returns 404.  The effect is
+cosmetic: the browser finds no web-app manifest.
+
+The LAN fallback: each viewer row on the Station page carries a
+"direct :<port>" link.  It goes straight to the viewer's own port and works
+only on the station's LAN.  Use it when the WARNING appears, or when the
+proxy answers 409.
+
+One conflict stays open.  A second radiod's ka9q-web and gmag-webui both
+claim port 8082, and sigmond hard-codes both.  The proxy refuses the shared
+port with 409 until sigmond gives them distinct ports.  Row 9 of sigmond's
+`tasks/release-v383.md` tracks it.
+
+Remote access: appliance stations already forward station-web's port 8000
+through the "station" relay, so they need nothing more.  A station that runs
+sigmond-rac forwards ssh and at most one admin-assigned web port; it needs a
+gw2 port for 8000 before the front door reaches it remotely.
+
 ## How to check the result
 
 List the snapshot directory:
