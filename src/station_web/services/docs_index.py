@@ -127,7 +127,10 @@ def _under(base: Path, raw_path: Any) -> Optional[Path]:
 
 
 def _fallback(settings, reason: str) -> Dict[str, Any]:
-    roots = [{"name": r["name"], "path": r["path"], "listed": True, "has_index": None}
+    # `checks` serves the Check page's links but stays out of the list, as
+    # in the snapshot.
+    roots = [{"name": r["name"], "path": r["path"],
+              "listed": r["name"] != "checks", "has_index": None}
              for r in settings.docs_roots]
     return {"roots": roots, "doc_meta": {}, "stale_days": None,
             "meta": {"source": "fallback", "reason": reason, "generated_at": None}}

@@ -1,8 +1,8 @@
 """The docs browser takes its folders and page facts from sigmond's ``docs`` snapshot.
 
 sigmond writes ``docs.json`` (``smd admin docs index --json``): one root per
-installed component's ``docs/`` folder, plus the unlisted ``checks`` root,
-each page with its header fields, its last commit and whether INDEX.md links
+``docs/`` folder of a component checked out under /opt/git/sigmond, plus
+the unlisted ``checks`` root, each page with its header fields, its last commit and whether INDEX.md links
 it.  station-web reads that file, keeps only roots under the allowed base,
 and still walks the disk for which pages exist and may be served.
 """
@@ -168,7 +168,7 @@ def test_fallback_when_snapshot_missing_or_stale(settings, snapdir, tree, case):
     assert meta["source"] == "fallback"
     assert isinstance(meta["reason"], str) and meta["reason"]
     assert [{"name": r["name"], "path": r["path"]} for r in roots] == DEFAULT_DOCS_ROOTS
-    assert all(r["listed"] is True for r in roots)
+    assert all(r["listed"] is (r["name"] != "checks") for r in roots)
     assert doc_meta(settings) == {}
 
 
@@ -206,8 +206,22 @@ def test_list_in_fallback_says_so(docs_client, settings, tree):
     assert j["source"] == "fallback" and j["reason"]
     assert j["stale_days"] is None
     for r in j["roots"]:
-        assert r["listed"] is True
+        assert r["listed"] is (r["name"] != "checks")
         assert all(d["indexed"] is False and d["title"] is None for d in r["documents"])
+
+
+def test_fallback_serves_checks_but_leaves_it_unlisted(docs_client, settings, tree):
+    """With no snapshot, `checks` still serves the Check page's links, but
+    the list marks it unlisted, so the browser never shows it."""
+    settings.raw["docs"] = {"allowed_base": str(tree), "roots": [
+        {"name": "sigmond", "path": str(tree / "sigmond" / "docs")},
+        {"name": "checks", "path": str(tree / "sigmond" / "docs" / "operator" / "checks")}]}
+    j = docs_client.get("/api/living-docs/list").json()
+    assert j["source"] == "fallback"
+    by = {r["name"]: r for r in j["roots"]}
+    assert by["checks"]["listed"] is False and by["sigmond"]["listed"] is True
+    r = docs_client.get("/api/living-docs/checks/platform.bringup.md")
+    assert r.status_code == 200 and "# Bring-up" in r.json()["content"]
 
 
 def test_snapshot_cannot_widen_serving(docs_client, snapdir, tree):

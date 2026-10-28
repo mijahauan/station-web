@@ -176,10 +176,11 @@ gw2 port for 8000 before the front door reaches it remotely.
 ## The documentation browser
 
 The browser at `/static/docs.html` takes its folders from the `docs`
-snapshot, which `smd admin docs index --json` writes.  sigmond names one folder for each
-installed component that keeps a `docs/` directory, under the component's
-name, and one, `sigmond`, for the whole of `sigmond/docs/`.  It also names
-`checks`, sigmond's check pages.  station-web serves `checks` for the
+snapshot, which `smd admin docs index --json` writes.  sigmond names one
+folder for each component checked out under `/opt/git/sigmond/` that keeps
+a `docs/` directory, under the component's name, and one, `sigmond`, for
+the whole of `sigmond/docs/`.  It also names `checks`, sigmond's check
+pages.  station-web serves `checks` for the
 Check page's links but leaves it out of the list, since its pages already
 appear under `sigmond`.  station-web accepts a folder only if it lies under
 `/opt/git/sigmond/`; it drops any other and logs a line.
@@ -202,14 +203,16 @@ minutes, the browser falls back to its fixed folders.  It then shows a
 banner, "Page facts unavailable", with the reason, and lists those
 folders without ages or index.
 
-To bring a station to this browser, pull sigmond and restart station-web:
+To bring a station to this browser, pull sigmond and station-web, sigmond
+first, then restart station-web:
 
 ```
 sudo systemctl restart station-web@default
 ```
 
 The snapshot service already runs every command in sigmond's snapshot
-table, so the pull alone adds `docs.json` at the next five-minute mark.
+table, so the sigmond pull alone adds `docs.json` at the next five-minute
+mark.
 It needs no new unit and no installer run.
 
 Most checkouts on a station come from shallow clones, which hold only the
