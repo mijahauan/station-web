@@ -27,6 +27,10 @@ async def _handler(ws):
     if ws.request.path == "/close4001":
         await ws.close(4001, "bye")
         return
+    if ws.request.path == "/close-after-first":
+        await ws.recv()
+        await ws.close(4001, "bye")
+        return
     async for msg in ws:
         await ws.send(msg)
 
@@ -189,3 +193,65 @@ def test_ws_upstream_down_closes_1011(proxy):
                                        (1004, 1011), (2999, 1011), (5000, 1011)])
 def test_ws_close_code_mapping(code, sent):
     assert viewer_proxy.ws_close_code(code) == sent
+
+
+def test_ws_upstream_close_while_browser_sends_end_to_end(proxy):
+    """The viewer closes 4001 right after the browser's first message while
+    the browser keeps sending; the browser still sees 4001."""
+    c, _, _ = proxy
+    with c.websocket_connect("/viewer/up/close-after-first") as ws:
+        for i in range(200):
+            ws.send_text(f"m{i}")
+        with pytest.raises(WebSocketDisconnect) as e:
+            ws.receive_text()
+    assert e.value.code == 4001
+
+
+class _FakeBrowser:
+    """An accepted browser socket that keeps sending until closed."""
+
+    def __init__(self):
+        self.closed_with = []
+
+    async def receive(self):
+        return {"type": "websocket.receive", "text": "x"}
+
+    async def send_text(self, m):
+        pass
+
+    async def send_bytes(self, m):
+        pass
+
+    async def close(self, code=1000):
+        self.closed_with.append(code)
+
+
+class _UpstreamClosedMidSend:
+    """A viewer that has closed 4001: send raises at once, while the
+    reading side has not yet woken to the close (the race, made
+    deterministic)."""
+
+    close_code = 4001
+
+    async def send(self, m):
+        from websockets.exceptions import ConnectionClosedOK
+        from websockets.frames import Close
+        raise ConnectionClosedOK(Close(4001, "bye"), Close(4001, "bye"), True)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        import anyio
+        await anyio.sleep(0.2)
+        raise StopAsyncIteration
+
+    async def close(self, code=1000, reason=""):
+        pass
+
+
+def test_ws_relay_delivers_viewer_code_when_browser_was_mid_send():
+    import anyio
+    browser = _FakeBrowser()
+    anyio.run(viewer_proxy.ws_relay, browser, _UpstreamClosedMidSend())
+    assert browser.closed_with == [4001]

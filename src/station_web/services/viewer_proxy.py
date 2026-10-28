@@ -287,28 +287,29 @@ async def ws_relay(browser, upstream) -> None:
     """Pump messages both ways until either side closes, then close the
     other with the same code.  ``browser`` is an accepted Starlette
     WebSocket; ``upstream`` a websockets client connection.  Text stays
-    text and binary stays binary."""
-    state = {"browser_closed": False}
+    text and binary stays binary.
+
+    The pumps only pump.  The first to stop cancels the other, and all
+    closing happens once, afterwards, under a shield: a close sent from
+    inside a pump could be cancelled half-done by the other pump's exit."""
+    #: Set when the browser side ended: the code to pass to the viewer.
+    browser_ended: dict = {}
 
     async def browser_to_upstream():
-        code = 1000
         try:
             while True:
                 msg = await browser.receive()
                 if msg["type"] == "websocket.disconnect":
-                    state["browser_closed"] = True
-                    code = msg.get("code")
-                    break
+                    browser_ended["code"] = msg.get("code")
+                    return
                 if msg.get("text") is not None:
                     await upstream.send(msg["text"])
                 elif msg.get("bytes") is not None:
                     await upstream.send(msg["bytes"])
         except ConnectionClosed:
-            return          # the other pump reports the upstream's close
+            return          # the viewer closed; its code goes to the browser
         except Exception:
-            state["browser_closed"] = True
-            code = 1011
-        await upstream.close(ws_close_code(code))
+            browser_ended["code"] = 1011
 
     async def upstream_to_browser():
         try:
@@ -318,22 +319,9 @@ async def ws_relay(browser, upstream) -> None:
                 else:
                     await browser.send_bytes(msg)
         except ConnectionClosed:
-            pass
-        except Exception:
-            # The browser went away mid-send; the other pump sees its
-            # disconnect.  Make sure the upstream closes either way.
-            state["browser_closed"] = True
-            await upstream.close(1001)
             return
-        # The code the viewer sent; 1005 if it sent none, 1006 if the
-        # connection dropped without a close frame.
-        code = upstream.close_code
-        if not state["browser_closed"]:
-            state["browser_closed"] = True
-            try:
-                await browser.close(ws_close_code(code))
-            except Exception:
-                pass
+        except Exception:
+            browser_ended["code"] = 1001    # the browser went away mid-send
 
     try:
         async with anyio.create_task_group() as tg:
@@ -344,4 +332,15 @@ async def ws_relay(browser, upstream) -> None:
             tg.start_soon(run, upstream_to_browser)
     finally:
         with anyio.CancelScope(shield=True):
-            await upstream.close()
+            if "code" in browser_ended:
+                await upstream.close(ws_close_code(browser_ended["code"]))
+            else:
+                # close() does nothing to a connection the viewer already
+                # closed, and returns once the TCP connection ends: only then
+                # does close_code hold the viewer's code (None before; 1005
+                # if it sent none; 1006 if it dropped without a close frame).
+                await upstream.close()
+                try:
+                    await browser.close(ws_close_code(upstream.close_code))
+                except Exception:
+                    pass
