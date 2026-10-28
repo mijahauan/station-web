@@ -149,28 +149,48 @@ def request_headers(incoming: Mapping[str, str], target: Target, client_host: st
     return out
 
 
+#: Set-Cookie attributes relayed, by trimmed lower-case name: those that
+#: take a value, and the flags.  Domain and anything unrecognised go.
+_COOKIE_VALUED = {"expires": "Expires", "max-age": "Max-Age", "samesite": "SameSite",
+                  "path": "Path"}
+_COOKIE_FLAGS = {"secure": "Secure", "httponly": "HttpOnly", "partitioned": "Partitioned"}
+
+
+def _prefixed_cookie_path(val: str, prefix: str) -> str | None:
+    """``val`` moved under ``prefix``, or None when it would leave it."""
+    decoded = unquote(val)
+    if not decoded.startswith("/") or decoded.startswith("//"):
+        return None
+    if ".." in decoded.split("/") or "\\" in decoded:
+        return None
+    norm = posixpath.normpath(decoded)
+    tail = "/" if norm == "/" else norm + ("/" if decoded.endswith("/") else "")
+    return prefix + tail
+
+
 def _cookie_path(value: str, prefix: str) -> str | None:
-    """Rewrite a Set-Cookie value's Path under ``prefix``; None drops it.
-    A Domain attribute goes: the cookie stays host-only on station-web."""
-    parts = value.split(";")
-    out = [parts[0]]
-    for attr in parts[1:]:
-        name, sep, val = attr.strip().partition("=")
-        if name.lower() == "domain":
-            continue
-        if name.lower() != "path":
-            out.append(attr)
-            continue
+    """Rebuild a Set-Cookie value from its trimmed, known attributes, with
+    Path moved under ``prefix``; None drops the cookie.  Domain goes, so the
+    cookie stays host-only on station-web; so does any attribute this cannot
+    parse or does not know."""
+    pair, *attrs = value.split(";")
+    kept: list[tuple[str, str | None]] = []
+    for attr in attrs:
+        name, sep, val = attr.partition("=")
+        key = name.strip().lower()
         val = val.strip()
-        decoded = unquote(val)
-        if not decoded.startswith("/") or decoded.startswith("//"):
-            return None
-        if ".." in decoded.split("/") or "\\" in decoded:
-            return None
-        norm = posixpath.normpath(decoded)
-        tail = "/" if norm == "/" else norm + ("/" if decoded.endswith("/") else "")
-        out.append(f" {name}={prefix}{tail}")
-    return ";".join(out)
+        if key in _COOKIE_FLAGS:
+            kept.append((_COOKIE_FLAGS[key], None))
+        elif key in _COOKIE_VALUED and sep and val:
+            if key == "path":
+                val = _prefixed_cookie_path(val, prefix)
+                if val is None:
+                    return None
+            kept.append((_COOKIE_VALUED[key], val))
+    # A browser honours the last Path; relay that one alone.
+    paths = [i for i, (k, _) in enumerate(kept) if k == "Path"]
+    kept = [a for i, a in enumerate(kept) if a[0] != "Path" or i == paths[-1]]
+    return "; ".join([pair.strip()] + [k if v is None else f"{k}={v}" for k, v in kept])
 
 
 def response_headers(upstream: Mapping[str, str], prefix: str) -> list[tuple[str, str]]:

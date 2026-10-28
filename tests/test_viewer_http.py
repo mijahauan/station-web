@@ -464,3 +464,46 @@ def test_response_headers_unit_drops_origin_scoped():
          ("Set-Cookie", "k=v; domain=.station.lan; Path=/"), ("x-ok", "1")],
         "/viewer/up")
     assert out == [("set-cookie", "k=v; Path=/viewer/up/"), ("x-ok", "1")]
+
+
+# ------------------------------------------------------------ fix round 2
+
+
+def _cookie(value):
+    out = viewer_proxy.response_headers([("set-cookie", value)], "/viewer/up")
+    return [v for k, v in out if k == "set-cookie"]
+
+
+def test_cookie_domain_with_space_before_equals_is_stripped():
+    assert _cookie("k=v; Domain =evil.example; Path=/") == ["k=v; Path=/viewer/up/"]
+
+
+def test_cookie_domain_with_leading_space_and_spaced_value_is_stripped():
+    assert _cookie("k=v;  domain= x; Path=/") == ["k=v; Path=/viewer/up/"]
+
+
+def test_cookie_path_with_space_before_equals_is_rewritten():
+    assert _cookie("k=v; Path =/") == ["k=v; Path=/viewer/up/"]
+
+
+def test_cookie_path_in_capitals_is_rewritten():
+    assert _cookie("k=v; PATH=/a") == ["k=v; Path=/viewer/up/a"]
+
+
+def test_cookie_unknown_attribute_is_dropped():
+    assert _cookie("k=v; Path=/; Priority=High; weird; HttpOnly") == [
+        "k=v; Path=/viewer/up/; HttpOnly"]
+
+
+def test_cookie_known_attributes_survive_intact():
+    value = ("k=v; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Max-Age=60; Secure; "
+             "HttpOnly; SameSite=Lax; Partitioned; Path=/s")
+    assert _cookie(value) == [
+        "k=v; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Max-Age=60; Secure; HttpOnly; "
+        "SameSite=Lax; Partitioned; Path=/viewer/up/s"]
+
+
+def test_cookie_spaced_escaping_path_still_drops_the_cookie():
+    assert _cookie("k=v; Path = /a/../..") == []
+    assert _cookie("k=v; path=//evil") == []
+    assert _cookie("k=v; Path=/a\\b") == []
