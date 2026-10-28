@@ -44,6 +44,19 @@ def _upstream_app(seen: list):
                             headers={"content-encoding": "gzip"})
         if p == "/big":
             return Response(BIG_PLAIN, media_type="text/plain")
+        if p == "/non-ascii":
+            r = Response(b"ok")
+            r.raw_headers.append((b"x-note", "check \u2713 caf\u00e9".encode("utf-8")))
+            return r
+        if p == "/origin-scoped":
+            r = Response(b"ok")
+            r.raw_headers += [(b"service-worker-allowed", b"/"),
+                              (b"clear-site-data", b'"*"'),
+                              (b"access-control-allow-origin", b"*"),
+                              (b"access-control-allow-credentials", b"true"),
+                              (b"set-cookie", b"d=4; Domain=example.org; Path=/p; Secure"),
+                              (b"x-kept", b"1")]
+            return r
         if p == "/cookies":
             r = Response(b"ok")
             r.raw_headers.append((b"set-cookie", b"a=1; Path=/"))
@@ -330,3 +343,124 @@ def test_upstream_closes_when_browser_goes_away():
 
     anyio.run(main)
     assert FakeUpstream.closed
+
+
+# ------------------------------------------------------------ fix round 1
+
+
+def test_non_ascii_header_value_passes_byte_identical(tmp_settings, write_viewers, upstream):
+    """httpx decodes header values as UTF-8; re-encoding them as latin-1
+    raised and leaked the upstream connection.  The proxy relays the raw
+    bytes instead.  Driven over raw ASGI: TestClient itself cannot carry a
+    non-ASCII header back to the test."""
+    import anyio
+    port, _ = upstream
+    write_viewers([{"name": "up", "port": port}])
+    app = appmod.create_app(tmp_settings, control_socket=None)
+    messages = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        messages.append(msg)
+
+    async def main():
+        app.state.viewer_client = viewer_proxy.make_client()
+        try:
+            await app({"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+                       "http_version": "1.1", "method": "GET", "scheme": "http",
+                       "path": "/viewer/up/non-ascii", "raw_path": b"/viewer/up/non-ascii",
+                       "query_string": b"", "root_path": "",
+                       "headers": [(b"host", b"testserver")],
+                       "client": ("127.0.0.1", 5), "server": ("testserver", 80)},
+                      receive, send)
+        finally:
+            await app.state.viewer_client.aclose()
+
+    anyio.run(main)
+    start = next(m for m in messages if m["type"] == "http.response.start")
+    assert start["status"] == 200
+    assert dict(start["headers"])[b"x-note"] == "check \u2713 caf\u00e9".encode("utf-8")
+    body = b"".join(m.get("body", b"") for m in messages if m["type"] == "http.response.body")
+    assert body == b"ok"
+
+
+def test_header_failure_closes_upstream_and_is_fixed_502(proxy, monkeypatch):
+    c, port, _ = proxy
+    opened = []
+    real = viewer_proxy.open_upstream
+
+    async def spy(*a, **kw):
+        resp = await real(*a, **kw)
+        opened.append(resp)
+        return resp
+
+    def boom(*a, **kw):
+        raise UnicodeEncodeError("latin-1", "\u2713", 0, 1, "secret detail")
+
+    monkeypatch.setattr(viewer_proxy, "open_upstream", spy)
+    monkeypatch.setattr(viewer_proxy, "response_headers", boom)
+    r = c.get("/viewer/up/x")
+    assert r.status_code == 502
+    assert r.text == f"viewer not answering on port {port}"
+    assert "secret" not in r.text
+    assert opened and opened[0].is_closed
+
+
+def test_cross_origin_post_is_refused_before_upstream(proxy):
+    c, _, seen = proxy
+    before = len(seen)
+    r = c.post("/viewer/up/form", content=b"k=v", headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+    assert r.text == "request refused: started by another site"
+    assert r.headers["content-type"].startswith("text/plain")
+    assert len(seen) == before
+
+
+def test_cross_site_fetch_post_is_refused(proxy):
+    c, _, seen = proxy
+    before = len(seen)
+    r = c.post("/viewer/up/form", content=b"k=v", headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403 and len(seen) == before
+
+
+def test_cross_origin_refusal_comes_before_resolve(tmp_settings):
+    """No snapshot at all: the 403 still wins over the 503 resolve would give."""
+    with TestClient(appmod.create_app(tmp_settings, control_socket=None)) as c:
+        r = c.post("/viewer/up/form", headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+
+
+def test_same_origin_post_is_proxied(proxy):
+    c, _, seen = proxy
+    r = c.post("/viewer/up/form", content=b"k=v",
+               headers={"Origin": "http://testserver", "Sec-Fetch-Site": "same-origin"})
+    assert r.status_code == 200 and seen[-1]["body"] == b"k=v"
+
+
+def test_cross_origin_get_is_proxied(proxy):
+    c, _, seen = proxy
+    r = c.get("/viewer/up/page", headers={"Origin": "http://evil.example",
+                                          "Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 200 and seen[-1]["path"] == "/page"
+
+
+def test_origin_scoped_response_headers_are_dropped(proxy):
+    c, _, _ = proxy
+    r = c.get("/viewer/up/origin-scoped")
+    names = {k.lower() for k in r.headers.keys()}
+    assert "service-worker-allowed" not in names
+    assert "clear-site-data" not in names
+    assert not any(n.startswith("access-control-") for n in names)
+    assert r.headers["x-kept"] == "1"
+    assert r.headers.get_list("set-cookie") == ["d=4; Path=/viewer/up/p; Secure"]
+
+
+def test_response_headers_unit_drops_origin_scoped():
+    out = viewer_proxy.response_headers(
+        [("Service-Worker-Allowed", "/"), ("Clear-Site-Data", '"cookies"'),
+         ("Access-Control-Allow-Origin", "*"), ("Access-Control-Expose-Headers", "x"),
+         ("Set-Cookie", "k=v; domain=.station.lan; Path=/"), ("x-ok", "1")],
+        "/viewer/up")
+    assert out == [("set-cookie", "k=v; Path=/viewer/up/"), ("x-ok", "1")]

@@ -97,6 +97,12 @@ _DROP_REQUEST = frozenset({"host", "cookie", "origin", "referer", "content-lengt
                            "x-forwarded-proto", "x-forwarded-host",
                            "x-forwarded-prefix"})
 
+#: Response headers that act on station-web's whole origin, not on one
+#: viewer: a viewer must not widen a service worker's scope, wipe the
+#: origin's storage, or open the origin to other sites (access-control-*,
+#: dropped by prefix in response_headers).
+_DROP_RESPONSE = frozenset({"service-worker-allowed", "clear-site-data"})
+
 TIMEOUT = httpx.Timeout(connect=3.0, read=60.0, write=10.0, pool=3.0)
 
 
@@ -141,11 +147,14 @@ def request_headers(incoming: Mapping[str, str], target: Target, client_host: st
 
 
 def _cookie_path(value: str, prefix: str) -> str | None:
-    """Rewrite a Set-Cookie value's Path under ``prefix``; None drops it."""
+    """Rewrite a Set-Cookie value's Path under ``prefix``; None drops it.
+    A Domain attribute goes: the cookie stays host-only on station-web."""
     parts = value.split(";")
     out = [parts[0]]
     for attr in parts[1:]:
         name, sep, val = attr.strip().partition("=")
+        if name.lower() == "domain":
+            continue
         if name.lower() != "path":
             out.append(attr)
             continue
@@ -162,12 +171,14 @@ def _cookie_path(value: str, prefix: str) -> str | None:
 
 
 def response_headers(upstream: Mapping[str, str], prefix: str) -> list[tuple[str, str]]:
+    """The viewer's response headers as station-web relays them.  The router
+    passes values decoded as latin-1, so every byte round-trips unchanged."""
     pairs = [(k, v) for k, v in _pairs(upstream)]
-    drop = HOP_BY_HOP | _connection_tokens(pairs)
+    drop = HOP_BY_HOP | _DROP_RESPONSE | _connection_tokens(pairs)
     out: list[tuple[str, str]] = []
     for k, v in pairs:
         k = k.lower()
-        if k in drop:
+        if k in drop or k.startswith("access-control-"):
             continue
         if k == "location" and v.startswith("/") and not v.startswith("//"):
             v = prefix + v

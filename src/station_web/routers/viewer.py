@@ -21,10 +21,16 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
+from station_web.security import same_origin
 from station_web.services import viewer_proxy
 from station_web.services.viewer_proxy import Refusal
 
 logger = logging.getLogger(__name__)
+
+#: Methods any site may start: a page elsewhere can already GET a viewer by
+#: linking to it.  Every other method needs a same-origin request.
+SAFE_METHODS = frozenset({"GET", "HEAD"})
+CROSS_SITE_REFUSED = "request refused: started by another site"
 
 router = APIRouter(prefix="/viewer", tags=["viewers"])
 
@@ -83,6 +89,8 @@ async def viewer_bare(name: str, request: Request):
 @router.api_route("/{name}/{path:path}", methods=["GET", "HEAD", "POST"],
                   include_in_schema=False)
 async def viewer_http(name: str, path: str, request: Request):
+    if request.method not in SAFE_METHODS and not same_origin(request.headers):
+        return PlainTextResponse(CROSS_SITE_REFUSED, status_code=403)
     try:
         target = await run_in_threadpool(viewer_proxy.resolve, name,
                                          request.app.state.settings)
@@ -101,9 +109,19 @@ async def viewer_http(name: str, path: str, request: Request):
             request.scope.get("query_string", b""), headers, body)
     except Refusal as r:
         return _refuse(r)
+    try:
+        # Raw bytes decoded as latin-1 round-trip exactly; httpx's own str
+        # values decode UTF-8 and would not re-encode.
+        raw = [(k.decode("latin-1"), v.decode("latin-1")) for k, v in upstream.headers.raw]
+        headers = [(k.encode("latin-1"), v.encode("latin-1"))
+                   for k, v in viewer_proxy.response_headers(
+                       raw, viewer_proxy.prefix_of(target))]
+    except Exception:
+        logger.exception("viewer %s: could not relay the response headers", target.name)
+        with anyio.CancelScope(shield=True):
+            await upstream.aclose()
+        return PlainTextResponse(f"viewer not answering on port {target.port}",
+                                 status_code=502)
     resp = _UpstreamStream(upstream, status_code=upstream.status_code)
-    resp.raw_headers = [
-        (k.encode("latin-1"), v.encode("latin-1"))
-        for k, v in viewer_proxy.response_headers(upstream.headers,
-                                                  viewer_proxy.prefix_of(target))]
+    resp.raw_headers = headers
     return resp
