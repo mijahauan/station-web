@@ -507,3 +507,54 @@ def test_cookie_spaced_escaping_path_still_drops_the_cookie():
     assert _cookie("k=v; Path = /a/../..") == []
     assert _cookie("k=v; path=//evil") == []
     assert _cookie("k=v; Path=/a\\b") == []
+
+
+# ------------------------------------------------------------ fix round 3
+
+
+@pytest.mark.parametrize("path", [
+    "%3B%20Domain%3Devil.example",      # decodes to "; Domain=evil.example"
+    "/%3B%20Domain%3Devil.example",
+    "/a%0D%0AX",                        # CR LF
+    "/a%00",                            # NUL
+    "/a%20b",                           # whitespace
+    "/a%2Cb",                           # comma
+    "/a%09b",                           # tab, a control character
+    "/a%7Fb",                           # DEL
+])
+def test_cookie_path_with_a_decoded_delimiter_drops_the_cookie(path):
+    assert _cookie(f"k=v; Path={path}") == []
+
+
+def test_cookie_path_raw_comma_drops_the_cookie():
+    assert _cookie("k=v; Path=/a,b") == []
+
+
+def test_cookie_normal_path_still_rewritten():
+    assert _cookie("k=v; Path=/a/b") == ["k=v; Path=/viewer/up/a/b"]
+
+
+def test_cookie_emitted_path_is_requoted():
+    """A legitimate escape stays escaped on the way out, never decoded."""
+    assert _cookie("k=v; Path=/a%41%25") == ["k=v; Path=/viewer/up/aA%25"]
+
+
+def test_cookie_expires_keeps_its_comma_and_spaces():
+    assert _cookie("k=v; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/") == [
+        "k=v; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/viewer/up/"]
+
+
+@pytest.mark.parametrize("value", [
+    "k=v\rX; Path=/",
+    "k=v; Expires=Wed, 21 Oct\r\n2026 07:28:00 GMT",
+    "k=v\x00; Path=/",
+    "k=v; SameSite=Lax\x0bX",
+])
+def test_cookie_with_a_raw_control_character_is_dropped(value):
+    assert _cookie(value) == []
+
+
+@pytest.mark.parametrize("value", ["k=a b; Path=/", "k=a,b; Path=/",
+                                   "k=v; Max-Age=6 0", "k=v; SameSite=Lax,x"])
+def test_cookie_pair_or_value_with_whitespace_or_comma_is_dropped(value):
+    assert _cookie(value) == []

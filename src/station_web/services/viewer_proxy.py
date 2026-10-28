@@ -12,7 +12,7 @@ import logging
 import posixpath
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import anyio
 import httpx
@@ -156,24 +156,51 @@ _COOKIE_VALUED = {"expires": "Expires", "max-age": "Max-Age", "samesite": "SameS
 _COOKIE_FLAGS = {"secure": "Secure", "httponly": "HttpOnly", "partitioned": "Partitioned"}
 
 
+def _has_control(text: str) -> bool:
+    """CR, LF, NUL, tab, DEL or any other control character."""
+    return any(ord(c) < 0x20 or ord(c) == 0x7F for c in text)
+
+
+def _cookie_unsafe(text: str, *, allow_comma_space: bool = False) -> bool:
+    """True when ``text`` holds a character that could end or split a
+    Set-Cookie attribute: ``;``, a control character, and (unless allowed,
+    as Expires needs) a comma or whitespace."""
+    if ";" in text or _has_control(text):
+        return True
+    if allow_comma_space:
+        return False
+    return "," in text or any(c.isspace() for c in text)
+
+
 def _prefixed_cookie_path(val: str, prefix: str) -> str | None:
-    """``val`` moved under ``prefix``, or None when it would leave it."""
+    """``val`` moved under ``prefix``, or None when it would leave it or
+    carries a delimiter, raw or percent-encoded.  The path goes out
+    re-quoted, so a decoded delimiter can never reach the header."""
     decoded = unquote(val)
+    if _cookie_unsafe(val) or _cookie_unsafe(decoded):
+        return None
     if not decoded.startswith("/") or decoded.startswith("//"):
         return None
     if ".." in decoded.split("/") or "\\" in decoded:
         return None
     norm = posixpath.normpath(decoded)
     tail = "/" if norm == "/" else norm + ("/" if decoded.endswith("/") else "")
-    return prefix + tail
+    return prefix + quote(tail, safe="/")
 
 
 def _cookie_path(value: str, prefix: str) -> str | None:
     """Rebuild a Set-Cookie value from its trimmed, known attributes, with
     Path moved under ``prefix``; None drops the cookie.  Domain goes, so the
     cookie stays host-only on station-web; so does any attribute this cannot
-    parse or does not know."""
+    parse or does not know.  A cookie carrying a control character anywhere,
+    or a comma or whitespace inside its name=value pair or a value other
+    than Expires, goes whole."""
+    if _has_control(value):
+        return None
     pair, *attrs = value.split(";")
+    pair = pair.strip()
+    if _cookie_unsafe(pair):
+        return None
     kept: list[tuple[str, str | None]] = []
     for attr in attrs:
         name, sep, val = attr.partition("=")
@@ -182,6 +209,8 @@ def _cookie_path(value: str, prefix: str) -> str | None:
         if key in _COOKIE_FLAGS:
             kept.append((_COOKIE_FLAGS[key], None))
         elif key in _COOKIE_VALUED and sep and val:
+            if _cookie_unsafe(val, allow_comma_space=(key == "expires")):
+                return None
             if key == "path":
                 val = _prefixed_cookie_path(val, prefix)
                 if val is None:
@@ -190,7 +219,7 @@ def _cookie_path(value: str, prefix: str) -> str | None:
     # A browser honours the last Path; relay that one alone.
     paths = [i for i, (k, _) in enumerate(kept) if k == "Path"]
     kept = [a for i, a in enumerate(kept) if a[0] != "Path" or i == paths[-1]]
-    return "; ".join([pair.strip()] + [k if v is None else f"{k}={v}" for k, v in kept])
+    return "; ".join([pair] + [k if v is None else f"{k}={v}" for k, v in kept])
 
 
 def response_headers(upstream: Mapping[str, str], prefix: str) -> list[tuple[str, str]]:
