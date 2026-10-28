@@ -246,3 +246,71 @@ def test_prefs_round_trip_under_their_keys():
     # a value the page never wrote falls back to the default
     bad = ("globalThis.localStorage = { getItem: k => 'junk', setItem() {} };")
     assert _run(bad, "DocsBrowser.loadPrefs()") == DEFAULT
+
+
+# --- Task 4b: landing page, sigmond first, links inside a page -------------
+
+def test_landing_opens_sigmond_index_when_present():
+    other = _root("callhash", [_doc("INDEX.md", indexed=True), _doc("spec.md", indexed=True)])
+    sig = _root("sigmond", [_doc("GUIDE.md", indexed=True), _doc("INDEX.md", indexed=True)])
+    out = _run("", f"DocsBrowser.firstEntry({json.dumps(_data([other, sig]))}, {json.dumps(DEFAULT)})")
+    assert out == {"root": "sigmond", "doc": "INDEX.md"}
+
+
+def test_landing_without_sigmond_opens_the_first_listed_root():
+    hidden = _root("checks", [_doc("INDEX.md", indexed=True)], listed=False)
+    other = _root("callhash", [_doc("spec.md", indexed=True), _doc("INDEX.md", indexed=True)])
+    out = _run("", f"DocsBrowser.firstEntry({json.dumps(_data([hidden, other]))}, {json.dumps(DEFAULT)})")
+    assert out == {"root": "callhash", "doc": "INDEX.md"}
+    gone = _root("sigmond", [_doc("INDEX.md", indexed=True)], present=False)
+    out = _run("", f"DocsBrowser.firstEntry({json.dumps(_data([other, gone]))}, {json.dumps(DEFAULT)})")
+    assert out == {"root": "callhash", "doc": "INDEX.md"}
+
+
+def test_component_view_puts_sigmond_first():
+    roots = [_root(n, [_doc("INDEX.md", indexed=True)]) for n in ("callhash", "hf-timestd", "sigmond", "wspr")]
+    out = _render(_data(roots), DEFAULT, "texts(box, 'db-group-head')")
+    assert out == ["sigmond", "callhash", "hf-timestd", "wspr"]
+
+
+@pytest.mark.parametrize("href,from_doc,want", [
+    ("operator/README.md", "INDEX.md", {"doc": "operator/README.md", "hash": ""}),
+    ("../INDEX.md", "operator/x.md", {"doc": "INDEX.md", "hash": ""}),
+    ("glossary.md#terms", "operator/a.md", {"doc": "operator/glossary.md", "hash": "terms"}),
+    ("./b.md", "operator/a.md", {"doc": "operator/b.md", "hash": ""}),
+    ("../../x.md", "a.md", None),
+    ("../../hf-timestd/docs/x.md", "operator/a.md", None),
+    ("https://example.org/a.md", "INDEX.md", None),
+    ("/abs.md", "INDEX.md", None),
+    ("//host/a.md", "INDEX.md", None),
+    ("mailto:x@y.md", "INDEX.md", None),
+    ("#top", "INDEX.md", None),
+    ("pic.png", "INDEX.md", None),
+    ("operator/", "INDEX.md", None),
+    ("?root=sigmond&doc=a.md", "INDEX.md", None),
+])
+def test_resolve_doc_link(href, from_doc, want):
+    out = _run("", f"DocsBrowser.resolveDocLink({json.dumps(href)}, {json.dumps(from_doc)})")
+    assert out == want
+
+
+def test_rewrite_links_sets_href_by_attribute_and_opens_in_place():
+    body = r"""
+function link(href) { const a = mk('a'); a.attrs.href = href; return a; }
+const links = [link('operator/README.md'), link('glossary.md#terms'), link('https://x.org/a.md'),
+               link('#top'), link('../../x.md')];
+box.querySelectorAll = sel => (sel === 'a[href]' ? links : []);
+const got = [];
+DocsBrowser.rewriteLinks(box, 'sigmond', 'INDEX.md', (r, d, h) => got.push([r, d, h]));
+function click(a, over) { const ev = Object.assign({ button: 0, prevented: false,
+  preventDefault() { this.prevented = true; } }, over);
+  const before = got.length; a.listeners.click(ev); return [ev.prevented, got.slice(before)]; }
+"""
+    out = _run(body, "[links.map(a => a.attrs.href), links.map(a => !!(a.listeners && a.listeners.click)),"
+                     " click(links[1], {}), click(links[0], {ctrlKey: true}), click(links[0], {button: 1})]")
+    hrefs, wired, plain, ctrl, middle = out
+    assert hrefs == ["?root=sigmond&doc=operator%2FREADME.md", "?root=sigmond&doc=glossary.md#terms",
+                     "https://x.org/a.md", "#top", "../../x.md"]
+    assert wired == [True, True, False, False, False]
+    assert plain == [True, [["sigmond", "glossary.md", "terms"]]]
+    assert ctrl == [False, []] and middle == [False, []]

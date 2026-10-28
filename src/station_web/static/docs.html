@@ -233,16 +233,19 @@
                                currentRoot ? { root: currentRoot, doc: currentName } : null);
         }
 
-        // Open a page from the list, and let the address bar link to it.
-        function openDocument(rootName, docName, hash = '') {
+        // Open a page from the list or from a link inside a page, let the
+        // address bar link to it, then scroll to its section if one was named.
+        async function openDocument(rootName, docName, hash = '') {
             currentRoot = rootName;
             currentName = docName;
             drawBrowser();
             try {
                 const q = new URLSearchParams({ root: rootName, doc: docName }).toString();
-                history.replaceState(null, '', '?' + q + (hash ? window.location.hash : ''));
+                history.replaceState(null, '', '?' + q + (hash ? '#' + encodeURIComponent(hash) : ''));
             } catch (e) { /* the page still works without it */ }
-            return loadDocument(rootName, docName);
+            await loadDocument(rootName, docName);
+            if (hash) scrollToSection(hash);
+            else window.scrollTo(0, 0);
         }
 
         // Load the listing, then the linked page, else the first page the view shows.
@@ -266,9 +269,7 @@
             const linked = roots.find(r => r.present && r.name === params.get('root'));
             const names = linked ? (linked.documents || []).map(d => d.name) : [];
             if (linked && names.includes(params.get('doc'))) {
-                const hash = safeHash();
-                await openDocument(linked.name, params.get('doc'), hash);
-                if (hash) scrollToSection(hash);
+                await openDocument(linked.name, params.get('doc'), safeHash());
                 return;
             }
             const first = DocsBrowser.firstEntry(listing, prefs);
@@ -301,8 +302,10 @@
                 doc.sections = parseSections(doc.content);
                 currentDoc = doc;
 
-                // Render markdown
+                // Render markdown, then point its relative .md links at this browser
                 renderDocument(doc);
+                DocsBrowser.rewriteLinks(document.getElementById('doc-content'), rootName, docName,
+                                         openDocument);
 
                 // Update section navigation
                 updateSectionNav(doc.sections);

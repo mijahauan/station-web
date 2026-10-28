@@ -64,8 +64,10 @@
         return { main, sections, note };
     }
 
+    // The listed roots, sigmond first; the rest keep the listing's order.
     function visibleRoots(data) {
-        return (data.roots || []).filter(r => r.listed !== false);
+        const roots = (data.roots || []).filter(r => r.listed !== false);
+        return roots.filter(r => r.name === 'sigmond').concat(roots.filter(r => r.name !== 'sigmond'));
     }
 
     // Groups to draw: [{ head, notes, unavailable, main: [[root, doc]], sections: [[name, [[root, doc]]]] }]
@@ -112,7 +114,10 @@
         return out;
     }
 
+    // Land on sigmond's INDEX.md when the station has it; else the view's first page.
     function firstEntry(data, prefs) {
+        const sig = visibleRoots(data).find(r => r.name === 'sigmond' && r.present);
+        if (sig && (sig.documents || []).some(isIndex)) return { root: 'sigmond', doc: 'INDEX.md' };
         for (const g of groups(data, prefs)) {
             const e = g.main[0] || (g.sections[0] && g.sections[0][1][0]);
             if (e) return { root: e[0].name, doc: e[1].name };
@@ -150,7 +155,7 @@
         a.href = '?' + new URLSearchParams({ root: root.name, doc: d.name }).toString();
         a.title = d.name;
         a.addEventListener('click', ev => {
-            if (ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button === 1)) return;
+            if (!isPlainClick(ev)) return;
             if (ev && ev.preventDefault) ev.preventDefault();
             ctx.onOpen(root.name, d.name);
         });
@@ -202,5 +207,53 @@
         container.replaceChildren(...nodes);
     }
 
-    window.DocsBrowser = { render, firstEntry, loadPrefs, savePrefs, DEFAULT_PREFS };
+    // A link inside a rendered page, as a page of the same root: { doc, hash },
+    // or null when the link should stay as written.  Only a relative link to a
+    // .md file qualifies, resolved against the current page's folder; one that
+    // climbs out of the root stays as written.
+    function resolveDocLink(href, fromDoc) {
+        if (typeof href !== 'string' || !href) return null;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('/') || href.startsWith('#')
+            || href.startsWith('?')) return null;
+        const cut = href.indexOf('#');
+        let path = cut < 0 ? href : href.slice(0, cut);
+        let hash = cut < 0 ? '' : href.slice(cut + 1);
+        if (!path.endsWith('.md')) return null;
+        try { path = decodeURIComponent(path); } catch (e) { return null; }
+        try { hash = decodeURIComponent(hash); } catch (e) { /* keep it raw */ }
+        const parts = String(fromDoc || '').split('/').slice(0, -1);
+        for (const seg of path.split('/')) {
+            if (seg === '' || seg === '.') continue;
+            if (seg === '..') {
+                if (!parts.length) return null;
+                parts.pop();
+            } else {
+                parts.push(seg);
+            }
+        }
+        if (!parts.length) return null;
+        return { doc: parts.join('/'), hash };
+    }
+
+    function isPlainClick(ev) {
+        return !(ev && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button === 1));
+    }
+
+    // Point each relative .md link in a rendered page at the browser itself.
+    function rewriteLinks(container, rootName, fromDoc, onOpen) {
+        container.querySelectorAll('a[href]').forEach(a => {
+            const target = resolveDocLink(a.getAttribute('href'), fromDoc);
+            if (!target) return;
+            const q = new URLSearchParams({ root: rootName, doc: target.doc }).toString();
+            a.setAttribute('href', '?' + q + (target.hash ? '#' + encodeURIComponent(target.hash) : ''));
+            a.addEventListener('click', ev => {
+                if (!isPlainClick(ev)) return;
+                if (ev && ev.preventDefault) ev.preventDefault();
+                onOpen(rootName, target.doc, target.hash);
+            });
+        });
+    }
+
+    window.DocsBrowser = { render, firstEntry, loadPrefs, savePrefs, resolveDocLink, rewriteLinks,
+                           DEFAULT_PREFS };
 })();
