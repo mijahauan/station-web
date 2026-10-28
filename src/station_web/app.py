@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from station_web.config import Settings
 from station_web.control_socket import ControlSocketServer
+from station_web.services import viewer_proxy
 
 try:
     from systemd import daemon as systemd_daemon
@@ -27,6 +28,22 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 #: Snapshot served by the control socket.  Task 11 refreshes ``products``.
 STATUS: dict = {"ready": False, "products": {}, "updated_at": None, "control_socket": None}
+
+
+class _GZipExceptViewers:
+    """GZip for station-web's own responses; /viewer/ passes through as the
+    viewer sent it.  Starlette's GZipMiddleware compresses any large
+    uncompressed body, and a viewer's encoding belongs to the viewer."""
+
+    def __init__(self, app, **kw):
+        self.app = app
+        self.gzip = GZipMiddleware(app, **kw)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope.get("path", "").startswith("/viewer/"):
+            await self.app(scope, receive, send)
+        else:
+            await self.gzip(scope, receive, send)
 
 
 async def _watchdog():
@@ -54,11 +71,14 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
         if systemd_daemon:
             systemd_daemon.notify("READY=1")
         task = asyncio.create_task(_watchdog())
+        app.state.viewer_client = viewer_proxy.make_client()
         logger.info("station-web serving %s for %s", settings.data_root, settings.station.get("callsign", "?"))
         try:
             yield
         finally:
             task.cancel()
+            await app.state.viewer_client.aclose()
+            app.state.viewer_client = None
             if sock:
                 sock.stop()
 
@@ -66,7 +86,8 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
                   redoc_url="/api/redoc", lifespan=lifespan)
     app.state.settings = settings
     # The JSON series run to megabytes; gzip shrinks them several-fold.
-    app.add_middleware(GZipMiddleware, minimum_size=1024)
+    # /viewer/ responses keep the viewer's own encoding (_GZipExceptViewers).
+    app.add_middleware(_GZipExceptViewers, minimum_size=1024)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     def page(name: str):
@@ -103,7 +124,7 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
 
 #: Routers every station serves.  They need nothing scientific, so an import
 #: failure among them is a defect and stays fatal.
-CORE_ROUTERS = ("docs", "grape", "timing", "status", "features")
+CORE_ROUTERS = ("docs", "grape", "timing", "status", "features", "viewer")
 #: Routers that need hamsci-dsp, hamsci-physics and numpy/scipy (the
 #: ``science`` extra).  A station without them skips these routers.
 SCIENCE_ROUTERS = ("station", "stations", "health", "metrology", "stability", "propagation",
@@ -141,8 +162,8 @@ def _register_routers(app: FastAPI) -> list[str]:
     app.state.skipped_routers = skipped
     for name in CORE_ROUTERS:
         mod = importlib.import_module(f"station_web.routers.{name}")
-        if name == "docs":
-            app.include_router(mod.router)       # carries its own /api/living-docs prefix
+        if name in ("docs", "viewer"):
+            app.include_router(mod.router)       # own prefix: /api/living-docs, /viewer
         else:
             app.include_router(mod.router, prefix="/api")
     return skipped

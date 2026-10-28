@@ -16,6 +16,15 @@ FORBIDDEN_IMPORTS = {
     "aiohttp": "no outbound HTTP",
 }
 
+#: The one sanctioned outbound HTTP: the viewer front door (Plan 2) proxies
+#: a local viewer's own traffic to 127.0.0.1 at a port from the viewers
+#: snapshot.  Only this module may import httpx.
+OUTBOUND_HTTP_ALLOWED = {("services/viewer_proxy.py", "httpx")}
+#: The one coroutine router: the viewer proxy waits on sockets, not on the
+#: disk, and a threadpool slot per open viewer stream would starve /health.
+#: Its one disk read (the snapshot) goes through run_in_threadpool.
+ASYNC_ROUTERS = {"routers/viewer.py"}
+
 
 def _imports(path: Path):
     for line in path.read_text().splitlines():
@@ -29,6 +38,8 @@ def test_no_forbidden_imports():
     for p in PY:
         for mod in _imports(p):
             for root, why in FORBIDDEN_IMPORTS.items():
+                if (str(p.relative_to(SRC)), root) in OUTBOUND_HTTP_ALLOWED:
+                    continue
                 if mod == root or mod.startswith(root + "."):
                     bad.append(f"{p.relative_to(SRC)}: {mod} ({why})")
     assert not bad, "\n".join(bad)
@@ -90,6 +101,8 @@ def test_routers_hold_no_async_def():
     """
     offenders = []
     for p in sorted((SRC / "routers").glob("*.py")):
+        if str(p.relative_to(SRC)) in ASYNC_ROUTERS:
+            continue
         for i, line in enumerate(p.read_text().splitlines(), 1):
             if re.match(r"\s*async def\s", line):
                 offenders.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
@@ -102,7 +115,17 @@ def test_no_await_left_in_routers():
     string or a stray helper would not.  None should remain."""
     offenders = []
     for p in sorted((SRC / "routers").glob("*.py")):
+        if str(p.relative_to(SRC)) in ASYNC_ROUTERS:
+            continue
         for i, line in enumerate(p.read_text().splitlines(), 1):
             if re.search(r"(^|[^\w.])await\s", line):
                 offenders.append(f"{p.relative_to(SRC)}:{i}: {line.strip()}")
     assert not offenders, "\n".join(offenders)
+
+
+def test_viewer_router_keeps_disk_reads_off_the_loop():
+    """The async exception holds only while the viewer router reads the
+    snapshot through the threadpool, never on the event loop."""
+    text = (SRC / "routers" / "viewer.py").read_text()
+    assert "run_in_threadpool(viewer_proxy.resolve" in text
+    assert "open(" not in text and "read_snapshot" not in text

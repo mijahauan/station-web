@@ -57,7 +57,7 @@ def _paths(client):
 
 
 def test_router_lists():
-    assert appmod.CORE_ROUTERS == ("docs", "grape", "timing", "status", "features")
+    assert appmod.CORE_ROUTERS == ("docs", "grape", "timing", "status", "features", "viewer")
     assert appmod.SCIENCE_ROUTERS == (
         "station", "stations", "health", "metrology", "stability", "propagation",
         "space_weather", "correlations", "physics", "tec", "tid", "dashboard", "phase",
