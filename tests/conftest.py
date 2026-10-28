@@ -346,3 +346,22 @@ def seeded(settings):
 def seeded_client(seeded):
     with TestClient(create_app(seeded, control_socket=None)) as c:
         yield c
+
+
+@pytest.fixture
+def tmp_settings(settings, tmp_path):
+    """Settings whose snapshot_dir is an empty temp directory."""
+    d = tmp_path / "viewer-snap"
+    d.mkdir()
+    settings.raw["status"] = {"snapshot_dir": str(d)}
+    return settings
+
+
+@pytest.fixture
+def write_viewers(tmp_settings):
+    """write_viewers(rows, conflicts=None): write a fresh viewers.json."""
+    from viewer_helpers import write_viewers_file
+
+    def _write(rows, conflicts=None):
+        write_viewers_file(tmp_settings.snapshot_dir, rows, conflicts)
+    return _write
