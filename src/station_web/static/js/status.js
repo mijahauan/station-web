@@ -24,6 +24,7 @@
         if (o.text !== undefined && o.text !== null) n.textContent = String(o.text);
         if (o.href) n.href = o.href;
         if (o.id) n.id = o.id;
+        if (o.title) n.setAttribute('title', o.title);
         if (o.label) n.setAttribute('data-label', o.label);
         (kids || []).forEach(k => { if (k) n.appendChild(k); });
         return n;
@@ -92,6 +93,9 @@
             return;
         }
         const list = Array.isArray(v.viewers) ? v.viewers : [];
+        const conflicted = new Set();
+        (Array.isArray(v.conflicts) ? v.conflicts : []).forEach(c =>
+            (c.names || []).forEach(n => conflicted.add(n)));
         if (!list.length) {
             fill('viewers', el('div', { cls: 'sp-note', text: 'no viewers on this station' }));
         } else {
@@ -100,15 +104,25 @@
                 const linkable = Number.isInteger(port) && port > 0;
                 const running = w.active === 'active';
                 const name = w.label || w.name;
-                const head = running && linkable
-                    ? el('a', { href: `http://${location.hostname}:${port}/`, text: name })
+                // Front door: station-web's own /viewer/<name>/ (works through
+                // any relay); the viewer's own port stays as a LAN-only link.
+                // A name in a port conflict gets no link, only the warning below.
+                const usable = running && linkable && !conflicted.has(w.name);
+                const head = usable
+                    ? el('a', { href: `/viewer/${encodeURIComponent(w.name)}/`, text: name })
                     : el('span', { text: name });
+                const direct = usable
+                    ? el('a', { cls: 'sp-muted', href: `http://${location.hostname}:${port}/`,
+                                text: `direct :${port}`,
+                                title: "LAN only: the viewer's own port" })
+                    : null;
                 const state = el('span', {
                     cls: running ? 'sp-green' : 'sp-amber',
                     text: running ? ' running' : ` ${w.active || 'state unknown'}`,
                 });
                 return el('div', { cls: 'sp-viewer sp-row' },
-                          [head, state, el('span', { cls: 'sp-muted', text: w.description ? ` · ${w.description}` : '' })]);
+                          [head, direct && el('span', { text: ' ' }), direct, state,
+                           el('span', { cls: 'sp-muted', text: w.description ? ` · ${w.description}` : '' })]);
             }));
         }
         const conflicts = Array.isArray(v.conflicts) ? v.conflicts : [];

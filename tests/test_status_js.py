@@ -159,3 +159,36 @@ def test_manifest_superset_green_not_listed_muted():
 
 def test_station_page_schedules_a_minute_refresh():
     assert 60000 in _station(_body(), "timers")
+
+
+def _links(viewers, conflicts=()):
+    body = _body(viewers={"viewers": viewers, "conflicts": list(conflicts)})
+    return _station(body, "(function(){const o=[];(function w(x){if(x.href!==undefined)"
+                          "o.push([x.href,text(x),x.attrs.title||null]);x.children.forEach(w);})"
+                          "(ids.viewers);return o;})()")
+
+
+def _w(name, port, active="active"):
+    return {"name": name, "label": name, "port": port, "unit": name + ".service",
+            "active": active, "description": ""}
+
+
+def test_viewer_links_through_the_front_door_with_direct_fallback():
+    out = _links([_w("ka9q-web", 8081), _w("ka9q-web-2", 8082)])
+    assert out[0][0] == "/viewer/ka9q-web/"
+    assert out[2][0] == "/viewer/ka9q-web-2/"
+    assert out[1] == ["http://h:8081/", "direct :8081", "LAN only: the viewer's own port"]
+    assert out[3][0] == "http://h:8082/"
+
+
+def test_conflicted_or_stopped_viewer_has_no_front_door_link():
+    out = _links([_w("ka9q-web", 8081), _w("gmag-webui", 8081),
+                  _w("ka9q-web-2", 8082, active="inactive")],
+                 conflicts=[{"port": 8081, "names": ["ka9q-web", "gmag-webui"]}])
+    assert not [o for o in out if o[0].startswith("/viewer/")]
+    assert [o for o in out if o[0].endswith(":8082/")] == []
+
+
+def test_viewer_name_is_encoded_in_the_front_door_path():
+    out = _links([_w("a/b?c", 8081)])
+    assert out[0][0] == "/viewer/a%2Fb%3Fc/"
