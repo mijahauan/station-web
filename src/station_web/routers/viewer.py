@@ -16,7 +16,7 @@ import logging
 from urllib.parse import quote
 
 import anyio
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
@@ -31,6 +31,11 @@ logger = logging.getLogger(__name__)
 #: linking to it.  Every other method needs a same-origin request.
 SAFE_METHODS = frozenset({"GET", "HEAD"})
 CROSS_SITE_REFUSED = "request refused: started by another site"
+#: WebSocket close codes for a refusal before accept (the browser sees the
+#: handshake fail): 1008 for a policy refusal (another site, or a name that
+#: does not resolve), 1011 when the viewer does not answer.
+WS_POLICY = 1008
+WS_UPSTREAM_DOWN = 1011
 
 router = APIRouter(prefix="/viewer", tags=["viewers"])
 
@@ -72,7 +77,7 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
-def _rest_of_path(request: Request, path: str) -> bytes:
+def _rest_of_path(request, path: str) -> bytes:
     """The raw (still percent-encoded) path after /viewer/<name>/."""
     raw = request.scope.get("raw_path") or request.url.path.encode()
     parts = raw.split(b"/", 3)          # b"", b"viewer", <name>, <rest>
@@ -125,3 +130,34 @@ async def viewer_http(name: str, path: str, request: Request):
     resp = _UpstreamStream(upstream, status_code=upstream.status_code)
     resp.raw_headers = headers
     return resp
+
+
+@router.websocket("/{name}/{path:path}")
+async def viewer_ws(websocket: WebSocket, name: str, path: str):
+    """Relay a viewer's WebSocket, for a page station-web served only.
+    ka9q-web creates radiod channels on request, so a page on another site
+    must not reach it: the origin check runs before any upstream connect."""
+    if not same_origin(websocket.headers):
+        await websocket.close(code=WS_POLICY)
+        return
+    try:
+        target = await run_in_threadpool(viewer_proxy.resolve, name,
+                                         websocket.app.state.settings)
+    except Refusal:
+        await websocket.close(code=WS_POLICY)
+        return
+    try:
+        upstream = await viewer_proxy.open_ws_upstream(
+            target, _rest_of_path(websocket, path).decode("latin-1"),
+            websocket.scope.get("query_string", b"").decode("latin-1"),
+            list(websocket.scope.get("subprotocols") or []))
+    except Refusal:
+        await websocket.close(code=WS_UPSTREAM_DOWN)
+        return
+    try:
+        await websocket.accept(subprotocol=upstream.subprotocol)
+    except Exception:
+        with anyio.CancelScope(shield=True):
+            await upstream.close()
+        raise
+    await viewer_proxy.ws_relay(websocket, upstream)

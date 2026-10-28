@@ -14,12 +14,15 @@ FORBIDDEN_IMPORTS = {
     "urllib.request": "no outbound HTTP",
     "httpx": "no outbound HTTP",
     "aiohttp": "no outbound HTTP",
+    "websockets": "no outbound connections",
 }
 
 #: The one sanctioned outbound HTTP: the viewer front door (Plan 2) proxies
 #: a local viewer's own traffic to 127.0.0.1 at a port from the viewers
-#: snapshot.  Only this module may import httpx.
-OUTBOUND_HTTP_ALLOWED = {("services/viewer_proxy.py", "httpx")}
+#: snapshot, its WebSockets included.  Only this module may import httpx
+#: or websockets.
+OUTBOUND_HTTP_ALLOWED = {("services/viewer_proxy.py", "httpx"),
+                         ("services/viewer_proxy.py", "websockets")}
 #: The one coroutine router: the viewer proxy waits on sockets, not on the
 #: disk, and a threadpool slot per open viewer stream would starve /health.
 #: Its one disk read (the snapshot) goes through run_in_threadpool.

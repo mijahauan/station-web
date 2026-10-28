@@ -14,7 +14,10 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from urllib.parse import unquote
 
+import anyio
 import httpx
+from websockets.asyncio.client import connect as ws_connect
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
 from station_web.config import Settings
 from station_web.services.snapshot import read_snapshot
@@ -212,3 +215,113 @@ async def open_upstream(client: httpx.AsyncClient, method: str, target: Target,
         logger.warning("viewer %s on port %d: %s: %s", target.name, target.port,
                        type(exc).__name__, exc)
         raise Refusal(502, f"viewer not answering on port {target.port}") from None
+
+
+# ---------------------------------------------------------------------------
+# The WebSocket relay.  Like the HTTP proxy it reaches only UPSTREAM_HOST at
+# the snapshot's port; the router checks the origin before it gets here.
+# ---------------------------------------------------------------------------
+
+#: The largest single message either side may send through the relay.
+WS_MAX_MESSAGE = 16 << 20
+WS_OPEN_TIMEOUT = 3
+
+
+def ws_upstream_url(target: Target, path: str, query: str) -> str:
+    """``path`` and ``query`` arrive still percent-encoded and pick only the
+    resource on the viewer, never the host or the port."""
+    return f"ws://{UPSTREAM_HOST}:{target.port}/{path}" + (f"?{query}" if query else "")
+
+
+def ws_close_code(code: int | None) -> int:
+    """A close code the other side can be sent.  1005 (no code given) and
+    no code at all mean a clean close; 1006, 1015 and any other reserved or
+    out-of-range code mean an abnormal one."""
+    if code is None or code == 1005:
+        return 1000
+    if code in (1000, 1001, 1002, 1003) or 1007 <= code <= 1014 or 3000 <= code <= 4999:
+        return code
+    return 1011
+
+
+async def open_ws_upstream(target: Target, path: str, query: str,
+                           subprotocols: list[str]):
+    """Open the viewer's WebSocket.  ``websockets`` sends Host as
+    127.0.0.1:<port> and, with origin=None, no Origin, so the viewer sees a
+    local client.  proxy=None: a proxy in the service environment must never
+    carry loopback traffic elsewhere.  Every failure becomes a fixed Refusal;
+    the cause stays in the log."""
+    try:
+        return await ws_connect(
+            ws_upstream_url(target, path, query), origin=None,
+            subprotocols=subprotocols or None, proxy=None,
+            open_timeout=WS_OPEN_TIMEOUT, ping_interval=None,
+            max_size=WS_MAX_MESSAGE)
+    except (OSError, TimeoutError, WebSocketException) as exc:
+        logger.warning("viewer %s on port %d: websocket: %s: %s", target.name,
+                       target.port, type(exc).__name__, exc)
+        raise Refusal(502, f"viewer not answering on port {target.port}") from None
+
+
+async def ws_relay(browser, upstream) -> None:
+    """Pump messages both ways until either side closes, then close the
+    other with the same code.  ``browser`` is an accepted Starlette
+    WebSocket; ``upstream`` a websockets client connection.  Text stays
+    text and binary stays binary."""
+    state = {"browser_closed": False}
+
+    async def browser_to_upstream():
+        code = 1000
+        try:
+            while True:
+                msg = await browser.receive()
+                if msg["type"] == "websocket.disconnect":
+                    state["browser_closed"] = True
+                    code = msg.get("code")
+                    break
+                if msg.get("text") is not None:
+                    await upstream.send(msg["text"])
+                elif msg.get("bytes") is not None:
+                    await upstream.send(msg["bytes"])
+        except ConnectionClosed:
+            return          # the other pump reports the upstream's close
+        except Exception:
+            state["browser_closed"] = True
+            code = 1011
+        await upstream.close(ws_close_code(code))
+
+    async def upstream_to_browser():
+        try:
+            async for msg in upstream:
+                if isinstance(msg, str):
+                    await browser.send_text(msg)
+                else:
+                    await browser.send_bytes(msg)
+        except ConnectionClosed:
+            pass
+        except Exception:
+            # The browser went away mid-send; the other pump sees its
+            # disconnect.  Make sure the upstream closes either way.
+            state["browser_closed"] = True
+            await upstream.close(1001)
+            return
+        # The code the viewer sent; 1005 if it sent none, 1006 if the
+        # connection dropped without a close frame.
+        code = upstream.close_code
+        if not state["browser_closed"]:
+            state["browser_closed"] = True
+            try:
+                await browser.close(ws_close_code(code))
+            except Exception:
+                pass
+
+    try:
+        async with anyio.create_task_group() as tg:
+            async def run(pump):
+                await pump()
+                tg.cancel_scope.cancel()
+            tg.start_soon(run, browser_to_upstream)
+            tg.start_soon(run, upstream_to_browser)
+    finally:
+        with anyio.CancelScope(shield=True):
+            await upstream.close()
