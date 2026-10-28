@@ -92,6 +92,24 @@
 - [ ] **Step 4: Run** the new tests, the snapshot and parity tests, then the full suite once.  Time one run against this devbox's `/home/mjh/hamsci/repos` copy (pass the base by the existing test hook, never by changing the default) and note the seconds in the report; it must stay well under the snapshot's 60 s timeout on a cold cache.
 - [ ] **Step 5: Commit** (sigmond) — `smd admin docs index, written as the docs snapshot`.
 
+### Task 2b: sigmond — give shallow checkouts their history (without old file contents)
+
+Added 2026-10-28 after the controller measured B4: every checkout but sigmond and hs-uploader is a shallow clone (one commit for most), so Task 1 can date almost nothing there.  Converting a depth-1 hf-timestd clone took 1 s and 2 MB and left the working tree untouched.
+
+**Files:**
+- Modify: the daily component fetch in sigmond (`sigmond-component-fetch.service` runs it; find the code path it calls, and `_git_fetch_as_owner` in `bin/smd`)
+- Test: a new `sigmond/tests/test_deepen_history.py`
+
+**Interfaces:**
+- Produces: `deepen_history(repo: Path, run=…) -> str` returning `"full"` (already not shallow), `"deepened"`, or `"failed"`.  When `git rev-parse --is-shallow-repository` says true, it sets `remote.origin.promisor true` and `remote.origin.partialclonefilter blob:none`, then runs `git fetch --unshallow --filter=blob:none origin`, as the checkout's owner, the same way `_git_fetch_as_owner` runs its fetch, with a 300 s timeout.  A failure leaves the checkout shallow (unset the two config keys again if the fetch failed) and logs one line.
+- The daily fetch calls it for every checkout before its usual fetch.  Nothing else calls it.
+
+- [ ] **Step 1: Failing tests** with real temporary repos: a bare "origin" with three commits; a `--depth 1` clone of it through a `file://` URL; `deepen_history` makes it non-shallow, `git log -- docs/a.md` then shows the first commit's date, and `git status --porcelain` stays empty; a non-shallow repo returns `"full"` and makes no fetch; an origin that refuses (a removed path) returns `"failed"`, leaves the clone shallow and without the promisor keys.
+- [ ] **Step 2: Run; watch them fail.**
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the new file, then the full suite once.
+- [ ] **Step 5: Commit** (sigmond) — `component fetch: give shallow checkouts their history without old blobs, so page ages work`.
+
 ### Task 3: station-web — folders and metadata from the snapshot
 
 **Files:**
