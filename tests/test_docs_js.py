@@ -23,7 +23,7 @@ function mk(tag) {
       ? { tag: '#text', textContent: x, children: [], className: '', attrs: {} } : x)); },
     replaceChildren(...k) { this.children = k; this.textContent = ''; },
     setAttribute(a, v) { this.attrs[a] = String(v); }, getAttribute(a) { return this.attrs[a]; },
-    addEventListener(ev, fn) { this.attrs['on' + ev] = 'set'; } };
+    addEventListener(ev, fn) { this.attrs['on' + ev] = 'set'; (this.listeners = this.listeners || {})[ev] = fn; } };
   Object.defineProperty(n, 'innerHTML', { set() { throw new Error('innerHTML used'); } });
   return n;
 }
@@ -192,12 +192,30 @@ def test_titles_and_names_go_in_as_text():
 
 
 def test_entry_link_is_a_deep_link_and_opens_the_page():
-    out = _run("let got = null;\n"
+    out = _run("let got = [];\n"
                f"DocsBrowser.render(box, {json.dumps(_data([ROOT]))}, {json.dumps(DEFAULT)},"
-               " (r, d) => { got = [r, d]; });\n"
-               "const a = byClass(box, 'db-title')[1];",
-               "[a.href, a.attrs.onclick]")
-    assert out == ["?root=sigmond&doc=GUIDE.md", "set"]
+               " (r, d) => { got.push([r, d]); });\n"
+               "const a = byClass(box, 'db-title')[1];\n"
+               "function click(over) { const ev = Object.assign({ button: 0, prevented: false,"
+               " preventDefault() { this.prevented = true; } }, over);"
+               " const before = got.length; a.listeners.click(ev);"
+               " return [ev.prevented, got.slice(before)]; }",
+               "[a.href, click({}), click({ctrlKey: true}), click({button: 1}), click({metaKey: true})]")
+    assert out[0] == "?root=sigmond&doc=GUIDE.md"
+    # a plain left click opens the page in place
+    assert out[1] == [True, [["sigmond", "GUIDE.md"]]]
+    # a modified or middle click follows the link: no open, no prevented default
+    for res in out[2:]:
+        assert res == [False, []]
+
+
+def test_fallback_shows_no_age_marker_snapshot_still_says_unknown():
+    root = _root("sigmond", [_doc("INDEX.md", age_days=None, last_commit=None),
+                             _doc("x.md", age_days=None, last_commit=None)])
+    out = _render(_data([root], source="fallback", reason="r"), DEFAULT, "texts(box, 'db-age')")
+    assert out == []
+    snap = _root("sigmond", [_doc("INDEX.md", indexed=True, age_days=None, last_commit=None)])
+    assert _render(_data([snap]), DEFAULT, "texts(box, 'db-age')") == ["age unknown"]
 
 
 def test_current_page_is_marked():

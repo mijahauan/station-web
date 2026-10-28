@@ -127,7 +127,9 @@
         return n;
     }
 
-    function ageText(d, staleDays) {
+    // No marker at all in fallback: the banner already says the ages are missing.
+    function ageText(d, staleDays, fallback) {
+        if (fallback) return null;
         if (d.age_days === null || d.age_days === undefined) return 'age unknown';
         if (d.age_days > staleDays) {
             const day = (d.last_commit || '').slice(0, 10) || 'an unknown date';
@@ -158,7 +160,7 @@
             const muted = d.status === 'historical' || d.status === 'pointer';
             li.appendChild(el('span', muted ? 'db-status db-muted' : 'db-status', d.status));
         }
-        const age = ageText(d, ctx.staleDays);
+        const age = ageText(d, ctx.staleDays, ctx.fallback);
         if (age) li.appendChild(el('span', 'db-age', age));
         return li;
     }
@@ -172,6 +174,7 @@
     function render(container, data, prefs, onOpen, current) {
         const ctx = {
             onOpen, current: current || null, audience: prefs.groupBy === 'audience',
+            fallback: data.source === 'fallback',
             staleDays: typeof data.stale_days === 'number' ? data.stale_days : 90,
         };
         const nodes = [];
