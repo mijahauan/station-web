@@ -22,6 +22,8 @@ DEFAULT_DATA_ROOT = Path("/var/lib/timestd")
 DEFAULT_AUTHORITY_PATH = Path("/run/hf-timestd/authority.json")
 DEFAULT_SNAPSHOT_DIR = Path("/run/sigmond/snapshot")
 DEFAULT_SNAPSHOT_REQUEST_DIR = Path("/run/sigmond/snapshot-request")
+#: A docs folder named by sigmond's snapshot counts only under this path.
+DEFAULT_DOCS_ALLOWED_BASE = Path("/opt/git/sigmond")
 DEFAULT_DOCS_ROOTS = [
     {"name": "hf-timestd",     "path": "/opt/git/sigmond/hf-timestd/docs"},
     {"name": "hamsci-physics", "path": "/opt/git/sigmond/hamsci-physics/docs"},
@@ -129,6 +131,11 @@ class Settings:
             out.append(next(dict(r) for r in DEFAULT_DOCS_ROOTS
                             if r["name"] == "checks"))
         return out
+
+    @property
+    def docs_allowed_base(self) -> Path:
+        base = (self.raw.get("docs", {}) or {}).get("allowed_base")
+        return Path(base) if base else DEFAULT_DOCS_ALLOWED_BASE
 
     @property
     def log_level(self) -> str:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from station_web.config import Settings
 
@@ -34,6 +34,7 @@ COMMANDS: Dict[str, str] = {
     "viewers": "smd admin viewers --json",
     "manifest": "smd admin manifest status --json",
     "heartbeat": "smd admin heartbeat show --json",
+    "docs": "smd admin docs index --json",
 }
 NAMES = tuple(COMMANDS)
 
@@ -54,6 +55,13 @@ def _parse_ts(text: Any) -> Optional[float]:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.timestamp()
+
+
+def staleness(ran: float, now: Optional[float] = None) -> Tuple[float, bool]:
+    """``(age_s, stale)`` for a snapshot that ran at epoch ``ran``."""
+    raw_age = (time.time() if now is None else now) - ran
+    # A ran_at well ahead of the clock cannot be trusted to be fresh.
+    return max(0.0, raw_age), raw_age > STALE_S or raw_age < -FUTURE_SKEW_S
 
 
 def read_snapshot(name: str, settings: Settings,
@@ -79,10 +87,7 @@ def read_snapshot(name: str, settings: Settings,
     ran = _parse_ts(env.get("ran_at"))
     if ran is None:
         return _absent(name, "snapshot has no usable ran_at")
-    raw_age = (time.time() if now is None else now) - ran
-    age = max(0.0, raw_age)
-    # A ran_at well ahead of the clock cannot be trusted to be fresh.
-    stale = age > STALE_S or raw_age < -FUTURE_SKEW_S
+    age, stale = staleness(ran, now)
     return {"available": True, "name": name,
             "command": env.get("command") or COMMANDS[name],
             "ran_at": env.get("ran_at"), "age_s": age, "stale": stale,

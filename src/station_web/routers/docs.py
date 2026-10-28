@@ -1,8 +1,11 @@
-"""Documentation router: markdown files from the configured docs roots.
+"""Documentation router: markdown files from the docs roots.
 
-Serves ``.md`` files from ``config.docs_roots`` (five fixed roots — see
-``station_web.config.DEFAULT_DOCS_ROOTS``), confined to each root's
-directory.  Documents may sit in subdirectories (hf-timestd keeps
+The roots come from sigmond's ``docs`` snapshot (see
+``station_web.services.docs_index``): one per installed component, plus the
+unlisted ``checks``.  Without a fresh snapshot they fall back to
+``config.docs_roots`` (``station_web.config.DEFAULT_DOCS_ROOTS``).  The
+snapshot names folders and page facts only; this router serves ``.md``
+files from disk, confined to each root's directory.  Documents may sit in subdirectories (hf-timestd keeps
 ``design/MEASUREMENT_MODEL.md`` one level down); a document's name is then
 its path relative to the root, e.g. ``design/MEASUREMENT_MODEL.md``.  No
 evidence/log-fetching: this router never shells out.
@@ -13,6 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 
 from station_web.config import config
+from station_web.services.docs_index import DOC_FIELDS, docs_roots, docs_state
 
 router = APIRouter(prefix="/api/living-docs", tags=["documentation"])
 # Bounded so an absurd name can't reach the filesystem as an OSError
@@ -38,7 +42,7 @@ def _valid_name(doc_path: str) -> bool:
 
 
 def _roots() -> dict[str, Path]:
-    return {r["name"]: Path(r["path"]) for r in config.docs_roots}
+    return {r["name"]: Path(r["path"]) for r in docs_roots(config)[0]}
 
 
 def _confined(base: Path, p: Path) -> bool:
@@ -79,32 +83,46 @@ def _whole_path(request: Request, tail: str) -> None:
         raise HTTPException(400, "document path carries characters outside the name")
 
 
+def _disk_names(base: Path) -> list[str]:
+    """The servable ``.md`` names under ``base``; the disk decides, never the snapshot."""
+    docs: list[str] = []
+    try:
+        resolved_base = base.resolve()
+        names = sorted(p.relative_to(base).as_posix() for p in base.rglob("*.md"))
+    except (OSError, ValueError):
+        return docs
+    for name in names:
+        if len(docs) >= MAX_LISTED:
+            break
+        if not _valid_name(name):
+            continue
+        try:
+            resolved = (base / name).resolve()
+        except OSError:
+            continue
+        if _confined(resolved_base, resolved):
+            docs.append(name)
+    return docs
+
+
 @router.get("/list")
 def list_docs():
+    state = docs_state(config)
+    facts = state["doc_meta"]
     out = []
-    for r in config.docs_roots:
+    for r in state["roots"]:
         base = Path(r["path"])
         present = base.is_dir()
-        docs = []
-        if present:
-            try:
-                resolved_base = base.resolve()
-                names = sorted(p.relative_to(base).as_posix() for p in base.rglob("*.md"))
-            except (OSError, ValueError):
-                resolved_base, names = None, []
-            for name in names:
-                if len(docs) >= MAX_LISTED:
-                    break
-                if resolved_base is None or not _valid_name(name):
-                    continue
-                try:
-                    resolved = (base / name).resolve()
-                except OSError:
-                    continue
-                if _confined(resolved_base, resolved):
-                    docs.append(name)
-        out.append({"name": r["name"], "path": str(base), "present": present, "documents": docs})
-    return {"roots": out}
+        names = _disk_names(base) if present else []
+        has_index = r.get("has_index")
+        if has_index is None and present:
+            has_index = (base / "INDEX.md").is_file()
+        docs = [{"name": n, **facts.get((r["name"], n), DOC_FIELDS)} for n in names]
+        out.append({"name": r["name"], "path": str(base), "present": present,
+                    "listed": r["listed"], "has_index": has_index, "documents": docs})
+    meta = state["meta"]
+    return {"source": meta["source"], "reason": meta["reason"],
+            "stale_days": state["stale_days"], "roots": out}
 
 
 def _slug(heading: str) -> str:

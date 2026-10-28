@@ -196,7 +196,9 @@
                 const res = await fetch('/api/living-docs/list');
                 const data = await res.json();
                 docsByRoot = {};
-                (data.roots || []).forEach(r => { docsByRoot[r.name] = r.documents || []; });
+                (data.roots || []).forEach(r => {
+                    docsByRoot[r.name] = (r.documents || []).map(d => (typeof d === 'string' ? d : d.name));
+                });
 
                 const rootSelect = document.getElementById('root-select');
                 rootSelect.innerHTML = (data.roots || []).map(r =>

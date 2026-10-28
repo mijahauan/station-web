@@ -11,6 +11,8 @@ def docs_client(settings, tmp_path):
     (r1 / "secret.txt").write_text("nope")
     settings.raw["docs"] = {"roots": [{"name": "one", "path": str(r1)},
                                       {"name": "gone", "path": str(tmp_path / "gone")}]}
+    # No docs snapshot: the configured roots serve (the fallback).
+    settings.raw["status"] = {"snapshot_dir": str(tmp_path / "no-snapshot")}
     cfgmod.config.use(settings)
     with TestClient(create_app(settings, control_socket=None)) as c:
         yield c
@@ -19,7 +21,9 @@ def docs_client(settings, tmp_path):
 def test_list_reports_presence(docs_client):
     j = docs_client.get("/api/living-docs/list").json()
     by = {r["name"]: r for r in j["roots"]}
-    assert by["one"]["present"] is True and by["one"]["documents"] == ["GUIDE.md"]
+    assert j["source"] == "fallback"
+    assert by["one"]["present"] is True
+    assert [d["name"] for d in by["one"]["documents"]] == ["GUIDE.md"]
     assert by["gone"]["present"] is False and by["gone"]["documents"] == []
 
 
@@ -56,7 +60,8 @@ def test_list_hides_unservable_names(docs_client, tmp_path):
     (root / "<img src=x onerror=alert(1)>.md").write_text("x")
     outside = tmp_path / "outside"; outside.mkdir(); (outside / "SECRET.md").write_text("s")
     (root / "LINK.md").symlink_to(outside / "SECRET.md")
-    docs = {r["name"]: r["documents"] for r in docs_client.get("/api/living-docs/list").json()["roots"]}["one"]
+    docs = {r["name"]: [d["name"] for d in r["documents"]]
+            for r in docs_client.get("/api/living-docs/list").json()["roots"]}["one"]
     assert docs == ["GUIDE.md"]
 
 
@@ -92,6 +97,7 @@ def test_an_old_four_root_config_still_serves_checks(settings, tmp_path):
     from station_web.app import create_app
     from fastapi.testclient import TestClient
     settings.raw["docs"] = {"roots": [dict(r) for r in OLD_FOUR_ROOTS]}
+    settings.raw["status"] = {"snapshot_dir": str(tmp_path / "no-snapshot")}
     roots = {r["name"]: r["path"] for r in settings.docs_roots}
     assert list(roots)[:4] == [r["name"] for r in OLD_FOUR_ROOTS]
     assert roots["checks"] == "/opt/git/sigmond/sigmond/docs/operator/checks"

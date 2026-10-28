@@ -25,6 +25,7 @@ def docs_client(settings, tmp_path):
     (outside / "SECRET.md").write_text("s")
     (r1 / "linked").symlink_to(outside, target_is_directory=True)
     settings.raw["docs"] = {"roots": [{"name": "one", "path": str(r1)}]}
+    settings.raw["status"] = {"snapshot_dir": str(tmp_path / "no-snapshot")}
     cfgmod.config.use(settings)
     with TestClient(create_app(settings, control_socket=None)) as c:
         yield c
@@ -32,7 +33,7 @@ def docs_client(settings, tmp_path):
 
 def test_list_includes_subdirectory_docs(docs_client):
     roots = docs_client.get("/api/living-docs/list").json()["roots"]
-    docs = roots[0]["documents"]
+    docs = [d["name"] for d in roots[0]["documents"]]
     assert "GUIDE.md" in docs
     assert "design/MEASUREMENT_MODEL.md" in docs
     # hidden directories and symlinked-out directories stay out
