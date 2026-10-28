@@ -361,6 +361,26 @@ The existing browser stays, with two changes:
 This begins the two-shaped organisation.  The role guides themselves,
 written as Markdown in sigmond's audience folders, follow as content work.
 
+**Built 2026-10-28 (Plan 4).**  sigmond's `smd admin docs index --json`
+writes the `docs` snapshot.  It names each installed component's `docs/`
+folder, and for every page its header fields, whether INDEX.md links it,
+and the date of its last commit.  station-web takes its folders from that
+snapshot and falls back to the fixed list when the snapshot goes missing or
+stale.  The page shows by default only the pages each INDEX.md links, offers
+"Show everything" and grouping by audience, and marks a page untouched for
+90 days.  `station-web/docs/DEPLOY-STATUS-PAGES.md` describes it for an
+operator.  Plan 4 made three rulings:
+
+- A page counts as indexed only when its repo's `docs/INDEX.md` links it by
+  an explicit `.md` link.  A link to a directory indexes nothing.  Decided
+  2026-10-28 (Plan 4).
+- The `sigmond` root covers the whole of `sigmond/docs/`, not only
+  `docs/scientist`, so every audience folder shows.  Decided 2026-10-28
+  (Plan 4).
+- The `checks` root stays, so the Check page's links keep working, but the
+  list leaves it out; its pages appear under `sigmond`.  Decided 2026-10-28
+  (Plan 4).
+
 ## Constraints
 
 - station-web stays read-only, keeps its systemd hardening, and runs no

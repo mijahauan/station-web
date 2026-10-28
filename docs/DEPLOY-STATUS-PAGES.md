@@ -173,6 +173,58 @@ through the "station" relay, so they need nothing more.  A station that runs
 sigmond-rac forwards ssh and at most one admin-assigned web port; it needs a
 gw2 port for 8000 before the front door reaches it remotely.
 
+## The documentation browser
+
+The browser at `/static/docs.html` takes its folders from the `docs`
+snapshot, which `smd admin docs index --json` writes.  sigmond names one folder for each
+installed component that keeps a `docs/` directory, under the component's
+name, and one, `sigmond`, for the whole of `sigmond/docs/`.  It also names
+`checks`, sigmond's check pages.  station-web serves `checks` for the
+Check page's links but leaves it out of the list, since its pages already
+appear under `sigmond`.  station-web accepts a folder only if it lies under
+`/opt/git/sigmond/`; it drops any other and logs a line.
+
+For each page the snapshot carries its title, its `Audience:` and
+`Status:` headers, whether the repo's `docs/INDEX.md` links it, and the
+date of its last commit.  A page counts as indexed when INDEX.md links it
+by an explicit `.md` link.  A link to a directory indexes nothing.
+
+By default each folder shows only its indexed pages, INDEX.md first.  A
+folder with no INDEX.md shows every page and says so.  "Show everything"
+adds the unindexed pages, then the `archive/` and `superpowers/` pages
+under their own headings.  The list can group pages by component or by
+audience.  A page whose last commit lies more than 90 days back carries
+"not edited since <date>".  When git cannot date a page, the page reads
+"age unknown" in place of a date.
+
+When the snapshot has gone missing, failed, or grown older than 15
+minutes, the browser falls back to its fixed folders.  It then shows a
+banner, "Page facts unavailable", with the reason, and lists those
+folders without ages or index.
+
+To bring a station to this browser, pull sigmond and restart station-web:
+
+```
+sudo systemctl restart station-web@default
+```
+
+The snapshot service already runs every command in sigmond's snapshot
+table, so the pull alone adds `docs.json` at the next five-minute mark.
+It needs no new unit and no installer run.
+
+Most checkouts on a station come from shallow clones, which hold only the
+newest commit.  git cannot date a page from such a clone.  The first daily
+component fetch after the pull gives each shallow checkout its full
+history, once.  It fetches the commits without old file contents, about
+2 MB and a second per repository, and leaves the working tree alone.
+Until that fetch runs, pages in shallow checkouts read "age unknown".  To
+run it at once:
+
+```
+sudo systemctl start sigmond-component-fetch.service
+sudo systemctl start sigmond-snapshot.service
+```
+
 ## How to check the result
 
 List the snapshot directory:
@@ -181,8 +233,9 @@ List the snapshot directory:
 ls -l /run/sigmond/snapshot/
 ```
 
-You should see eight files (`catalog`, `check`, `components`, `heartbeat`,
-`instances`, `manifest`, `validate`, `viewers`, each with `.json`), owned by
+You should see nine files (`catalog`, `check`, `components`, `docs`,
+`heartbeat`, `instances`, `manifest`, `validate`, `viewers`, each with
+`.json`), owned by
 `root:sigmond-status`, mode `0640`, and none older than five minutes.
 
 Then open `http://<station>:<port>/` and `http://<station>:<port>/check` in a
