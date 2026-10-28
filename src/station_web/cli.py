@@ -63,10 +63,17 @@ def build_parser() -> argparse.ArgumentParser:
     # -c/--config and --log-level are accepted before OR after the verb (the
     # contract test harness always puts them after), so they live on a shared
     # parent parser inherited by both the top-level parser and every subparser.
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("-c", "--config", help="config path (default $STATION_WEB_CONFIG or /etc/station-web/config.toml)")
-    common.add_argument("--log-level", default=None)
-    p = argparse.ArgumentParser(prog="station-web", parents=[common])
+    # The top level defaults both to None; each verb's copy defaults to
+    # SUPPRESS, or a verb would overwrite a value given before it.  Parent
+    # parsers share action objects, hence two parents rather than one.
+    def shared(default):
+        parent = argparse.ArgumentParser(add_help=False)
+        parent.add_argument("-c", "--config", default=default,
+                            help="config path (default $STATION_WEB_CONFIG or /etc/station-web/config.toml)")
+        parent.add_argument("--log-level", default=default)
+        return parent
+    common = shared(argparse.SUPPRESS)
+    p = argparse.ArgumentParser(prog="station-web", parents=[shared(None)])
     sub = p.add_subparsers(dest="command", required=True)
     for name in ("version", "inventory", "validate"):
         sp = sub.add_parser(name, parents=[common])
