@@ -340,7 +340,9 @@ def reset_rewrite_warnings() -> None:
 # ---------------------------------------------------------------------------
 
 #: The largest single message either side may send through the relay.
-WS_MAX_MESSAGE = 16 << 20
+WS_MAX_MESSAGE = 1 << 20
+#: Queued messages per relay; bounds memory at about 4 MiB each way.
+WS_MAX_QUEUE = 4
 WS_OPEN_TIMEOUT = 3
 
 
@@ -373,7 +375,7 @@ async def open_ws_upstream(target: Target, path: str, query: str,
             ws_upstream_url(target, path, query), origin=None,
             subprotocols=subprotocols or None, proxy=None,
             open_timeout=WS_OPEN_TIMEOUT, ping_interval=None,
-            max_size=WS_MAX_MESSAGE)
+            max_size=WS_MAX_MESSAGE, max_queue=WS_MAX_QUEUE)
     except (OSError, TimeoutError, WebSocketException) as exc:
         logger.warning("viewer %s on port %d: websocket: %s: %s", target.name,
                        target.port, type(exc).__name__, exc)

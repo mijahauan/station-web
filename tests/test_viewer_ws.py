@@ -93,7 +93,7 @@ def test_ws_upstream_url_is_loopback_at_the_snapshot_port():
     t = Target(name="up", port=8081, kind="ka9q-web")
     assert viewer_proxy.ws_upstream_url(t, "ws", "a=1") == "ws://127.0.0.1:8081/ws?a=1"
     assert viewer_proxy.ws_upstream_url(t, "", "") == "ws://127.0.0.1:8081/"
-    assert viewer_proxy.WS_MAX_MESSAGE == 16 << 20
+    assert viewer_proxy.WS_MAX_MESSAGE == 1 << 20
 
 
 # ------------------------------------------------------------------ relay
@@ -255,3 +255,18 @@ def test_ws_relay_delivers_viewer_code_when_browser_was_mid_send():
     browser = _FakeBrowser()
     anyio.run(viewer_proxy.ws_relay, browser, _UpstreamClosedMidSend())
     assert browser.closed_with == [4001]
+
+
+def test_ws_upstream_connect_bounds_buffers(monkeypatch):
+    calls = []
+
+    async def fake(url, **kw):
+        calls.append(kw)
+        return object()
+
+    monkeypatch.setattr(viewer_proxy, "ws_connect", fake)
+    t = Target(name="up", port=8081, kind="ka9q-web")
+    asyncio.run(viewer_proxy.open_ws_upstream(t, "ws", "", []))
+    assert calls[0]["max_size"] == 1 << 20
+    assert calls[0]["max_queue"] == 4
+    assert calls[0]["origin"] is None and calls[0]["proxy"] is None

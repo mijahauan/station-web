@@ -183,7 +183,7 @@ one admin-assigned web port.  Giving it station-web's port needs a gw2 port
 from Rob; Plan 2 asks him and does not build it.
 
 station-web serves as the single front door.  It reverse-proxies each viewer
-by path, for example `/viewer/ka9q-web/1/` and `/viewer/gmag/`, so every link
+by path, for example `/viewer/ka9q-web/` and `/viewer/gmag-webui/` (corrected 2026-10-28: paths use the viewer names from the snapshot), so every link
 works the same on the LAN and through remote access.  The fleetboard's deep
 links (`/check#<id>`) then reach any station.  Project B's radiod control
 will sit behind the same door, which gives it one place for authentication.

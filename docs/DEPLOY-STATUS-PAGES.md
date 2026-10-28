@@ -116,7 +116,9 @@ after Step 1, not before.
 ## Viewers through the front door
 
 station-web serves each viewer on the station at `/viewer/<name>/`, for
-example `/viewer/ka9q-web/` and `/viewer/gmag/`.  The Station page links each
+example `/viewer/ka9q-web/` and `/viewer/gmag-webui/`.  The path uses the viewer's
+name from the snapshot.  A second radiod appears as `ka9q-web-2`, and so on.
+The Station page links each
 viewer this way.  Because the viewer rides on station-web's own port, the link
 works on the LAN and through remote access alike.
 
@@ -124,9 +126,10 @@ What the proxy does:
 
 - It reads the viewer list and each viewer's port from the `viewers`
   snapshot.  It never probes ports, and it always connects to `127.0.0.1`.
-- It carries HTTP and WebSockets.  A POST, PUT, PATCH or DELETE, and every
-  WebSocket, must come from the same origin as station-web; the proxy
-  refuses anything else.
+- It carries HTTP and WebSockets.  The route accepts GET, HEAD and POST.
+  Any other method gets 405.  A POST and every WebSocket must come from the
+  same origin as station-web; the proxy refuses anything else.  Each
+  WebSocket message may hold at most 1 MiB.
 - It adds no control of its own.  It passes the viewer's traffic through.
 - It answers 404 for an unknown viewer, 503 when the snapshot is
   unavailable, and 409 when two viewers claim one port.
