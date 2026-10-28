@@ -3,7 +3,9 @@
 The name resolves to a localhost port through the ``viewers`` snapshot
 (services/viewer_proxy.resolve); nothing the browser sends picks a host or
 a port.  The proxy streams the viewer's own bytes back untouched, its
-content-encoding included, and adds no control of its own.
+content-encoding included, and adds no control of its own.  The one
+exception: one pinned line per viewer kind (viewer_proxy.REWRITES), so the
+viewer's WebSocket keeps the /viewer/<name>/ prefix.
 
 These routes run as coroutines, unlike every other router here: they wait
 on a socket, not on the disk, and a thread per open viewer stream would
@@ -109,8 +111,13 @@ async def viewer_http(name: str, path: str, request: Request):
         headers = viewer_proxy.request_headers(
             request.headers, target, request.client.host if request.client else "",
             request.url.scheme)
+        rest = _rest_of_path(request, path)
+        rewrite = (viewer_proxy.rewrite_for(target.kind, rest.decode("latin-1"))
+                   if request.method == "GET" else None)
+        if rewrite is not None:
+            headers["accept-encoding"] = "identity"
         upstream = await viewer_proxy.open_upstream(
-            client, request.method, target, _rest_of_path(request, path),
+            client, request.method, target, rest,
             request.scope.get("query_string", b""), headers, body)
     except Refusal as r:
         return _refuse(r)
@@ -127,8 +134,41 @@ async def viewer_http(name: str, path: str, request: Request):
             await upstream.aclose()
         return PlainTextResponse(f"viewer not answering on port {target.port}",
                                  status_code=502)
+    if rewrite is not None and upstream.status_code == 200:
+        return await _rewritten(upstream, target, rewrite, headers)
     resp = _UpstreamStream(upstream, status_code=upstream.status_code)
     resp.raw_headers = headers
+    return resp
+
+
+async def _rewritten(upstream, target, rewrite, headers) -> Response:
+    """The asset read whole (at most MAX_REWRITE_BODY, decoded), its one
+    known line rewritten, and sent with a fresh length and no encoding.  A
+    miss sends the body as it came and warns once; it never fails."""
+    chunks, size = [], 0
+    try:
+        async for chunk in upstream.aiter_bytes():
+            size += len(chunk)
+            if size > viewer_proxy.MAX_REWRITE_BODY:
+                logger.warning("viewer %s: %s exceeds %d bytes; not rewritten",
+                               target.name, rewrite.path, viewer_proxy.MAX_REWRITE_BODY)
+                return PlainTextResponse("viewer asset too large", status_code=502)
+            chunks.append(chunk)
+    except Exception as exc:
+        logger.warning("viewer %s: reading %s: %s: %s", target.name, rewrite.path,
+                       type(exc).__name__, exc)
+        return PlainTextResponse(f"viewer not answering on port {target.port}",
+                                 status_code=502)
+    finally:
+        with anyio.CancelScope(shield=True):
+            await upstream.aclose()
+    body, how = viewer_proxy.apply_rewrite(target.kind, rewrite.path, b"".join(chunks))
+    if how == "missed":
+        viewer_proxy.warn_rewrite_miss(target.name, rewrite.path)
+    resp = Response(body, status_code=200)
+    resp.raw_headers = [(k, v) for k, v in headers
+                        if k not in (b"content-encoding", b"content-length")]
+    resp.raw_headers.append((b"content-length", str(len(body)).encode()))
     return resp
 
 

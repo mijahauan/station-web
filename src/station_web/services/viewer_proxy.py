@@ -267,6 +267,74 @@ async def open_upstream(client: httpx.AsyncClient, method: str, target: Target,
 
 
 # ---------------------------------------------------------------------------
+# One pinned rewrite per viewer kind.  ka9q-web's radio.js and gmag-webui's
+# js/feed.js build their WebSocket URL from the host alone, so behind
+# /viewer/<name>/ both would reach station-web's root.  Neither repo is
+# ours, so the proxy swaps exactly one known line, matched against the
+# files at their v3.82 pins (tests/fixtures/viewers/).  Each new line gives
+# the old URL when the page sits at "/", so it holds on the direct port too.
+# When upstream adopts a fix of its own, the rewrite misses harmlessly and
+# its WARNING tells the maintainer to drop the row.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Rewrite:
+    kind: str
+    path: str
+    old: str
+    new: str
+
+
+REWRITES: tuple[Rewrite, ...] = (
+    Rewrite("ka9q-web", "radio.js",
+            "ws = new WebSocket((window.location.protocol == 'https:' ? 'wss://' : 'ws://') + window.location.host);",
+            "ws = new WebSocket((window.location.protocol == 'https:' ? 'wss://' : 'ws://') + window.location.host + window.location.pathname.replace(/[^/]*$/, ''));"),
+    Rewrite("gmag", "js/feed.js",
+            'return scheme + loc.host + "/ws";',
+            'return scheme + loc.host + (loc.pathname || "/").replace(/[^/]*$/, "") + "ws";'),
+)
+
+#: The most a rewritten asset may hold, decoded.
+MAX_REWRITE_BODY = 8 << 20
+
+#: (viewer name, path) pairs already warned about, for the process lifetime.
+_warned_misses: set[tuple[str, str]] = set()
+
+
+def rewrite_for(kind: str, path: str) -> Rewrite | None:
+    """The rewrite for this viewer kind and request path (after the prefix,
+    without the query), or None."""
+    return next((r for r in REWRITES if r.kind == kind and r.path == path), None)
+
+
+def apply_rewrite(kind: str, path: str, body: bytes) -> tuple[bytes, str]:
+    """``(body, "rewritten" | "missed" | "none")``.  A miss (the old line
+    absent, or present more than once) returns the body unchanged."""
+    rw = rewrite_for(kind, path)
+    if rw is None:
+        return body, "none"
+    old = rw.old.encode()
+    if body.count(old) != 1:
+        return body, "missed"
+    return body.replace(old, rw.new.encode()), "rewritten"
+
+
+def warn_rewrite_miss(name: str, path: str) -> None:
+    """One WARNING per (viewer name, path) for the process lifetime."""
+    if (name, path) in _warned_misses:
+        return
+    _warned_misses.add((name, path))
+    logger.warning("viewer %s: %s lacks the line the front door rewrites; its live data"
+                   " will not work through /viewer/%s/ — use the direct port",
+                   name, path, name)
+
+
+def reset_rewrite_warnings() -> None:
+    """Forget which misses were warned about (tests)."""
+    _warned_misses.clear()
+
+
+# ---------------------------------------------------------------------------
 # The WebSocket relay.  Like the HTTP proxy it reaches only UPSTREAM_HOST at
 # the snapshot's port; the router checks the origin before it gets here.
 # ---------------------------------------------------------------------------
