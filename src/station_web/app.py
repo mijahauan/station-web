@@ -104,6 +104,10 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
     async def check_page():
         return page("check.html")
 
+    @app.get("/commands", response_class=HTMLResponse)
+    async def commands_page():
+        return page("commands.html")
+
     @app.get("/phase")
     async def phase_page():
         # phase.html folded into the Ionosphere page (stage 2 §6)
@@ -124,7 +128,7 @@ def create_app(settings: Settings, control_socket: Path | None = Path("/run/stat
 
 #: Routers every station serves.  They need nothing scientific, so an import
 #: failure among them is a defect and stays fatal.
-CORE_ROUTERS = ("docs", "grape", "timing", "status", "features", "viewer")
+CORE_ROUTERS = ("docs", "grape", "timing", "status", "features", "viewer", "commands")
 #: Routers that need hamsci-dsp, hamsci-physics and numpy/scipy (the
 #: ``science`` extra).  A station without them skips these routers.
 SCIENCE_ROUTERS = ("station", "stations", "health", "metrology", "stability", "propagation",
@@ -162,8 +166,8 @@ def _register_routers(app: FastAPI) -> list[str]:
     app.state.skipped_routers = skipped
     for name in CORE_ROUTERS:
         mod = importlib.import_module(f"station_web.routers.{name}")
-        if name in ("docs", "viewer"):
-            app.include_router(mod.router)       # own prefix: /api/living-docs, /viewer
+        if name in ("docs", "viewer", "commands"):
+            app.include_router(mod.router)       # own prefix: /api/living-docs, /viewer, /commands
         else:
             app.include_router(mod.router, prefix="/api")
     return skipped

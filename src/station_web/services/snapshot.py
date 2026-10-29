@@ -35,6 +35,7 @@ COMMANDS: Dict[str, str] = {
     "manifest": "smd admin manifest status --json",
     "heartbeat": "smd admin heartbeat show --json",
     "docs": "smd admin docs index --json",
+    "cli-reference": "smd admin cli-reference show --json",
 }
 NAMES = tuple(COMMANDS)
 

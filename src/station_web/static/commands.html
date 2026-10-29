@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Commands - station-web</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/common.js"></script>
+    <script src="/static/vendor/marked.min.js"></script>
+    <script src="/static/js/commands.js" defer></script>
+    <style>
+        .cmd { margin: 16px 0; padding-top: 8px; border-top: 1px solid #334155; }
+        .cmd-path { font-family: 'Fira Code', 'Courier New', monospace; font-size: 15px; margin: 4px 0; }
+        .cmd-args { width: 100%; margin: 8px 0; }
+        .cmd-args th, .cmd-args td { text-align: left; padding: 4px 8px; vertical-align: top; }
+        .cmd-arg-name { font-family: 'Fira Code', 'Courier New', monospace; white-space: nowrap; }
+        .cmd-example { margin: 8px 0; padding: 4px 12px; background: rgba(30, 41, 59, 0.6); border-radius: 8px; }
+        .cmd-example pre { overflow-x: auto; }
+        .cmd-hits { list-style: none; padding: 0; margin: 8px 0; }
+        .cmd-hit { padding: 3px 0; }
+        .cmd-kind { font-size: 12px; color: var(--text-secondary); margin-right: 6px; }
+        .cmd-stale { margin-left: 8px; }
+        .cmd-unavailable { margin: 8px 0; }
+        #cmd-search { width: 100%; max-width: 640px; padding: 8px 10px; font-size: 15px; }
+        .cmd-hit a, .cmd-example a { color: #56B4E9; }
+    </style>
+</head>
+
+<body data-page="commands">
+    <div class="container">
+        <div class="header">
+            <h1>Commands</h1>
+            <div class="header-subtitle">What this station's programs accept, with worked examples</div>
+            <nav class="nav" data-site-nav aria-label="Site"></nav>
+        </div>
+
+        <div id="error-container" class="error-banner" style="display: none;"></div>
+
+        <div class="card">
+            <label for="cmd-search" class="sp-note">Search commands and documentation headings</label><br>
+            <input type="search" id="cmd-search" autocomplete="off" placeholder="e.g. docs index">
+            <div id="cmd-results" role="status"></div>
+            <div id="cmd-fresh">Loading...</div>
+        </div>
+
+        <div id="cmd-programs"></div>
+    </div>
+</body>
+
+</html>

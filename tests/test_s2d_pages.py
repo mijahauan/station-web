@@ -145,7 +145,7 @@ def test_every_static_page_is_served(client, page):
 def test_no_orphan_pages():
     """Each page has a nav entry, redirects, or is linked from a page that has one."""
     nav_src = COMMON.read_text()
-    nav_hrefs = set(re.findall(r"href: '/static/([\w.]+)'", nav_src)) | {"index.html", "home.html", "check.html"}
+    nav_hrefs = set(re.findall(r"href: '/static/([\w.]+)'", nav_src)) | {"index.html", "home.html", "check.html", "commands.html"}
     footer = set(re.findall(r"href: '/static/([\w.]+)'", nav_src.split("SITE_FOOTER_LINKS")[1]))
     linked = set()
     for p in nav_hrefs:

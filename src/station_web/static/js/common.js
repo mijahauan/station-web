@@ -541,6 +541,7 @@ const SCIENCE_NAV_ITEMS = [
 /** Links the footer carries on every page (Docs left the nav, stage 2 §6). */
 const SITE_FOOTER_LINKS = [
     { href: '/static/docs.html', label: 'Docs' },
+    { href: '/commands', label: 'Commands' },
 ];
 
 /** The nav links as HTML, the entry for ``pathname`` marked current. */
