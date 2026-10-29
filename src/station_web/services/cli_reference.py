@@ -81,6 +81,7 @@ def _program(p: Any) -> Optional[Dict[str, Any]]:
     return {"program": p["program"], "component": _s(p.get("component")),
             "version": _s(p.get("version")), "stale": p.get("stale") is True,
             "error": _s(p.get("error")),
+            "aliases": _str_list(p.get("aliases")) or [],
             "commands": [x for x in (_command(c) for c in cmds)
                          if x is not None] if isinstance(cmds, list) else []}
 
@@ -176,6 +177,10 @@ def _build(env: Dict[str, Any], roots: List[Dict[str, Any]]) -> Dict[str, Any]:
     raw = data.get("programs") if isinstance(data, dict) else None
     progs = _order([x for x in (_program(p) for p in raw) if x is not None]) \
         if isinstance(raw, list) else []
+    # A program recorded under another's alias is that program (an older
+    # snapshot may still hold both): list it once, under the kept name.
+    aliased = {(p["component"], a) for p in progs for a in p["aliases"]}
+    progs = [p for p in progs if (p["component"], p["program"]) not in aliased]
     by_root = {r["name"]: Path(r["path"]) for r in roots}
     missing: List[str] = []
     unmatched: List[Dict[str, str]] = []
@@ -198,8 +203,9 @@ def _build(env: Dict[str, Any], roots: List[Dict[str, Any]]) -> Dict[str, Any]:
     index: List[Dict[str, str]] = []
     for prog in progs:
         for c in prog["commands"]:
+            flags = " ".join(f for a in c["arguments"] for f in a["flags"])
             index.append({"kind": "command", "text": c["path"],
-                          "context": c["help"] or c["description"],
+                          "context": c["help"] or c["description"], "flags": flags,
                           "href": "/commands#" + c["path"].replace(" ", "-")})
     index += _heading_hits(roots)
     return {"programs": progs, "missing_examples": missing,

@@ -35,13 +35,14 @@ const CommandsPage = (() => {
         return String(path).replace(/\s+/g, '-');
     }
 
-    /** Index entries whose text or context holds ``query`` (case-insensitive). */
+    /** Index entries whose text, context or flags hold ``query`` (case-insensitive). */
     function filter(index, query) {
         const q = String(query || '').trim().toLowerCase();
         if (!q) return [];
         return (index || []).filter(e =>
             String(e.text || '').toLowerCase().includes(q) ||
-            String(e.context || '').toLowerCase().includes(q));
+            String(e.context || '').toLowerCase().includes(q) ||
+            String(e.flags || '').toLowerCase().includes(q));
     }
 
     function renderHits(box, index, query) {
@@ -66,12 +67,15 @@ const CommandsPage = (() => {
         box.replaceChildren(...kids);
     }
 
-    function renderFreshness(box, f) {
+    function renderFreshness(box, f, programCount) {
         let msg;
         if (!f || !f.available) {
             msg = `No command reference yet: ${(f && f.error) || 'snapshot unavailable'}.`;
         } else if (f.error) {
             msg = `The command reference holds nothing usable: ${f.error}.`;
+        } else if (programCount === 0) {
+            msg = 'No program is recorded yet. Run `smd admin cli-reference build` ' +
+                  'on the station to record them.';
         } else {
             msg = `Reference built ${ageText(f.age_s)} ago` +
                   (f.stale ? ' (stale: the snapshot timer has not refreshed it)' : '') + '.';
@@ -126,6 +130,9 @@ const CommandsPage = (() => {
         if (p.component) title.push(el('span', { cls: 'sp-note', text: ` (${p.component})` }));
         if (p.stale) title.push(el('span', { cls: 'badge st-warn cmd-stale', text: 'stale' }));
         const kids = [el('div', { cls: 'card-header' }, [el('div', {}, title)])];
+        if (p.aliases && p.aliases.length) {
+            kids.push(el('div', { cls: 'sp-note cmd-aliases', text: `also: ${p.aliases.join(', ')}` }));
+        }
         if (p.error) {
             kids.push(el('div', { cls: 'sp-note cmd-unavailable',
                                   text: `Reference unavailable: ${p.error}` }));
@@ -170,7 +177,8 @@ const CommandsPage = (() => {
             const [ref, idx] = await Promise.all([
                 getJSON('/commands/reference'), getJSON('/commands/search-index')]);
             index = idx;
-            renderFreshness(document.getElementById('cmd-fresh'), ref.freshness);
+            renderFreshness(document.getElementById('cmd-fresh'), ref.freshness,
+                            (ref.programs || []).length);
             renderReference(document.getElementById('cmd-programs'), ref, {
                 markdown: (typeof marked !== 'undefined') ? (md => marked.parse(md)) : null });
             const want = decodeURIComponent((window.location.hash || '').slice(1));

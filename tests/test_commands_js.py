@@ -126,3 +126,33 @@ def test_freshness_says_why_when_unavailable():
     out = _run("CommandsPage.renderFreshness(box, {available: false, error: 'snapshot not written yet'});",
                "text(box)")
     assert "snapshot not written yet" in out
+
+
+def test_filter_matches_a_commands_flags():
+    idx = [{"kind": "command", "text": "smd check", "context": "run", "flags": "--json --quiet",
+            "href": "/a"},
+           {"kind": "command", "text": "smd list", "context": "list", "flags": "", "href": "/b"}]
+    out = _run(f"var i = {json.dumps(idx)};",
+               "[CommandsPage.filter(i, '--quiet').map(e => e.href), CommandsPage.filter(i, '--nope').length]")
+    assert out == [["/a"], 0]
+
+
+def test_empty_reference_says_no_program_is_recorded_and_names_the_build():
+    out = _run("CommandsPage.renderFreshness(box, {available: true, stale: false, age_s: 30, error: null}, 0);",
+               "text(box)")
+    assert "No program is recorded yet" in out
+    assert "smd admin cli-reference build" in out
+    assert "Reference built" not in out
+
+
+def test_nonempty_reference_still_says_how_old_it_is():
+    out = _run("CommandsPage.renderFreshness(box, {available: true, stale: false, age_s: 30, error: null}, 3);",
+               "text(box)")
+    assert "Reference built 30 s ago" in out
+
+
+def test_aliases_show_under_the_program_title():
+    ref = _ref([_prog("hf-timestd", [_cmd("hf-timestd status")], aliases=["timestd", "ts"]),
+                _prog("alpha", [_cmd("alpha go")], aliases=[])])
+    out = _render(ref, "byClass(box, 'cmd-aliases').map(text)")
+    assert out == ["also: timestd, ts"]

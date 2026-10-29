@@ -230,3 +230,33 @@ def test_cache_reused_when_nothing_changed(env, monkeypatch):
     monkeypatch.setattr(cli_reference, "_build", lambda *a, **k: calls.append(1))
     _view(env)
     assert calls == []
+
+
+def test_search_index_command_entry_carries_its_flags(env):
+    from station_web.services import cli_reference
+    write_snapshot(env.snap, [SMD])
+    idx = cli_reference.search_index(env.settings)
+    cmd = [e for e in idx if e["kind"] == "command" and e["text"] == "smd check"][0]
+    assert "--json" in cmd["flags"]
+    plain = [e for e in idx if e["kind"] == "command" and e["text"] == "smd admin docs index"][0]
+    assert plain["flags"] == ""
+
+
+def test_aliases_are_read_and_default_to_empty(env):
+    write_snapshot(env.snap, [_prog("hf-timestd", [_cmd("hf-timestd status")],
+                                    component="hf-timestd", aliases=["timestd"]),
+                              ALPHA])
+    progs = {p["program"]: p for p in _view(env)["programs"]}
+    assert progs["hf-timestd"]["aliases"] == ["timestd"]
+    assert progs["alpha"]["aliases"] == []
+
+
+def test_an_alias_is_not_listed_as_a_program_or_as_missing_examples(env):
+    # an old snapshot may still hold the alias's own record
+    write_snapshot(env.snap, [
+        _prog("hf-timestd", [_cmd("hf-timestd status")], component="hf-timestd",
+              aliases=["timestd"]),
+        _prog("timestd", [_cmd("timestd status")], component="hf-timestd")])
+    v = _view(env)
+    assert [p["program"] for p in v["programs"]] == ["hf-timestd"]
+    assert v["missing_examples"] == ["hf-timestd status"]
