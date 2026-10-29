@@ -538,16 +538,23 @@ const SCIENCE_NAV_ITEMS = [
     { href: '/static/grape.html', label: 'GRAPE', also: ['/grape'] },
 ];
 
-/** Links the footer carries on every page (Docs left the nav, stage 2 §6). */
+/** Entries that close the bar on every station, after the science pages
+ *  when this station serves them (Michael, 2026-10-29: Documentation belongs
+ *  in the bar, not as a small footer link). */
+const TRAILING_NAV_ITEMS = [
+    { href: '/static/docs.html', label: 'Documentation' },
+];
+
+/** Links the footer carries on every page. */
 const SITE_FOOTER_LINKS = [
-    { href: '/static/docs.html', label: 'Docs' },
     { href: '/commands', label: 'Commands' },
 ];
 
 /** The nav links as HTML, the entry for ``pathname`` marked current. */
 function siteNavHTML(pathname, withScience = true) {
     const path = pathname || '/';
-    const items = withScience ? NAV_ITEMS.concat(SCIENCE_NAV_ITEMS) : NAV_ITEMS;
+    const items = (withScience ? NAV_ITEMS.concat(SCIENCE_NAV_ITEMS) : NAV_ITEMS)
+        .concat(TRAILING_NAV_ITEMS);
     return items.map(item => {
         const current = item.href === path || (item.also || []).includes(path);
         return `<a href="${escapeHtml(item.href)}" class="nav-link${current ? ' active' : ''}"` +
@@ -846,6 +853,7 @@ window.statusKind = statusKind;
 window.statusBadge = statusBadge;
 window.NAV_ITEMS = NAV_ITEMS;
 window.SCIENCE_NAV_ITEMS = SCIENCE_NAV_ITEMS;
+window.TRAILING_NAV_ITEMS = TRAILING_NAV_ITEMS;
 window.siteNavHTML = siteNavHTML;
 window.renderSiteNav = renderSiteNav;
 window.SITE_FOOTER_LINKS = SITE_FOOTER_LINKS;

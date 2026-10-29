@@ -1,7 +1,8 @@
 """Six pages instead of thirteen (stage 2 design §6), and the products §7 adds.
 
 - NAV_ITEMS lists exactly Status, Timing, Propagation, Ionosphere, Test
-  signal and GRAPE; Docs moves to a footer common.js renders on every page.
+  signal and GRAPE; Documentation closes the top bar on every station
+  (Michael, 2026-10-29: in the bar, not a small footer link).
 - Every old URL keeps working: it redirects to the section it became, and
   its nav entry lights up.  No page is left without a nav entry, a
   redirect, or a link from a page that has one.
@@ -46,7 +47,8 @@ def _run(expr_js: str, *extra: str):
     return json.loads(r.stdout.strip().splitlines()[-1])
 
 
-SIX = ["Station", "Check", "Status", "Timing", "Propagation", "Ionosphere", "Test signal", "GRAPE"]
+SIX = ["Station", "Check", "Status", "Timing", "Propagation", "Ionosphere", "Test signal", "GRAPE",
+       "Documentation"]
 
 # old URL -> (where it lands, the nav label it lights up)
 RETIRED = {
@@ -62,17 +64,20 @@ RETIRED = {
 
 @needs_node
 def test_nav_holds_the_core_and_science_pages():
-    items = _run("NAV_ITEMS.concat(SCIENCE_NAV_ITEMS).map(i => [i.label, i.href])")
+    items = _run("NAV_ITEMS.concat(SCIENCE_NAV_ITEMS, TRAILING_NAV_ITEMS).map(i => [i.label, i.href])")
     assert [label for label, _ in items] == SIX
     for _, href in items:
         assert href in ("/", "/check") or (STATIC / href.removeprefix("/static/")).is_file(), href
 
 
 @needs_node
-def test_docs_lives_in_the_footer_not_the_nav():
-    nav, footer = _run("[siteNavHTML('/'), siteFooterHTML('/')]")
-    assert "docs.html" not in nav
-    assert 'href="/static/docs.html"' in footer and ">Docs<" in footer
+def test_documentation_closes_the_top_bar_and_leaves_the_footer():
+    core, full, footer = _run("[siteNavHTML('/', false), siteNavHTML('/'), siteFooterHTML('/')]")
+    for nav in (core, full):
+        assert 'href="/static/docs.html"' in nav and ">Documentation<" in nav
+        assert nav.rstrip().endswith(">Documentation</a>"), "Documentation is the bar's last entry"
+    assert "docs.html" not in footer
+    assert 'href="/commands"' in footer
 
 
 @needs_node
