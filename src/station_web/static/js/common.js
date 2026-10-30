@@ -539,15 +539,11 @@ const SCIENCE_NAV_ITEMS = [
 ];
 
 /** Entries that close the bar on every station, after the science pages
- *  when this station serves them (Michael, 2026-10-29: Documentation belongs
- *  in the bar, not as a small footer link). */
+ *  when this station serves them (Michael, 2026-10-29: Documentation and
+ *  Commands belong in the bar, not as small links at the bottom). */
 const TRAILING_NAV_ITEMS = [
     { href: '/static/docs.html', label: 'Documentation' },
-];
-
-/** Links the footer carries on every page. */
-const SITE_FOOTER_LINKS = [
-    { href: '/commands', label: 'Commands' },
+    { href: '/commands', label: 'Commands', also: ['/static/commands.html'] },
 ];
 
 /** The nav links as HTML, the entry for ``pathname`` marked current. */
@@ -593,26 +589,7 @@ function renderSiteNav() {
     }
 }
 
-/** The footer links as HTML; the link for ``pathname`` marked current. */
-function siteFooterHTML(pathname) {
-    const path = pathname || '/';
-    return SITE_FOOTER_LINKS.map(item => {
-        const current = item.href === path;
-        return `<a href="${escapeHtml(item.href)}" class="footer-link"` +
-               `${current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a>`;
-    }).join(' · ');
-}
 
-/** Append the site footer to the page's container, once. */
-function renderSiteFooter() {
-    if (document.querySelector('footer.site-footer')) return;
-    const host = document.querySelector('.container') || document.body;
-    if (!host) return;
-    const footer = document.createElement('footer');
-    footer.className = 'site-footer';
-    footer.innerHTML = siteFooterHTML(window.location.pathname);
-    host.appendChild(footer);
-}
 
 /**
  * Where a retired station.html URL lands: the Propagation page with its
@@ -630,7 +607,6 @@ function retiredStationTarget(search) {
 
 function renderSiteChrome() {
     renderSiteNav();
-    renderSiteFooter();
 }
 
 if (document.readyState === 'loading') {
@@ -856,9 +832,6 @@ window.SCIENCE_NAV_ITEMS = SCIENCE_NAV_ITEMS;
 window.TRAILING_NAV_ITEMS = TRAILING_NAV_ITEMS;
 window.siteNavHTML = siteNavHTML;
 window.renderSiteNav = renderSiteNav;
-window.SITE_FOOTER_LINKS = SITE_FOOTER_LINKS;
-window.siteFooterHTML = siteFooterHTML;
-window.renderSiteFooter = renderSiteFooter;
 window.retiredStationTarget = retiredStationTarget;
 window.formatDuration = formatDuration;
 window.formatMeasure = formatMeasure;

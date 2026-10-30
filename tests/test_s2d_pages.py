@@ -1,8 +1,9 @@
 """Six pages instead of thirteen (stage 2 design §6), and the products §7 adds.
 
 - NAV_ITEMS lists exactly Status, Timing, Propagation, Ionosphere, Test
-  signal and GRAPE; Documentation closes the top bar on every station
-  (Michael, 2026-10-29: in the bar, not a small footer link).
+  signal and GRAPE; Documentation and Commands close the top bar on every
+  station, and the site footer that held them is gone (Michael, 2026-10-29:
+  in the bar, not small links at the bottom).
 - Every old URL keeps working: it redirects to the section it became, and
   its nav entry lights up.  No page is left without a nav entry, a
   redirect, or a link from a page that has one.
@@ -48,7 +49,7 @@ def _run(expr_js: str, *extra: str):
 
 
 SIX = ["Station", "Check", "Status", "Timing", "Propagation", "Ionosphere", "Test signal", "GRAPE",
-       "Documentation"]
+       "Documentation", "Commands"]
 
 # old URL -> (where it lands, the nav label it lights up)
 RETIRED = {
@@ -67,25 +68,23 @@ def test_nav_holds_the_core_and_science_pages():
     items = _run("NAV_ITEMS.concat(SCIENCE_NAV_ITEMS, TRAILING_NAV_ITEMS).map(i => [i.label, i.href])")
     assert [label for label, _ in items] == SIX
     for _, href in items:
-        assert href in ("/", "/check") or (STATIC / href.removeprefix("/static/")).is_file(), href
+        assert href in ("/", "/check", "/commands") or (STATIC / href.removeprefix("/static/")).is_file(), href
 
 
 @needs_node
-def test_documentation_closes_the_top_bar_and_leaves_the_footer():
-    core, full, footer = _run("[siteNavHTML('/', false), siteNavHTML('/'), siteFooterHTML('/')]")
+def test_documentation_and_commands_close_the_top_bar():
+    core, full = _run("[siteNavHTML('/', false), siteNavHTML('/')]")
     for nav in (core, full):
         assert 'href="/static/docs.html"' in nav and ">Documentation<" in nav
-        assert nav.rstrip().endswith(">Documentation</a>"), "Documentation is the bar's last entry"
-    assert "docs.html" not in footer
-    assert 'href="/commands"' in footer
+        assert 'href="/commands"' in nav
+        assert nav.rstrip().endswith(">Commands</a>"), "Commands is the bar's last entry"
+        assert nav.index(">Documentation<") < nav.index(">Commands<")
 
 
 @needs_node
-def test_footer_renders_on_every_page_through_common_js():
-    # every page loads common.js (test_pages_static), and common.js fills the footer itself
-    src = COMMON.read_text()
-    assert "renderSiteFooter" in src and "DOMContentLoaded" in src
-    assert _run("typeof window.renderSiteFooter") == "function"
+def test_no_site_footer_remains():
+    src = (STATIC / "js" / "common.js").read_text()
+    assert "renderSiteFooter" not in src and "SITE_FOOTER_LINKS" not in src
 
 
 @needs_node
@@ -151,7 +150,6 @@ def test_no_orphan_pages():
     """Each page has a nav entry, redirects, or is linked from a page that has one."""
     nav_src = COMMON.read_text()
     nav_hrefs = set(re.findall(r"href: '/static/([\w.]+)'", nav_src)) | {"index.html", "home.html", "check.html", "commands.html"}
-    footer = set(re.findall(r"href: '/static/([\w.]+)'", nav_src.split("SITE_FOOTER_LINKS")[1]))
     linked = set()
     for p in nav_hrefs:
         if (STATIC / p).is_file():
@@ -159,7 +157,7 @@ def test_no_orphan_pages():
     for page in PAGES:
         text = (STATIC / page).read_text()
         redirect = 'http-equiv="refresh"' in text
-        assert page in nav_hrefs or redirect or page in footer or page in linked, page
+        assert page in nav_hrefs or redirect or page in linked, page
 
 
 def test_no_page_links_a_retired_url_except_its_stub():

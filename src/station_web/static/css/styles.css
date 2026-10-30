@@ -593,18 +593,6 @@ body {
 /* ── Ruler floor beside a Doppler chart (js/physics-views.js) ────────── */
 .ruler-floor { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
 
-/* Site footer (common.js renderSiteFooter): Docs and other secondary links */
-.site-footer {
-    margin-top: var(--spacing-xl, 32px);
-    padding: var(--spacing-md, 16px) 0;
-    border-top: 1px solid var(--border-color);
-    font-size: 13px;
-    color: var(--text-secondary);
-    text-align: center;
-}
-.site-footer .footer-link { color: #56B4E9; text-decoration: none; }
-.site-footer .footer-link:hover { text-decoration: underline; }
-
 /* ── Consolidated pages (propagation.html, ionosphere.html) ─────────── */
 .page-section { scroll-margin-top: 12px; }
 .page-section > h2 {
