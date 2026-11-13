@@ -142,3 +142,34 @@ def test_garbage_snapshot_is_unavailable(settings, tmp_path):
     r = snap.read_snapshot("check", settings)
     assert r["available"] is False and r["error"]
     assert r["command"] == "smd check --json"
+
+
+def _storage_env(data=None, available=True, error=None, stale=False):
+    return {"available": available, "stale": stale, "age_s": 30.0, "data": data, "error": error}
+
+
+STORAGE = {"generated_at": "2026-11-13T03:32:11Z", "worst_stage": "WATCH", "stop_lever": "off",
+           "stores": [{"name": "root", "kind": "guest", "stage": "WATCH", "used_pct": 70.0, "days": 2.0,
+                       "used": 1, "capacity": 2, "allottable": 1, "churn_bytes_per_h": 3.0}],
+           "clients": [{"client": "hf-timestd", "store": "root", "days_held": 1.5, "held": 9,
+                        "rate_bytes_per_day": 6, "stopped_by_storage": False, "allotment": 99}],
+           "alarms": [{"key": "store:root", "message": "store root at 70.0% (WATCH)",
+                       "severity": "WARNING", "since": "2026-11-12T17:52:10Z"}]}
+
+
+def test_storage_view_carries_stores_clients_and_alarms():
+    v = ss._storage(_storage_env(STORAGE))
+    assert v["available"] and v["worst_stage"] == "WATCH"
+    assert v["stores"][0]["name"] == "root" and v["stores"][0]["days"] == 2.0
+    assert v["clients"][0] == {"client": "hf-timestd", "store": "root", "days_held": 1.5, "held": 9,
+                               "rate_bytes_per_day": 6, "stopped_by_storage": False}
+    assert v["alarms"][0]["severity"] == "WARNING"
+
+
+def test_storage_unavailable_says_why():
+    v = ss._storage(_storage_env(available=False, error="snapshot not written yet"))
+    assert v == {"available": False, "stale": False, "error": "snapshot not written yet"}
+
+
+def test_station_summary_includes_storage(settings):
+    assert "storage" in ss.station_summary(settings)

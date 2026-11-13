@@ -133,6 +133,28 @@ def _snapshot_state(env: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _storage(env: Dict[str, Any]) -> Dict[str, Any]:
+    """sigmond's storage ledger, as the home page shows it: each store's fill, stage and the
+    days it holds; each client's holding; the alarms.  Nothing here measures anything: the
+    ledger's own tick (every 2 min) did that, and the snapshot carries its last status file."""
+    data = env["data"] if isinstance(env.get("data"), dict) else None
+    if not env.get("available") or data is None:
+        return {"available": False, "stale": env.get("stale", False),
+                "error": env.get("error") or "storage snapshot unavailable"}
+    stores = [{k: st.get(k) for k in ("name", "kind", "stage", "used_pct", "days",
+                                       "used", "capacity", "allottable", "churn_bytes_per_h")}
+              for st in _list(data, "stores") if isinstance(st, dict)]
+    clients = [{k: c.get(k) for k in ("client", "store", "days_held", "held",
+                                       "rate_bytes_per_day", "stopped_by_storage")}
+               for c in _list(data, "clients") if isinstance(c, dict)]
+    alarms = [{k: a.get(k) for k in ("severity", "message", "since")}
+              for a in _list(data, "alarms") if isinstance(a, dict)]
+    return {"available": True, "stale": env["stale"], "age_s": env["age_s"],
+            "generated_at": data.get("generated_at"), "worst_stage": data.get("worst_stage"),
+            "stop_lever": data.get("stop_lever"), "stores": stores, "clients": clients,
+            "alarms": alarms, "error": None}
+
+
 def station_summary(settings: Settings, now: Optional[float] = None) -> Dict[str, Any]:
     envs = {n: snap.read_snapshot(n, settings, now) for n in snap.NAMES}
     d = {n: e["data"] for n, e in envs.items()}
@@ -155,6 +177,7 @@ def station_summary(settings: Settings, now: Optional[float] = None) -> Dict[str
                            d["manifest"], d["check"]),
         "viewers": viewers,
         "heartbeat": heartbeat,
+        "storage": _storage(envs["storage"]),
         "snapshots": snapshots,
     }
 

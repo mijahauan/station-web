@@ -227,6 +227,53 @@
         fill('heartbeat', line);
     }
 
+    function gib(bytes) {
+        return (typeof bytes === 'number') ? `${(bytes / 1073741824).toFixed(1)} GiB` : '–';
+    }
+    function days(d) {
+        return (typeof d === 'number') ? `${d >= 100 ? d.toFixed(0) : d.toFixed(1)} days` : '–';
+    }
+    const STAGE_CLASS = { OK: 'sp-green', WATCH: 'sp-amber', TIGHTEN: 'sp-amber', DEMAND: 'sp-red', STOP: 'sp-red' };
+
+    /** sigmond's storage ledger: one row per store and per client, alarms above. */
+    function renderStorage(st) {
+        const s = st || { available: false };
+        const tbody = id => {
+            const t = document.getElementById(id);
+            return t && typeof t.querySelector === 'function' ? t.querySelector('tbody') : null;
+        };
+        const stores = tbody('storage-stores');
+        const clients = tbody('storage-clients');
+        if (!stores || !clients) return;      // a page without the Storage card
+        stores.replaceChildren(); clients.replaceChildren();
+        if (!s.available) {
+            fill('storage-alarms', el('div', { cls: 'sp-warn', text: `storage ledger unavailable: ${s.error || 'no snapshot'}` }));
+            fill('storage-note');
+            return;
+        }
+        const alarms = (s.alarms || []).map(a => el('div', {
+            cls: a.severity === 'ERROR' ? 'sp-red' : 'sp-amber',
+            text: `${a.severity}: ${a.message}${a.since ? ` (since ${utcText(a.since)})` : ''}` }));
+        fill('storage-alarms', ...(alarms.length ? alarms : [el('div', { cls: 'sp-muted', text: 'no storage alarms' })]));
+        (s.stores || []).forEach(x => stores.appendChild(el('tr', {}, [
+            el('td', { text: x.name || '?' }),
+            el('td', { cls: STAGE_CLASS[x.stage] || '', text: x.stage || '?' }),
+            el('td', { text: (typeof x.used_pct === 'number') ? `${x.used_pct.toFixed(1)} %` : '–' }),
+            el('td', { text: gib(x.capacity) }),
+            el('td', { text: days(x.days) }),
+            el('td', { text: (typeof x.churn_bytes_per_h === 'number') ? `${gib(x.churn_bytes_per_h)}/h` : '–' }),
+        ])));
+        (s.clients || []).filter(c => (c.held || 0) > 0 || (c.rate_bytes_per_day || 0) > 0)
+            .forEach(c => clients.appendChild(el('tr', {}, [
+                el('td', { text: c.client + (c.stopped_by_storage ? ' (stopped by storage)' : '') }),
+                el('td', { text: c.store || '?' }),
+                el('td', { text: `${days(c.days_held)} (${gib(c.held)})` }),
+                el('td', { text: gib(c.rate_bytes_per_day) }),
+            ])));
+        const when = s.generated_at ? `ledger tick at ${utcText(s.generated_at)}` : 'ledger tick time unknown';
+        fill('storage-note', document.createTextNode(`${when}; worst stage ${s.worst_stage || '?'}${s.stale ? ' (snapshot out of date)' : ''}`));
+    }
+
     /** A snapshot that ran but holds no data: the command failed.  The
      *  server's ``failed`` decides; an answer without it falls back to the
      *  error.  (An empty heartbeat spool carries an error, not a failure.) */
@@ -305,6 +352,7 @@
             renderTableWarning(d.snapshots);
             renderClients(d.rows || []);
             renderHeartbeat(d.heartbeat);
+            renderStorage(d.storage);
             renderSnapshotFooter(d.snapshots);
         } catch (e) {
             fail(`Could not load the station summary: ${e.message}`);

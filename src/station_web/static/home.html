@@ -53,6 +53,25 @@
             <div id="heartbeat" class="sp-note"></div>
         </div>
 
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Storage</div>
+                    <div class="card-subtitle">How full each store is, and how many days each client holds (sigmond's storage ledger)</div>
+                </div>
+            </div>
+            <div id="storage-alarms" class="sp-note"></div>
+            <table class="table sp-table" id="storage-stores">
+                <thead><tr><th>Store</th><th>Stage</th><th>Used</th><th>Size</th><th>Holds</th><th>Growing</th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <table class="table sp-table" id="storage-clients">
+                <thead><tr><th>Client</th><th>Store</th><th>Holds</th><th>Writes per day</th></tr></thead>
+                <tbody></tbody>
+            </table>
+            <div id="storage-note" class="sp-note sp-muted"></div>
+        </div>
+
         <div id="snapshot-footer" class="sp-note"></div>
     </div>
 </body>
