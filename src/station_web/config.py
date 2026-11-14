@@ -33,6 +33,24 @@ DEFAULT_DOCS_ROOTS = [
 ]
 
 
+def grid_centre(grid: str) -> tuple[float, float] | None:
+    """(lat, lon) at the centre of a 4- or 6-character Maidenhead square, or None."""
+    g = (grid or "").strip()
+    if len(g) not in (4, 6):
+        return None
+    g = g[:2].upper() + g[2:4] + g[4:].lower()
+    if not ("A" <= g[0] <= "R" and "A" <= g[1] <= "R" and g[2:4].isdigit()):
+        return None
+    lon = (ord(g[0]) - 65) * 20 - 180 + int(g[2]) * 2
+    lat = (ord(g[1]) - 65) * 10 - 90 + int(g[3])
+    if len(g) == 4:
+        return lat + 0.5, lon + 1.0
+    if not ("a" <= g[4] <= "x" and "a" <= g[5] <= "x"):
+        return None
+    return (lat + (ord(g[5]) - 97) / 24 + 1 / 48,
+            lon + (ord(g[4]) - 97) * 2 / 24 + 1 / 24)
+
+
 def resolve_config_path() -> Path:
     env = os.environ.get("STATION_WEB_CONFIG")
     return Path(env).resolve() if env else DEFAULT_CONFIG_PATH
@@ -52,11 +70,19 @@ class Settings:
     @property
     def station_metadata(self) -> dict:
         s = self.station
+        lat = float(s.get("latitude", 0.0) or 0.0)
+        lon = float(s.get("longitude", 0.0) or 0.0)
+        # A grid with no real position (absent, or the 0,0 the wizard writes) stands at its
+        # square's centre; otherwise every page drew the station at 0,0 (N8UR, 2026-11-14).
+        if lat == 0.0 and lon == 0.0:
+            centre = grid_centre(s.get("grid_square", ""))
+            if centre:
+                lat, lon = centre
         return {
             "callsign": s.get("callsign", ""),
             "grid_square": s.get("grid_square", ""),
-            "latitude": float(s.get("latitude", 0.0) or 0.0),
-            "longitude": float(s.get("longitude", 0.0) or 0.0),
+            "latitude": lat,
+            "longitude": lon,
             "description": s.get("description", ""),
         }
 
