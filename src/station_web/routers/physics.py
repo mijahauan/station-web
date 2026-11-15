@@ -42,13 +42,14 @@ def _window(start: str, end: str, max_span: timedelta):
 
 
 def _event_service() -> EventService:
-    """EventService at THIS station: [station] latitude/longitude from the
-    config (it used to default to Boulder), or no location if unset."""
-    st = config.station
-    lat, lon = st.get("latitude"), st.get("longitude")
-    if lat is None or lon is None:
+    """EventService at THIS station: the position from config.station_metadata
+    (a grid with no real position stands at its square's centre), or no
+    location when there is neither a position nor a grid."""
+    md = config.station_metadata
+    lat, lon = md["latitude"], md["longitude"]
+    if lat == 0.0 and lon == 0.0:
         return EventService(data_root=config.data_root)
-    return EventService(data_root=config.data_root, station_lat=float(lat), station_lon=float(lon))
+    return EventService(data_root=config.data_root, station_lat=lat, station_lon=lon)
 
 
 def parse_time_param(time_str: str) -> datetime:

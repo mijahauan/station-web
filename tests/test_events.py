@@ -112,3 +112,37 @@ def test_event_read_failure_is_a_500(client, monkeypatch):
     monkeypatch.setattr(event_service, "make_data_product_reader", boom)
     r = client.get("/api/physics/events/recent?hours=2")
     assert_opaque_500(r, "timing table unreadable")
+
+
+# N8UR, 2026-11-14: the wizard writes latitude = longitude = 0.0.  The events route
+# then computed sunrise and daytime at 0,0.  station_metadata already falls back to the
+# grid square's centre; the events router reads it now.
+def _event_service_args(tmp_path, monkeypatch, station_toml):
+    from station_web import config as cfgmod
+    from station_web.routers import physics
+
+    cfg = tmp_path / "sw.toml"
+    cfg.write_text(f"[station]\n{station_toml}\n[data]\nroot = \"{tmp_path}\"\n")
+    monkeypatch.setenv("STATION_WEB_CONFIG", str(cfg))
+    cfgmod.config.use(cfgmod.load_settings())
+    seen = {}
+
+    class Spy:
+        def __init__(self, data_root, **kw):
+            seen.update(kw)
+
+    monkeypatch.setattr(physics, "EventService", Spy)
+    physics._event_service()
+    return seen
+
+
+def test_zero_position_with_a_grid_uses_the_grid_centre(tmp_path, monkeypatch):
+    seen = _event_service_args(
+        tmp_path, monkeypatch,
+        'grid_square = "EM79vr"\nlatitude = 0.0\nlongitude = 0.0')
+    assert (round(seen["station_lat"], 4), round(seen["station_lon"], 4)) == (39.7292, -84.2083)
+
+
+def test_no_position_and_no_grid_gives_no_location(tmp_path, monkeypatch):
+    seen = _event_service_args(tmp_path, monkeypatch, 'callsign = "AC0G"')
+    assert "station_lat" not in seen and "station_lon" not in seen
